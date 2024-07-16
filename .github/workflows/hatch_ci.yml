@@ -1,0 +1,37 @@
+name: Release to PyPi with Hatch
+
+on:
+  workflow_call:
+    secrets:
+      COMMIT_KEY:
+        description: "SSH private key for the repository."
+        required: true
+      SONAR_TOKEN:
+        description: "SonarQube token for the repository."
+        required: true
+      SONAR_HOST_URL:
+        description: "SonarQube host URL for the repository."
+        required: true
+
+permissions:
+  id-token: write
+  contents: write
+
+jobs:
+  build:
+    name: Lint, Test, and Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Hatch
+        uses: SolaceDev/solace-public-workflows/.github/actions/hatch-setup@hatch_workflows
+
+      - name: Lint, Test and Build
+        uses: SolaceDev/solace-public-workflows/.github/actions/hatch-lint-test-sonar@hatch_workflows
+        with:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}

@@ -1,0 +1,61 @@
+name: hatch-install-with-caching
+description: Hatch install with support for caching of dependency groups.
+inputs:
+  min-python-version:
+    description: "Minimum Python version to support."
+    default: "3.8"
+  max-python-version:
+    description: "Maximum Python version to support."
+    default: "3.12"
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Hatch Environment
+      run: |
+        echo "HATCH_CACHE_DIR=${{ github.workspace }}/.hatch_cache" >> $GITHUB_ENV
+        echo "HATCH_DATA_DIR=${{ github.workspace }}/.hatch_data" >> $GITHUB_ENV
+      shell: bash
+
+    - name: Verify 'pyproject.toml' exists)
+      run: test -f pyproject.toml
+      shell: bash
+
+    - name: Install Hatch
+      uses: pypa/hatch@install
+
+    - name: Restore Hatch Directory
+      uses: actions/cache/restore@v4
+      id: cache-restore
+      with:
+        path: |
+          ${{ env.HATCH_CACHE_DIR }}
+          ${{ env.HATCH_DATA_DIR }}
+        key: ${{ runner.os }}-hatch-${{ hashFiles('pyproject.toml') }}
+
+    - name: Install Dependencies
+      shell: bash
+      if: steps.cache-restore.outputs.cache-hit != 'true'
+      run: |
+        hatch python install ${{ inputs.min-python-version }} ${{ inputs.max-python-version }}
+
+    - name: Install Dependencies
+      shell: bash
+      if: steps.cache-restore.outputs.cache-hit != 'true'
+      run: |
+        hatch env create
+
+    - name: Install Twine
+      shell: bash
+      run: |
+        hatch run python -m pip install twine
+
+    - name: Cache Hatch Directory
+      uses: actions/cache/save@v4
+      if: steps.cache-restore.outputs.cache-hit != 'true'
+      id: cache-hatch
+      with:
+        path: |
+          ${{ env.HATCH_CACHE_DIR }}
+          ${{ env.HATCH_DATA_DIR }}
+        key: ${{ runner.os }}-hatch-${{ hashFiles('pyproject.toml') }}
