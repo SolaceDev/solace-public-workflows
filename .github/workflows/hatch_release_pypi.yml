@@ -15,7 +15,6 @@ on:
       COMMIT_KEY:
         description: "SSH private key for the repository."
         required: true
-
 permissions:
   id-token: write
   contents: write
@@ -33,6 +32,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ssh-key: ${{ secrets.COMMIT_KEY }}
 
       - name: Set up Hatch
         uses: SolaceDev/solace-public-workflows/.github/actions/hatch-setup@hatch_workflows

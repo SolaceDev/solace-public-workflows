@@ -3,9 +3,6 @@ name: Release to PyPi with Hatch
 on:
   workflow_call:
     secrets:
-      COMMIT_KEY:
-        description: "SSH private key for the repository."
-        required: true
       SONAR_TOKEN:
         description: "SonarQube token for the repository."
         required: true
