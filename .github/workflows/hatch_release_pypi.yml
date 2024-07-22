@@ -35,7 +35,7 @@ jobs:
           ssh-key: ${{ secrets.COMMIT_KEY }}
 
       - name: Set up Hatch
-        uses: SolaceDev/solace-public-workflows/.github/actions/hatch-setup@hatch_workflows
+        uses: SolaceDev/solace-public-workflows/.github/actions/hatch-setup@v1.0.0
 
       - name: Get Current Version
         run: |
