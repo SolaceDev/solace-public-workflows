@@ -1,0 +1,74 @@
+name: Release to PyPi with Hatch
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: "Version to release."
+        type: string
+        required: true
+      pypi-project:
+        description: "PyPi repository to release to."
+        type: string
+        required: true
+    secrets:
+      COMMIT_KEY:
+        description: "SSH private key for the repository."
+        required: true
+permissions:
+  id-token: write
+  contents: write
+
+jobs:
+  release:
+    name: release to PyPi
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/${{ inputs.pypi-project }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ssh-key: ${{ secrets.COMMIT_KEY }}
+
+      - name: Set up Hatch
+        uses: SolaceDev/solace-public-workflows/.github/actions/hatch-setup@v1.0.0
+
+      - name: Get Current Version
+        run: |
+          CURRENT_VERSION=$(hatch version)
+          echo "CURRENT_VERSION=${CURRENT_VERSION}" >> $GITHUB_ENV
+
+      - name: Fail if the current version doesn't exist
+        if: env.CURRENT_VERSION == ''
+        run: exit 1
+
+      - name: Build project for distribution
+        run: hatch build
+
+      - name: Publish package distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+      - name: Create Release
+        uses: ncipollo/release-action@v1
+        with:
+          artifacts: "dist/*.whl"
+          makeLatest: true
+          generateReleaseNotes: true
+          tag: ${{ env.CURRENT_VERSION }}
+
+      - name: Bump Version
+        run: |
+          hatch version "${{ github.event.inputs.version }}"
+          NEW_VERSION=$(hatch version)
+          echo "NEW_VERSION=${NEW_VERSION}" >> $GITHUB_ENV
+
+      - name: Commit new version
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git commit -a -m "[ci skip] Bump version to $NEW_VERSION"
+          git push

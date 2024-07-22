@@ -1,0 +1,115 @@
+name: Release to PyPi with Hatch
+
+on:
+  workflow_call:
+    secrets:
+      SONAR_TOKEN:
+        description: "SonarQube token for the repository."
+        required: true
+      SONAR_HOST_URL:
+        description: "SonarQube host URL for the repository."
+        required: true
+
+permissions:
+  id-token: write
+  contents: write
+
+env:
+  min-python-version: "3.8"
+  max-python-version: "3.12"
+
+jobs:
+  build:
+    name: Lint, Test, and Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Hatch
+        uses: SolaceDev/solace-public-workflows/.github/actions/hatch-setup@v1.0.0
+        with:
+          min-python-version: ${{ env.min-python-version }}
+          max-python-version: ${{ env.max-python-version }}
+
+      - name: Run Lint
+        continue-on-error: true
+        run: |
+          hatch run hatch-static-analysis:ruff check -o lint.json --output-format json
+        shell: bash
+
+      - name: Run Unit Tests
+        continue-on-error: true
+        shell: bash
+        run: |
+          hatch test --python ${{ env.min-python-version }}  --cover --parallel --junitxml=junit.xml
+          hatch test --python ${{ env.max-python-version }}  --cover --parallel --junitxml=junit.xml
+
+      - name: Combine Coverage Reports
+        continue-on-error: true
+        run: |
+          hatch run hatch-test.py${{ env.max-python-version }}:coverage combine
+        shell: bash
+
+      - name: Report coverage
+        continue-on-error: true
+        run: |
+          hatch run hatch-test.py${{ env.max-python-version }}:coverage xml
+        shell: bash
+
+      - name: SonarQube Scan
+        if: always() && github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: sonarsource/sonarqube-scan-action@v2.2.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        with:
+          args: >
+            -Dsonar.tests=tests/
+            -Dsonar.verbose=true
+            -Dsonar.sources=src/
+            -Dsonar.projectKey=${{github.repository_owner}}_${{github.event.repository.name}}
+            -Dsonar.python.coverage.reportPaths=coverage.xml
+            -Dsonar.python.ruff.reportPaths=lint.json
+
+      - name: SonarQube Quality Gate check
+        id: sonarqube-quality-gate-check
+        uses: sonarsource/sonarqube-quality-gate-action@master
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+
+      # Build and verify packages
+      - name: Build
+        shell: bash
+        run: hatch build
+
+      - name: Verify Packages
+        run: |
+          ls dist/*.tar.gz | xargs -n1 hatch run python -m twine check
+          ls dist/*.whl | xargs -n1 hatch run python -m twine check
+        shell: bash
+
+      - name: Surface failing tests
+        if: always() && github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: pmeier/pytest-results-action@main
+        with:
+          # A list of JUnit XML files, directories containing the former, and wildcard
+          # patterns to process.
+          # See @actions/glob for supported patterns.
+          path: junit.xml
+
+          # (Optional) Add a summary of the results at the top of the report
+          summary: true
+
+          # (Optional) Select which results should be included in the report.
+          # Follows the same syntax as `pytest -r`
+          display-options: fEX
+
+          # (Optional) Fail the workflow if no JUnit XML was found.
+          fail-on-empty: true
+
+          # (Optional) Title of the test results section in the workflow summary
+          title: Unit Test results
