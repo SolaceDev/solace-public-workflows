@@ -75,6 +75,7 @@ jobs:
             -Dsonar.python.ruff.reportPaths=lint.json
 
       - name: SonarQube Quality Gate check
+        if: always() && github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         id: sonarqube-quality-gate-check
         uses: sonarsource/sonarqube-quality-gate-action@master
         env:
@@ -93,7 +94,6 @@ jobs:
         shell: bash
 
       - name: Surface failing tests
-        if: always() && github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         uses: pmeier/pytest-results-action@main
         with:
           # A list of JUnit XML files, directories containing the former, and wildcard
