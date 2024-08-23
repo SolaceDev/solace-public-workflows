@@ -15,6 +15,9 @@ on:
       COMMIT_KEY:
         description: "SSH private key for the repository."
         required: true
+      PYPI_TOKEN:
+        description: "PyPi token"
+        required: true
 permissions:
   id-token: write
   contents: write
@@ -24,9 +27,6 @@ jobs:
     name: release to PyPi
     timeout-minutes: 20
     runs-on: ubuntu-latest
-    environment:
-      name: pypi
-      url: https://pypi.org/project/${{ inputs.pypi-project }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -51,6 +51,9 @@ jobs:
 
       - name: Publish package distributions to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://pypi.org/project/${{ inputs.pypi-project }}
+          password: ${{ secrets.PYPI_TOKEN }}
 
       - name: Create Release
         uses: ncipollo/release-action@v1
