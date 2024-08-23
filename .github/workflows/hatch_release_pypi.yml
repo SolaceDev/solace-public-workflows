@@ -3,6 +3,10 @@ name: Release to PyPi with Hatch
 on:
   workflow_call:
     inputs:
+      ENVIRONMENT:
+        description: "Environment to release to."
+        type: string
+        required: true
       version:
         description: "Version to release."
         type: string
@@ -26,6 +30,7 @@ jobs:
   release:
     name: release to PyPi
     timeout-minutes: 20
+    environment: ${{ github.event.inputs.ENVIRONMENT }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -52,7 +57,6 @@ jobs:
       - name: Publish package distributions to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          repository-url: https://pypi.org/project/${{ inputs.pypi-project }}
           password: ${{ secrets.PYPI_TOKEN }}
 
       - name: Create Release
