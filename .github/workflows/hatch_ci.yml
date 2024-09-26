@@ -2,6 +2,17 @@ name: Release to PyPi with Hatch
 
 on:
   workflow_call:
+    inputs:
+      min-python-version:
+        type: string
+        required: false
+        default: "3.8"
+        description: "Minimum Python version to test against."
+      max-python-version:
+        type: string
+        required: false
+        default: "3.12"
+        description: "Maximum Python version to test against."
     secrets:
       SONAR_TOKEN:
         description: "SonarQube token for the repository."
@@ -13,10 +24,6 @@ on:
 permissions:
   id-token: write
   contents: write
-
-env:
-  min-python-version: "3.8"
-  max-python-version: "3.12"
 
 jobs:
   build:
@@ -31,8 +38,8 @@ jobs:
       - name: Set up Hatch
         uses: SolaceDev/solace-public-workflows/.github/actions/hatch-setup@v1.0.0
         with:
-          min-python-version: ${{ env.min-python-version }}
-          max-python-version: ${{ env.max-python-version }}
+          min-python-version: ${{ inputs.min-python-version }}
+          max-python-version: ${{ inputs.max-python-version }}
 
       - name: Run Lint
         continue-on-error: true
@@ -44,19 +51,19 @@ jobs:
         continue-on-error: true
         shell: bash
         run: |
-          hatch test --python ${{ env.min-python-version }}  --cover --parallel --junitxml=junit.xml
-          hatch test --python ${{ env.max-python-version }}  --cover --parallel --junitxml=junit.xml
+          hatch test --python ${{ inputs.min-python-version }}  --cover --parallel --junitxml=junit.xml
+          hatch test --python ${{ inputs.max-python-version }}  --cover --parallel --junitxml=junit.xml
 
       - name: Combine Coverage Reports
         continue-on-error: true
         run: |
-          hatch run hatch-test.py${{ env.max-python-version }}:coverage combine
+          hatch run hatch-test.py${{ inputs.max-python-version }}:coverage combine
         shell: bash
 
       - name: Report coverage
         continue-on-error: true
         run: |
-          hatch run hatch-test.py${{ env.max-python-version }}:coverage xml
+          hatch run hatch-test.py${{ inputs.max-python-version }}:coverage xml
         shell: bash
 
       - name: SonarQube Scan
