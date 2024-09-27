@@ -51,6 +51,19 @@ jobs:
         if: env.CURRENT_VERSION == ''
         run: exit 1
 
+      - name: Bump Version
+        run: |
+          hatch version "${{ github.event.inputs.version }}"
+          NEW_VERSION=$(hatch version)
+          echo "NEW_VERSION=${NEW_VERSION}" >> $GITHUB_ENV
+
+      - name: Commit new version
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git commit -a -m "[ci skip] Bump version to $NEW_VERSION"
+          git push
+
       - name: Build project for distribution
         run: hatch build
 
@@ -58,12 +71,6 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           password: ${{ secrets.PYPI_TOKEN }}
-
-      - name: Bump Version
-        run: |
-          hatch version "${{ github.event.inputs.version }}"
-          NEW_VERSION=$(hatch version)
-          echo "NEW_VERSION=${NEW_VERSION}" >> $GITHUB_ENV
 
       - name: Create Release
         uses: ncipollo/release-action@v1
@@ -74,10 +81,3 @@ jobs:
           makeLatest: true
           generateReleaseNotes: true
           tag: ${{ env.NEW_VERSION }}
-
-      - name: Commit new version
-        run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git commit -a -m "[ci skip] Bump version to $NEW_VERSION"
-          git push
