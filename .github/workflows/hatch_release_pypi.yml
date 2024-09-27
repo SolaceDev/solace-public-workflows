@@ -65,6 +65,13 @@ jobs:
           NEW_VERSION=$(hatch version)
           echo "NEW_VERSION=${NEW_VERSION}" >> $GITHUB_ENV
 
+      - name: Commit new version
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git commit -a -m "[ci skip] Bump version to $NEW_VERSION"
+          git push
+
       - name: Create Release
         uses: ncipollo/release-action@v1
         env:
@@ -74,10 +81,3 @@ jobs:
           makeLatest: true
           generateReleaseNotes: true
           tag: ${{ env.NEW_VERSION }}
-
-      - name: Commit new version
-        run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git commit -a -m "[ci skip] Bump version to $NEW_VERSION"
-          git push
