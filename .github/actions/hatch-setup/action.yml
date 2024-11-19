@@ -10,7 +10,7 @@ inputs:
 outputs:
   matrix-present:
     description: "Whether the test matrix is present."
-    value: ${{ steps.test-matrix-present.outputs.MATRIX_PRESENT == 'true' }}
+    value: ${{ steps.test-matrix-present.outputs.matrix-present == 'true' }}
 runs:
   using: composite
   steps:
@@ -70,7 +70,7 @@ runs:
               exit 0
             }
           ' pyproject.toml)
-        echo "MATRIX_PRESENT=${{ MATRIX_PRESENT }}" >> $GITHUB_OUTPUT
+        echo "matrix-present=$MATRIX_PRESENT" >> $GITHUB_OUTPUT
 
     - name: Install Requirements.txt Dependencies for default python version
       shell: bash
