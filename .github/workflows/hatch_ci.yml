@@ -128,7 +128,7 @@ jobs:
           # A list of JUnit XML files, directories containing the former, and wildcard
           # patterns to process.
           # See @actions/glob for supported patterns.
-          path: junit.xml
+          path: junit-*.xml
 
           # (Optional) Add a summary of the results at the top of the report
           summary: true

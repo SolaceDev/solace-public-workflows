@@ -10,7 +10,7 @@ inputs:
 outputs:
   matrix-present:
     description: "Whether the test matrix is present."
-    value: ${{ steps.test-matrix-present.outputs.matrix-present == 'true' }}
+    value: ${{ steps.test-matrix-present.outputs.MATRIX_PRESENT == 'true' }}
 runs:
   using: composite
   steps:
