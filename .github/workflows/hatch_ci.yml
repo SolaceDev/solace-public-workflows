@@ -38,7 +38,7 @@ jobs:
           fetch-depth: 0
 
       - name: Set up Hatch
-        uses: SolaceDev/solace-public-workflows/.github/actions/hatch-setup@v1.0.0
+        uses: SolaceDev/solace-public-workflows/.github/actions/hatch-setup@test
         with:
           min-python-version: ${{ inputs.min-python-version }}
           max-python-version: ${{ inputs.max-python-version }}
