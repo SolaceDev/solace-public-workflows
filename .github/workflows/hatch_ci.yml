@@ -23,6 +23,8 @@ on:
 
 permissions:
   id-token: write
+  pull-requests: write
+  checks: write
   contents: write
 
 jobs:
@@ -47,12 +49,23 @@ jobs:
           hatch run hatch-static-analysis:ruff check -o lint.json --output-format json
         shell: bash
 
-      - name: Run Unit Tests
+      - name: Run Unit Tests on Python ${{ inputs.min-python-version }}
         continue-on-error: true
         shell: bash
         run: |
-          hatch test --python ${{ inputs.min-python-version }}  --cover --parallel --junitxml=junit.xml
-          hatch test --python ${{ inputs.max-python-version }}  --cover --parallel --junitxml=junit.xml
+          hatch test --python ${{ inputs.min-python-version }}  --cover --parallel --junitxml=junit-${{ inputs.min-python-version }}.xml
+
+      - name: Run Unit Tests on Python ${{ inputs.max-python-version }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          hatch test --python ${{ inputs.max-python-version }}  --cover --parallel --junitxml=junit-${{ inputs.max-python-version }}.xml
+
+      - name: Report test results
+        uses: mikepenz/action-junit-report@v5
+        if: (hashFiles('junit-*.xml') != '') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        with:
+          report_paths: junit-*.xml
 
       - name: Combine Coverage Reports
         continue-on-error: true
