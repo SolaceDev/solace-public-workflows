@@ -38,6 +38,7 @@ jobs:
           fetch-depth: 0
 
       - name: Set up Hatch
+        id: hatch-setup
         uses: SolaceDev/solace-public-workflows/.github/actions/hatch-setup@test
         with:
           min-python-version: ${{ inputs.min-python-version }}
@@ -49,15 +50,23 @@ jobs:
           hatch run hatch-static-analysis:ruff check -o lint.json --output-format json
         shell: bash
 
+      - name: Run Tests with default python version
+        shell: bash
+        if: steps.hatch-setup.outputs.matrix-present == 'false'
+        run: |
+          hatch run pytest --junitxml=junit-default.xml
+
       - name: Run Unit Tests on Python ${{ inputs.min-python-version }}
         continue-on-error: true
         shell: bash
+        if: steps.hatch-setup.outputs.matrix-present == 'true'
         run: |
           hatch test --python ${{ inputs.min-python-version }}  --cover --parallel --junitxml=junit-${{ inputs.min-python-version }}.xml
 
       - name: Run Unit Tests on Python ${{ inputs.max-python-version }}
         continue-on-error: true
         shell: bash
+        if: steps.hatch-setup.outputs.matrix-present == 'true'
         run: |
           hatch test --python ${{ inputs.max-python-version }}  --cover --parallel --junitxml=junit-${{ inputs.max-python-version }}.xml
 
