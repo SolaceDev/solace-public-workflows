@@ -54,7 +54,7 @@ jobs:
         shell: bash
         if: steps.hatch-setup.outputs.matrix-present == 'false'
         run: |
-          hatch run pytest --junitxml=junit-default.xml
+          hatch run pytest --cov --junitxml=junit-default.xml
 
       - name: Run Unit Tests on Python ${{ inputs.min-python-version }}
         continue-on-error: true
@@ -70,10 +70,11 @@ jobs:
         run: |
           hatch test --python ${{ inputs.max-python-version }}  --cover --parallel --junitxml=junit-${{ inputs.max-python-version }}.xml
 
-      - name: Report test results
+      - name: Report Test Results
         uses: mikepenz/action-junit-report@v5
         if: (hashFiles('junit-*.xml') != '') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         with:
+          check_name: Unit Test Results
           report_paths: junit-*.xml
 
       - name: Combine Coverage Reports

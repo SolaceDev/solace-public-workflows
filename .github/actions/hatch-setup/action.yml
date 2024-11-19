@@ -82,7 +82,7 @@ runs:
       shell: bash
       if: steps.test-matrix-present.outputs.matrix-present == 'false'
       run: |
-        hatch run pip install twine pytest
+        hatch run pip install twine pytest pytest-cov
 
     - name: Install Requirements.txt Dependencies for test matrix python version
       shell: bash
