@@ -80,7 +80,7 @@ runs:
 
     - name: Install test dependencies for default python version
       shell: bash
-      if: steps.test-matrix-present.outputs.matrix-present == 'false'
+      if: steps.cache.outputs.cache-hit != 'true'
       run: |
         hatch run pip install twine pytest pytest-cov
 

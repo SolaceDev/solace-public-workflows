@@ -6,7 +6,7 @@ on:
       min-python-version:
         type: string
         required: false
-        default: "3.8"
+        default: "3.9"
         description: "Minimum Python version to test against."
       max-python-version:
         type: string
@@ -112,6 +112,13 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
 
+      - name: Test Reports
+        if: (hashFiles('junit-*.xml') != '') && (hashFiles('coverage.xml') != '')
+        continue-on-error: true
+        uses: xportation/junit-coverage-report@main
+        with:
+          junit-path: junit-*.xml
+          coverage-path: coverage.xml
       # Build and verify packages
       - name: Build
         shell: bash
