@@ -76,7 +76,7 @@ runs:
       shell: bash
       if: hashFiles('requirements.txt') != '' && steps.cache.outputs.cache-hit != 'true' && steps.test-matrix-present.outputs.matrix-present == 'false'
       run: |
-        hatch run pip install -r requirements.txt
+        hatch run pip install --upgrade -r requirements.txt
 
     - name: Install test dependencies for default python version
       shell: bash
@@ -88,5 +88,5 @@ runs:
       shell: bash
       if: hashFiles('requirements.txt') != '' && steps.cache.outputs.cache-hit != 'true' && failure() && steps.test-matrix-present.outputs.matrix-present == 'true'
       run: |
-        hatch run hatch-test.py${{ inputs.min-python-version }}:pip install -r requirements.txt
-        hatch run hatch-test.py${{ inputs.max-python-version }}:pip install -r requirements.txt
+        hatch run hatch-test.py${{ inputs.min-python-version }}:pip install --upgrade -r requirements.txt
+        hatch run hatch-test.py${{ inputs.max-python-version }}:pip install --upgrade -r requirements.txt
