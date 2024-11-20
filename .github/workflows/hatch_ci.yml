@@ -39,7 +39,7 @@ jobs:
 
       - name: Set up Hatch
         id: hatch-setup
-        uses: SolaceDev/solace-public-workflows/.github/actions/hatch-setup@test
+        uses: SolaceDev/solace-public-workflows/.github/actions/hatch-setup@latest
         with:
           min-python-version: ${{ inputs.min-python-version }}
           max-python-version: ${{ inputs.max-python-version }}

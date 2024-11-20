@@ -52,6 +52,7 @@ runs:
       id: test-matrix-present
       shell: bash
       run: |
+        # Verify if hatch specific test matrix is present in pyproject.toml
         MATRIX_PRESENT=$(awk -v min="${{ inputs.min-python-version }}" -v max="${{ inputs.max-python-version }}" '
             /\[tool\.hatch\.envs\.hatch-test\]/ { in_env=1; next }
             in_env && /installer = "pip"/ { has_pip_installer=1; in_env=0 }
