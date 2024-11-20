@@ -54,21 +54,21 @@ jobs:
         shell: bash
         if: steps.hatch-setup.outputs.matrix-present == 'false'
         run: |
-          hatch run pytest --cov --junitxml=junit-default.xml
+          hatch run pytest --junitxml=junit-default.xml
 
       - name: Run Unit Tests on Python ${{ inputs.min-python-version }}
         continue-on-error: true
         shell: bash
         if: steps.hatch-setup.outputs.matrix-present == 'true'
         run: |
-          hatch test --python ${{ inputs.min-python-version }}  --cover --parallel --junitxml=junit-${{ inputs.min-python-version }}.xml
+          hatch test --python ${{ inputs.min-python-version }}  --junitxml=junit-${{ inputs.min-python-version }}.xml
 
       - name: Run Unit Tests on Python ${{ inputs.max-python-version }}
         continue-on-error: true
         shell: bash
         if: steps.hatch-setup.outputs.matrix-present == 'true'
         run: |
-          hatch test --python ${{ inputs.max-python-version }}  --cover --parallel --junitxml=junit-${{ inputs.max-python-version }}.xml
+          hatch test --python ${{ inputs.max-python-version }}  --junitxml=junit-${{ inputs.max-python-version }}.xml
 
       - name: Report Test Results
         uses: mikepenz/action-junit-report@v5
@@ -76,12 +76,6 @@ jobs:
         with:
           check_name: Unit Test Results
           report_paths: junit-*.xml
-
-      - name: Combine Coverage Reports
-        continue-on-error: true
-        run: |
-          hatch run hatch-test.py${{ inputs.max-python-version }}:coverage combine
-        shell: bash
 
       - name: Report coverage
         continue-on-error: true
@@ -115,9 +109,12 @@ jobs:
       - name: Test Reports
         if: (hashFiles('junit-*.xml') != '') && (hashFiles('coverage.xml') != '')
         continue-on-error: true
+        env:
+          MIN_PYTHON_VERSION_FILE: ${{ format('junit-{0}.xml', inputs.min-python-version) }}
+          MAX_PYTHON_VERSION_FILE: ${{ format('junit-{0}.xml', inputs.max-python-version) }}
         uses: xportation/junit-coverage-report@main
         with:
-          junit-path: junit-*.xml
+          junit-path: ${{ hashFiles('junit-default.xml') != '' && 'junit-default.xml' || hashFiles(env.MIN_PYTHON_VERSION_FILE) != '' && env.MIN_PYTHON_VERSION_FILE || hashFiles(env.MAX_PYTHON_VERSION_FILE) != '' && env.MAX_PYTHON_VERSION_FILE }}
           coverage-path: coverage.xml
       # Build and verify packages
       - name: Build
