@@ -7,7 +7,10 @@ inputs:
   max-python-version:
     description: "Maximum Python version to support."
     default: "3.12"
-
+outputs:
+  matrix-present:
+    description: "Whether the test matrix is present."
+    value: ${{ steps.test-matrix-present.outputs.matrix-present == 'true' }}
 runs:
   using: composite
   steps:
@@ -25,37 +28,66 @@ runs:
       uses: pypa/hatch@install
 
     - name: Restore Hatch Directory
-      uses: actions/cache/restore@v4
-      id: cache-restore
+      uses: actions/cache@v4
+      id: cache
       with:
         path: |
           ${{ env.HATCH_CACHE_DIR }}
           ${{ env.HATCH_DATA_DIR }}
-        key: ${{ runner.os }}-hatch-${{ hashFiles('pyproject.toml') }}
+        key: ${{ runner.os }}-hatch-${{ hashFiles('pyproject.toml') }}-${{ hashFiles('requirements.txt') }}
 
-    - name: Install Dependencies
+    - name: Install Hatch Python
       shell: bash
-      if: steps.cache-restore.outputs.cache-hit != 'true'
+      if: steps.cache.outputs.cache-hit != 'true'
       run: |
         hatch python install ${{ inputs.min-python-version }} ${{ inputs.max-python-version }}
 
     - name: Install Dependencies
       shell: bash
-      if: steps.cache-restore.outputs.cache-hit != 'true'
+      if: steps.cache.outputs.cache-hit != 'true'
       run: |
         hatch env create
 
-    - name: Install Twine
+    - name: Test Matrix Present
+      id: test-matrix-present
       shell: bash
       run: |
-        hatch run python -m pip install twine
+        # Verify if hatch specific test matrix is present in pyproject.toml
+        MATRIX_PRESENT=$(awk -v min="${{ inputs.min-python-version }}" -v max="${{ inputs.max-python-version }}" '
+            /\[tool\.hatch\.envs\.hatch-test\]/ { in_env=1; next }
+            in_env && /installer = "pip"/ { has_pip_installer=1; in_env=0 }
+            /\[\[tool\.hatch\.envs\.hatch-test\.matrix\]\]/ { in_matrix=1; next }
+            in_matrix && /python = \[/ {
+              if (index($0, min)) found_min=1
+              if (index($0, max)) found_max=1
+              in_matrix=0
+            }
+            END {
+              if (!has_pip_installer || !found_min || !found_max) {
+                print "false"
+                exit 0
+              }
+              print "true"
+              exit 0
+            }
+          ' pyproject.toml)
+        echo "matrix-present=$MATRIX_PRESENT" >> $GITHUB_OUTPUT
 
-    - name: Cache Hatch Directory
-      uses: actions/cache/save@v4
-      if: steps.cache-restore.outputs.cache-hit != 'true'
-      id: cache-hatch
-      with:
-        path: |
-          ${{ env.HATCH_CACHE_DIR }}
-          ${{ env.HATCH_DATA_DIR }}
-        key: ${{ runner.os }}-hatch-${{ hashFiles('pyproject.toml') }}
+    - name: Install Requirements.txt Dependencies for default python version
+      shell: bash
+      if: hashFiles('requirements.txt') != '' && steps.cache.outputs.cache-hit != 'true' && steps.test-matrix-present.outputs.matrix-present == 'false'
+      run: |
+        hatch run pip install --upgrade -r requirements.txt
+
+    - name: Install test dependencies for default python version
+      shell: bash
+      if: steps.cache.outputs.cache-hit != 'true'
+      run: |
+        hatch run pip install twine pytest pytest-cov
+
+    - name: Install Requirements.txt Dependencies for test matrix python version
+      shell: bash
+      if: hashFiles('requirements.txt') != '' && steps.cache.outputs.cache-hit != 'true' && steps.test-matrix-present.outputs.matrix-present == 'true'
+      run: |
+        hatch run hatch-test.py${{ inputs.min-python-version }}:pip install --upgrade -r requirements.txt
+        hatch run hatch-test.py${{ inputs.max-python-version }}:pip install --upgrade -r requirements.txt

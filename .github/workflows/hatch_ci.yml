@@ -6,7 +6,7 @@ on:
       min-python-version:
         type: string
         required: false
-        default: "3.8"
+        default: "3.9"
         description: "Minimum Python version to test against."
       max-python-version:
         type: string
@@ -23,6 +23,8 @@ on:
 
 permissions:
   id-token: write
+  pull-requests: write
+  checks: write
   contents: write
 
 jobs:
@@ -36,7 +38,8 @@ jobs:
           fetch-depth: 0
 
       - name: Set up Hatch
-        uses: SolaceDev/solace-public-workflows/.github/actions/hatch-setup@v1.0.0
+        id: hatch-setup
+        uses: SolaceDev/solace-public-workflows/.github/actions/hatch-setup@main
         with:
           min-python-version: ${{ inputs.min-python-version }}
           max-python-version: ${{ inputs.max-python-version }}
@@ -47,12 +50,32 @@ jobs:
           hatch run hatch-static-analysis:ruff check -o lint.json --output-format json
         shell: bash
 
-      - name: Run Unit Tests
+      - name: Run Tests with default python version
+        shell: bash
+        if: steps.hatch-setup.outputs.matrix-present == 'false'
+        run: |
+          hatch run pytest --junitxml=junit-default.xml
+
+      - name: Run Unit Tests on Python ${{ inputs.min-python-version }}
         continue-on-error: true
         shell: bash
+        if: steps.hatch-setup.outputs.matrix-present == 'true'
         run: |
-          hatch test --python ${{ inputs.min-python-version }}  --cover --parallel --junitxml=junit.xml
-          hatch test --python ${{ inputs.max-python-version }}  --cover --parallel --junitxml=junit.xml
+          hatch test --python ${{ inputs.min-python-version }}  --cover --parallel --junitxml=junit-${{ inputs.min-python-version }}.xml
+
+      - name: Run Unit Tests on Python ${{ inputs.max-python-version }}
+        continue-on-error: true
+        shell: bash
+        if: steps.hatch-setup.outputs.matrix-present == 'true'
+        run: |
+          hatch test --python ${{ inputs.max-python-version }}  --cover --parallel --junitxml=junit-${{ inputs.max-python-version }}.xml
+
+      - name: Report Test Results
+        uses: mikepenz/action-junit-report@v5
+        if: (hashFiles('junit-*.xml') != '') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        with:
+          check_name: Unit Test Results
+          report_paths: junit-*.xml
 
       - name: Combine Coverage Reports
         continue-on-error: true
@@ -89,6 +112,16 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
 
+      - name: Test Reports
+        if: (hashFiles('junit-*.xml') != '') && (hashFiles('coverage.xml') != '')
+        continue-on-error: true
+        env:
+          MIN_PYTHON_VERSION_FILE: ${{ format('junit-{0}.xml', inputs.min-python-version) }}
+          MAX_PYTHON_VERSION_FILE: ${{ format('junit-{0}.xml', inputs.max-python-version) }}
+        uses: xportation/junit-coverage-report@main
+        with:
+          junit-path: ${{ hashFiles('junit-default.xml') != '' && 'junit-default.xml' || hashFiles(env.MIN_PYTHON_VERSION_FILE) != '' && env.MIN_PYTHON_VERSION_FILE || hashFiles(env.MAX_PYTHON_VERSION_FILE) != '' && env.MAX_PYTHON_VERSION_FILE }}
+          coverage-path: coverage.xml
       # Build and verify packages
       - name: Build
         shell: bash
@@ -106,7 +139,7 @@ jobs:
           # A list of JUnit XML files, directories containing the former, and wildcard
           # patterns to process.
           # See @actions/glob for supported patterns.
-          path: junit.xml
+          path: junit-*.xml
 
           # (Optional) Add a summary of the results at the top of the report
           summary: true
