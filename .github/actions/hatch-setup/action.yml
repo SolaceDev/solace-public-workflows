@@ -3,7 +3,7 @@ description: Hatch install with support for caching of dependency groups.
 inputs:
   min-python-version:
     description: "Minimum Python version to support."
-    default: "3.8"
+    default: "3.10"
   max-python-version:
     description: "Maximum Python version to support."
     default: "3.12"
