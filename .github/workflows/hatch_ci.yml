@@ -63,21 +63,37 @@ jobs:
         run: |
           hatch test --python ${{ inputs.max-python-version }}  --cover --parallel --junitxml=junit-${{ inputs.max-python-version }}.xml
 
-      - name: Report Test Results
+      - name: Status Check - Unit Tests on default python version
         uses: mikepenz/action-junit-report@v5
-        if: (hashFiles('junit-*.xml') != '') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        if: (hashFiles('junit-default.xml') != '') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         with:
-          check_name: Unit Test Results
-          report_paths: junit-*.xml
+          check_name: Unit Tests on default python version
+          report_paths: junit-default.xml
+
+      - name: Status Check - Unit Tests on Python ${{ inputs.min-python-version }}
+        uses: mikepenz/action-junit-report@v5
+        if: (hashFiles('junit-${{ inputs.min-python-version }}.xml') != '') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        with:
+          check_name: Unit Tests on Python ${{ inputs.min-python-version }}
+          report_paths: junit-${{ inputs.min-python-version }}.xml
+
+      - name: Status Check - Unit Tests on Python ${{ inputs.max-python-version }}
+        uses: mikepenz/action-junit-report@v5
+        if: (hashFiles('junit-${{ inputs.max-python-version }}.xml') != '') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        with:
+          check_name: Unit Tests on Python ${{ inputs.max-python-version }}
+          report_paths: junit-${{ inputs.max-python-version }}.xml
 
       - name: Combine Coverage Reports
         continue-on-error: true
+        if: hashFiles('*.cov') != ''
         run: |
           hatch run hatch-test.py${{ inputs.max-python-version }}:coverage combine
         shell: bash
 
       - name: Report coverage
         continue-on-error: true
+        if: hashFiles('*.cov') != ''
         run: |
           hatch run hatch-test.py${{ inputs.max-python-version }}:coverage xml
         shell: bash
@@ -105,7 +121,7 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
 
-      - name: Test Reports
+      - name: Comment on PR with Test Results
         if: (hashFiles('junit-*.xml') != '') && (hashFiles('coverage.xml') != '')
         continue-on-error: true
         env:
@@ -125,24 +141,3 @@ jobs:
           ls dist/*.tar.gz | xargs -n1 hatch run python -m twine check
           ls dist/*.whl | xargs -n1 hatch run python -m twine check
         shell: bash
-
-      - name: Surface failing tests
-        uses: pmeier/pytest-results-action@main
-        with:
-          # A list of JUnit XML files, directories containing the former, and wildcard
-          # patterns to process.
-          # See @actions/glob for supported patterns.
-          path: junit-*.xml
-
-          # (Optional) Add a summary of the results at the top of the report
-          summary: true
-
-          # (Optional) Select which results should be included in the report.
-          # Follows the same syntax as `pytest -r`
-          display-options: fEX
-
-          # (Optional) Fail the workflow if no JUnit XML was found.
-          fail-on-empty: true
-
-          # (Optional) Title of the test results section in the workflow summary
-          title: Unit Test results
