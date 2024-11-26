@@ -46,21 +46,21 @@ runs:
 
     - name: Status Check - Unit Tests on default python version
       uses: mikepenz/action-junit-report@v5
-      if: (hashFiles('junit-default.xml') != '') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+      if: hashFiles('junit-default.xml') != ''
       with:
         check_name: Unit Tests on default python version
         report_paths: junit-default.xml
 
     - name: Status Check - Unit Tests on Python ${{ inputs.min-python-version }}
       uses: mikepenz/action-junit-report@v5
-      if: (hashFiles('junit-${{ inputs.min-python-version }}.xml') != '') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+      if: hashFiles('junit-${{ inputs.min-python-version }}.xml') != ''
       with:
         check_name: Unit Tests on Python ${{ inputs.min-python-version }}
         report_paths: junit-${{ inputs.min-python-version }}.xml
 
     - name: Status Check - Unit Tests on Python ${{ inputs.max-python-version }}
       uses: mikepenz/action-junit-report@v5
-      if: (hashFiles('junit-${{ inputs.max-python-version }}.xml') != '') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+      if: hashFiles('junit-${{ inputs.max-python-version }}.xml') != ''
       with:
         check_name: Unit Tests on Python ${{ inputs.max-python-version }}
         report_paths: junit-${{ inputs.max-python-version }}.xml
