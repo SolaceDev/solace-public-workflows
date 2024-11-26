@@ -1,0 +1,101 @@
+name: hatch-lint-test
+description: Hatch install with support for caching of dependency groups.
+inputs:
+  min-python-version:
+    description: "Minimum Python version to test with."
+    default: "3.10"
+  max-python-version:
+    description: "Maximum Python version to test with."
+    default: "3.12"
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Hatch
+      id: hatch-setup
+      uses: SolaceDev/solace-public-workflows/.github/actions/hatch-setup@main
+      with:
+        min-python-version: ${{ inputs.min-python-version }}
+        max-python-version: ${{ inputs.max-python-version }}
+
+    - name: Run Lint
+      continue-on-error: true
+      run: |
+        hatch run hatch-static-analysis:ruff check -o lint.json --output-format json
+      shell: bash
+
+    - name: Run Tests with default python version
+      shell: bash
+      if: steps.hatch-setup.outputs.matrix-present == 'false'
+      run: |
+        hatch run pytest --junitxml=junit-default.xml
+
+    - name: Run Unit Tests on Python ${{ inputs.min-python-version }}
+      continue-on-error: true
+      shell: bash
+      if: steps.hatch-setup.outputs.matrix-present == 'true'
+      run: |
+        hatch test --python ${{ inputs.min-python-version }}  --cover --parallel --junitxml=junit-${{ inputs.min-python-version }}.xml
+
+    - name: Run Unit Tests on Python ${{ inputs.max-python-version }}
+      continue-on-error: true
+      shell: bash
+      if: steps.hatch-setup.outputs.matrix-present == 'true'
+      run: |
+        hatch test --python ${{ inputs.max-python-version }}  --cover --parallel --junitxml=junit-${{ inputs.max-python-version }}.xml
+
+    - name: Status Check - Unit Tests on default python version
+      uses: mikepenz/action-junit-report@v5
+      if: hashFiles('junit-default.xml') != ''
+      with:
+        check_name: Unit Tests on default python version
+        report_paths: junit-default.xml
+
+    - name: Status Check - Unit Tests on Python ${{ inputs.min-python-version }}
+      uses: mikepenz/action-junit-report@v5
+      if: hashFiles('junit-${{ inputs.min-python-version }}.xml') != ''
+      with:
+        check_name: Unit Tests on Python ${{ inputs.min-python-version }}
+        report_paths: junit-${{ inputs.min-python-version }}.xml
+
+    - name: Status Check - Unit Tests on Python ${{ inputs.max-python-version }}
+      uses: mikepenz/action-junit-report@v5
+      if: hashFiles('junit-${{ inputs.max-python-version }}.xml') != ''
+      with:
+        check_name: Unit Tests on Python ${{ inputs.max-python-version }}
+        report_paths: junit-${{ inputs.max-python-version }}.xml
+
+    - name: Combine Coverage Reports
+      continue-on-error: true
+      if: hashFiles('*.cov') != ''
+      run: |
+        hatch run hatch-test.py${{ inputs.max-python-version }}:coverage combine
+      shell: bash
+
+    - name: Report coverage
+      continue-on-error: true
+      if: hashFiles('*.cov') != ''
+      run: |
+        hatch run hatch-test.py${{ inputs.max-python-version }}:coverage xml
+      shell: bash
+
+    - name: Comment on PR with Test Results
+      if: (hashFiles('junit-*.xml') != '') && (hashFiles('coverage.xml') != '')
+      continue-on-error: true
+      env:
+        MIN_PYTHON_VERSION_FILE: ${{ format('junit-{0}.xml', inputs.min-python-version) }}
+        MAX_PYTHON_VERSION_FILE: ${{ format('junit-{0}.xml', inputs.max-python-version) }}
+      uses: xportation/junit-coverage-report@main
+      with:
+        junit-path: ${{ hashFiles('junit-default.xml') != '' && 'junit-default.xml' || hashFiles(env.MIN_PYTHON_VERSION_FILE) != '' && env.MIN_PYTHON_VERSION_FILE || hashFiles(env.MAX_PYTHON_VERSION_FILE) != '' && env.MAX_PYTHON_VERSION_FILE }}
+        coverage-path: coverage.xml
+    # Build and verify packages
+    - name: Build
+      shell: bash
+      run: hatch build
+
+    - name: Verify Packages
+      run: |
+        ls dist/*.tar.gz | xargs -n1 hatch run python -m twine check
+        ls dist/*.whl | xargs -n1 hatch run python -m twine check
+      shell: bash
