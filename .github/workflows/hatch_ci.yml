@@ -148,3 +148,9 @@ jobs:
           ls dist/*.tar.gz | xargs -n1 hatch run python -m twine check
           ls dist/*.whl | xargs -n1 hatch run python -m twine check
         shell: bash
+
+      - name: Upload distributions
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-dists
+          path: dist/
