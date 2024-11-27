@@ -166,14 +166,14 @@ jobs:
       #   shell: bash
 
 
-      - name: Run Whitesource Scan
-        if: ${{ github.repository_owner == 'SolaceDev' }}
-        id: whitesource-scan
-        uses: SolaceDev/solace-public-workflows/.github/actions/whitesource-scan@security_tools
-        with:
-          whitesource_product_name: ${{ inputs.whitesource_product_name }}
-          whitesource_project_name: ${{ inputs.whitesource_project_name }}
-          whitesource_api_key: ${{ secrets.WHITESOURCE_API_KEY }}
+      # - name: Run Whitesource Scan
+      #   if: ${{ github.repository_owner == 'SolaceDev' }}
+      #   id: whitesource-scan
+      #   uses: SolaceDev/solace-public-workflows/.github/actions/whitesource-scan@security_tools
+      #   with:
+      #     whitesource_product_name: ${{ inputs.whitesource_product_name }}
+      #     whitesource_project_name: ${{ inputs.whitesource_project_name }}
+      #     whitesource_api_key: ${{ secrets.WHITESOURCE_API_KEY }}
 
       - name: Run WhiteSource Vulnerability and Policy Gate
         uses: docker://ghcr.io/solacedev/maas-build-actions:latest
@@ -182,7 +182,7 @@ jobs:
           WS_PRODUCT_NAME: ${{ inputs.whitesource_product_name }}
           WS_PROJECT_NAME: ${{ inputs.whitesource_project_name }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          AWS_REGION: ${{ vars.AWS_REGION }}
+          AWS_REGION: ${{ vars.MANIFEST_AWS_REGION }}
           AWS_ACCESS_KEY_ID: ${{ secrets.DYNAMODB_MANIFEST_READ_ONLY_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.DYNAMODB_MANIFEST_READ_ONLY_AWS_SECRET_ACCESS_KEY }}
         with:
