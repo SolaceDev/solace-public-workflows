@@ -194,7 +194,7 @@ jobs:
           AWS_REGION: ${{ vars.MANIFEST_AWS_REGION }}
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          WS_JIRA_CHECK: False #No Jira Search for Open Vulnerability Issues
+          WS_JIRA_CHECK: "False" #No Jira Search for Open Vulnerability Issues
           ACTIONS_PATH: /maas-build-actions/actions
           VIRTUAL_ENV: /maas-build-actions/venv
         with:
