@@ -195,19 +195,37 @@ jobs:
           AWS_REGION: ${{ vars.MANIFEST_AWS_REGION }}
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          WS_JIRA_CHECK: False #No Jira Search for Open Vulnerability Issues
+          ACTIONS_PATH: /maas-build-actions/actions
+          VIRTUAL_ENV: /maas-build-actions/venv
         with:
           entrypoint: /bin/sh
           args: >
             -c "
-            export AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
-            export AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
-            export GITHUB_ACTION_PATH=/maas-build-actions &&
-            export VIRTUAL_ENV=$GITHUB_ACTION_PATH/venv &&
             source $VIRTUAL_ENV/bin/activate &&
-            export WS_JIRA_CHECK='False' &&
-            cd /maas-build-actions/actions/whitesource-vulnerability-checker &&
-            python whitesource_vulnerability_checker.py &&
-            cd /maas-build-actions/actions/whitesource-policy-checker &&
+            cd $ACTIONS_PATH/whitesource-vulnerability-checker &&
+            python whitesource_vulnerability_checker.py
+            "
+        
+      - name: Run WhiteSource Policy Gate
+        continue-on-error: true
+        uses: docker://ghcr.io/solacedev/maas-build-actions:latest
+        env:
+          WS_API_KEY: ${{ secrets.WHITESOURCE_API_KEY }}
+          WS_PRODUCT_NAME: ${{ inputs.whitesource_product_name }}
+          WS_PROJECT_NAME: ${{ inputs.whitesource_project_name }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AWS_REGION: ${{ vars.MANIFEST_AWS_REGION }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          ACTIONS_PATH: /maas-build-actions/actions
+          VIRUTAL_ENV: /maas-build-actions/venv
+        with:
+          entrypoint: /bin/sh
+          args: >
+            -c "
+            source $VIRTUAL_ENV/bin/activate &&
+            cd $ACTIONS_PATH/whitesource-policy-checker &&
             python whitesource_policy_checker.py
             "
-      
+          
