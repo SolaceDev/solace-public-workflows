@@ -185,7 +185,6 @@ jobs:
       #     whitesource_api_key: ${{ secrets.WHITESOURCE_API_KEY }}
 
       - name: Run WhiteSource Vulnerability Gate
-        continue-on-error: true
         uses: docker://ghcr.io/solacedev/maas-build-actions:latest
         env:
           WS_API_KEY: ${{ secrets.WHITESOURCE_API_KEY }}
@@ -208,7 +207,6 @@ jobs:
             "
         
       - name: Run WhiteSource Policy Gate
-        continue-on-error: true
         uses: docker://ghcr.io/solacedev/maas-build-actions:latest
         env:
           WS_API_KEY: ${{ secrets.WHITESOURCE_API_KEY }}
