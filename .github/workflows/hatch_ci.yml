@@ -199,8 +199,8 @@ jobs:
           args: >
             -c "
             source $VIRTUAL_ENV/bin/activate &&
-            cd $ACTIONS_PATH/whitesource-policy-checker &&
-            python whitesource_policy_checker.py
+            cd $ACTIONS_PATH/whitesource-policy-violation-checker &&
+            python whitesource_policy_violation_checker.py
             "
 
       - name: Run WhiteSource Vulnerability Gate
