@@ -13,6 +13,14 @@ on:
         required: false
         default: "3.12"
         description: "Maximum Python version to test against."
+      whitesource_product_name:
+        type: string
+        required: false
+        description: "WhiteSource product name"
+      whitesource_project_name:
+        type: string
+        required: false
+        description: "WhiteSource project name"
     secrets:
       SONAR_TOKEN:
         description: "SonarQube token for the repository."
@@ -20,6 +28,14 @@ on:
       SONAR_HOST_URL:
         description: "SonarQube host URL for the repository."
         required: true
+      WHITESOURCE_API_KEY:
+        description: "WhiteSource API key"
+        required: false
+      PRISMA_ACCESS_KEY_ID:
+        description: "Prisma Access key ID"
+        required: false
+      PRISMA_SECRET_ACCESS_KEY:
+        required: false
 
 permissions:
   id-token: write
@@ -148,3 +164,30 @@ jobs:
           ls dist/*.tar.gz | xargs -n1 hatch run python -m twine check
           ls dist/*.whl | xargs -n1 hatch run python -m twine check
         shell: bash
+
+      - name: Print Debug Info
+        run: |
+          echo "Repository Owner: ${{ github.repository_owner }}"
+          echo "Repository Full Name: ${{ github.event.repository.full_name }}"
+          echo "Repository Name: ${{ github.event.repository.name }}"
+
+      - name: Run Whitesource Scan
+        if: ${{ github.repository_owner == 'SolaceDev' }}
+        id: whitesource-scan
+        uses: SolaceDev/solace-public-workflows/.github/actions/whitesource-scan@security_tools
+        with:
+          whitesource_product_name: ${{ inputs.whitesource_product_name }}
+          whitesource_project_name: ${{ inputs.whitesource_project_name }}
+          whitesource_api_key: ${{ secrets.WHITESOURCE_API_KEY }}
+
+      - name: Run WhiteSource Vulnerability and Policy Gate
+        uses: docker://ghcr.io/solacedev/maas-build-actions:sc_build_actions
+        with:
+          entrypoint: /bin/sh
+          args: >
+            -c
+            export GITHUB_ACTION_PATH=/maas-build-actions &&
+            export VIRTUAL_ENV=$GITHUB_ACTION_PATH/venv &&
+            source $VIRTUAL_ENV/bin/activate &&
+            cd actions/whitesource-project-state-checker && python whitesource_vulnurability_checker.py
+      
