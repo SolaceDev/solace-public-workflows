@@ -35,7 +35,16 @@ on:
         description: "Prisma Access key ID"
         required: false
       PRISMA_SECRET_ACCESS_KEY:
+        description: "Prisma Secret Access Key"
         required: false
+      AWS_ACCESS_KEY_ID:
+        description: "AWS Access Key ID"
+        required: false
+      AWS_SECRET_ACCESS_KEY:
+        description: "AWS Secret Access Key"
+        required: false
+
+
 
 permissions:
   id-token: write
