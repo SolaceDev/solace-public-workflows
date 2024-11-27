@@ -180,9 +180,11 @@ jobs:
         with:
           entrypoint: /bin/sh
           args: >
-            -c
+            -c "
             export GITHUB_ACTION_PATH=/maas-build-actions &&
             export VIRTUAL_ENV=$GITHUB_ACTION_PATH/venv &&
             source $VIRTUAL_ENV/bin/activate &&
-            cd /maas-build-actions/actions/whitesource-vulnerability-checker && python whitesource_vulnerability_checker.py
+            cd /maas-build-actions/actions/whitesource-vulnerability-checker &&
+            python whitesource_vulnerability_checker.py
+            "
       
