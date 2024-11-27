@@ -195,13 +195,11 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         with:
-          entrypoint: /bin/sh
           args: >
-            -c "
             . $VIRTUAL_ENV/bin/activate &&
             cd $ACTIONS_PATH/whitesource-policy-violation-checker &&
             python whitesource_policy_violation_checker.py
-            "
+            
 
       - name: Run WhiteSource Vulnerability Gate
         uses: docker://ghcr.io/solacedev/maas-build-actions:ws_policy_checker_image
@@ -216,10 +214,10 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           WS_JIRA_CHECK: "False" #No Jira Search for Open Vulnerability Issues
         with:
-          entrypoint: /bin/sh
           args: >
             . $VIRTUAL_ENV/bin/activate &&
             cd $ACTIONS_PATH/whitesource-vulnerability-checker &&
             python whitesource_vulnerability_checker.py
+            
 
           
