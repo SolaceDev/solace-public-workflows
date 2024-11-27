@@ -184,6 +184,27 @@ jobs:
       #     whitesource_project_name: ${{ inputs.whitesource_project_name }}
       #     whitesource_api_key: ${{ secrets.WHITESOURCE_API_KEY }}
 
+      - name: Run WhiteSource Policy Gate
+        uses: docker://ghcr.io/solacedev/maas-build-actions:latest
+        env:
+          WS_API_KEY: ${{ secrets.WHITESOURCE_API_KEY }}
+          WS_PRODUCT_NAME: ${{ inputs.whitesource_product_name }}
+          WS_PROJECT_NAME: ${{ inputs.whitesource_project_name }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AWS_REGION: ${{ vars.MANIFEST_AWS_REGION }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          ACTIONS_PATH: /maas-build-actions/actions
+          VIRUTAL_ENV: /maas-build-actions/venv
+        with:
+          entrypoint: /bin/sh
+          args: >
+            -c "
+            source $VIRTUAL_ENV/bin/activate &&
+            cd $ACTIONS_PATH/whitesource-policy-checker &&
+            python whitesource_policy_checker.py
+          "
+
       - name: Run WhiteSource Vulnerability Gate
         uses: docker://ghcr.io/solacedev/maas-build-actions:latest
         continue-on-error: true
@@ -207,24 +228,5 @@ jobs:
             python whitesource_vulnerability_checker.py
             "
         
-      - name: Run WhiteSource Policy Gate
-        uses: docker://ghcr.io/solacedev/maas-build-actions:latest
-        env:
-          WS_API_KEY: ${{ secrets.WHITESOURCE_API_KEY }}
-          WS_PRODUCT_NAME: ${{ inputs.whitesource_product_name }}
-          WS_PROJECT_NAME: ${{ inputs.whitesource_project_name }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          AWS_REGION: ${{ vars.MANIFEST_AWS_REGION }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          ACTIONS_PATH: /maas-build-actions/actions
-          VIRUTAL_ENV: /maas-build-actions/venv
-        with:
-          entrypoint: /bin/sh
-          args: >
-            -c "
-            source $VIRTUAL_ENV/bin/activate &&
-            cd $ACTIONS_PATH/whitesource-policy-checker &&
-            python whitesource_policy_checker.py
-            "
+
           
