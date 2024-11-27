@@ -165,11 +165,6 @@ jobs:
           ls dist/*.whl | xargs -n1 hatch run python -m twine check
         shell: bash
 
-      - name: Print Debug Info
-        run: |
-          echo "Repository Owner: ${{ github.repository_owner }}"
-          echo "Repository Full Name: ${{ github.event.repository.full_name }}"
-          echo "Repository Name: ${{ github.event.repository.name }}"
 
       - name: Run Whitesource Scan
         if: ${{ github.repository_owner == 'SolaceDev' }}
