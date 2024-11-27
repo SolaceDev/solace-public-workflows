@@ -189,6 +189,8 @@ jobs:
           entrypoint: /bin/sh
           args: >
             -c "
+            export AWS_ACCESS_KEY_ID=${{ secrets.DYNAMODB_MANIFEST_READ_ONLY_AWS_ACCESS_KEY_ID }}
+            export AWS_SECRET_ACCESS_KEY=${{ secrets.DYNAMODB_MANIFEST_READ_ONLY_AWS_SECRET_ACCESS_KEY }}
             export GITHUB_ACTION_PATH=/maas-build-actions &&
             export VIRTUAL_ENV=$GITHUB_ACTION_PATH/venv &&
             source $VIRTUAL_ENV/bin/activate &&
