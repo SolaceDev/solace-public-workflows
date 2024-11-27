@@ -195,7 +195,7 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           ACTIONS_PATH: /maas-build-actions/actions
-          VIRUTAL_ENV: /maas-build-actions/venv
+          VIRTUAL_ENV: /maas-build-actions/venv
         with:
           entrypoint: /bin/sh
           args: >
@@ -203,7 +203,7 @@ jobs:
             source $VIRTUAL_ENV/bin/activate &&
             cd $ACTIONS_PATH/whitesource-policy-checker &&
             python whitesource_policy_checker.py
-          "
+            "
 
       - name: Run WhiteSource Vulnerability Gate
         uses: docker://ghcr.io/solacedev/maas-build-actions:latest
