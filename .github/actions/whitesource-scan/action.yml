@@ -120,7 +120,7 @@ runs:
         echo "scan_duration=${formatted_duration}" >> $GITHUB_ENV
 
     - name: Run Whitesource Project State Checker
-      uses: docker://ghcr.io/solacedev/maas-build-actions:sc_build_actions
+      uses: docker://ghcr.io/solacedev/maas-build-actions:latest
       with:
         entrypoint: /bin/sh
         args: >
