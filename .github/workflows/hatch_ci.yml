@@ -174,7 +174,6 @@ jobs:
           ls dist/*.whl | xargs -n1 hatch run python -m twine check
         shell: bash
 
-
       - name: Run Whitesource Scan
         if: ${{ github.repository_owner == 'SolaceDev' }}
         id: whitesource-scan
@@ -222,5 +221,3 @@ jobs:
             cd $ACTIONS_PATH/whitesource-vulnerability-checker &&
             python whitesource_vulnerability_checker.py
             "
-
-          
