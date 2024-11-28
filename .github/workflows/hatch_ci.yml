@@ -69,123 +69,123 @@ jobs:
           min-python-version: ${{ inputs.min-python-version }}
           max-python-version: ${{ inputs.max-python-version }}
 
-      # - name: Run Lint
-      #   continue-on-error: true
-      #   run: |
-      #     hatch run hatch-static-analysis:ruff check -o lint.json --output-format json
-      #   shell: bash
+      - name: Run Lint
+        continue-on-error: true
+        run: |
+          hatch run hatch-static-analysis:ruff check -o lint.json --output-format json
+        shell: bash
 
-      # - name: Run Tests with default python version
-      #   shell: bash
-      #   if: steps.hatch-setup.outputs.matrix-present == 'false'
-      #   run: |
-      #     hatch run pytest --junitxml=junit-default.xml
+      - name: Run Tests with default python version
+        shell: bash
+        if: steps.hatch-setup.outputs.matrix-present == 'false'
+        run: |
+          hatch run pytest --junitxml=junit-default.xml
 
-      # - name: Run Unit Tests on Python ${{ inputs.min-python-version }}
-      #   continue-on-error: true
-      #   shell: bash
-      #   if: steps.hatch-setup.outputs.matrix-present == 'true'
-      #   run: |
-      #     hatch test --python ${{ inputs.min-python-version }}  --cover --parallel --junitxml=junit-${{ inputs.min-python-version }}.xml
+      - name: Run Unit Tests on Python ${{ inputs.min-python-version }}
+        continue-on-error: true
+        shell: bash
+        if: steps.hatch-setup.outputs.matrix-present == 'true'
+        run: |
+          hatch test --python ${{ inputs.min-python-version }}  --cover --parallel --junitxml=junit-${{ inputs.min-python-version }}.xml
 
-      # - name: Run Unit Tests on Python ${{ inputs.max-python-version }}
-      #   continue-on-error: true
-      #   shell: bash
-      #   if: steps.hatch-setup.outputs.matrix-present == 'true'
-      #   run: |
-      #     hatch test --python ${{ inputs.max-python-version }}  --cover --parallel --junitxml=junit-${{ inputs.max-python-version }}.xml
+      - name: Run Unit Tests on Python ${{ inputs.max-python-version }}
+        continue-on-error: true
+        shell: bash
+        if: steps.hatch-setup.outputs.matrix-present == 'true'
+        run: |
+          hatch test --python ${{ inputs.max-python-version }}  --cover --parallel --junitxml=junit-${{ inputs.max-python-version }}.xml
 
-      # - name: Status Check - Unit Tests on default python version
-      #   uses: mikepenz/action-junit-report@v5
-      #   if: hashFiles('junit-default.xml') != ''
-      #   with:
-      #     check_name: Unit Tests on default python version
-      #     report_paths: junit-default.xml
+      - name: Status Check - Unit Tests on default python version
+        uses: mikepenz/action-junit-report@v5
+        if: hashFiles('junit-default.xml') != ''
+        with:
+          check_name: Unit Tests on default python version
+          report_paths: junit-default.xml
 
-      # - name: Status Check - Unit Tests on Python ${{ inputs.min-python-version }}
-      #   uses: mikepenz/action-junit-report@v5
-      #   if: hashFiles('junit-${{ inputs.min-python-version }}.xml') != ''
-      #   with:
-      #     check_name: Unit Tests on Python ${{ inputs.min-python-version }}
-      #     report_paths: junit-${{ inputs.min-python-version }}.xml
+      - name: Status Check - Unit Tests on Python ${{ inputs.min-python-version }}
+        uses: mikepenz/action-junit-report@v5
+        if: hashFiles('junit-${{ inputs.min-python-version }}.xml') != ''
+        with:
+          check_name: Unit Tests on Python ${{ inputs.min-python-version }}
+          report_paths: junit-${{ inputs.min-python-version }}.xml
 
-      # - name: Status Check - Unit Tests on Python ${{ inputs.max-python-version }}
-      #   uses: mikepenz/action-junit-report@v5
-      #   if: hashFiles('junit-${{ inputs.max-python-version }}.xml') != ''
-      #   with:
-      #     check_name: Unit Tests on Python ${{ inputs.max-python-version }}
-      #     report_paths: junit-${{ inputs.max-python-version }}.xml
+      - name: Status Check - Unit Tests on Python ${{ inputs.max-python-version }}
+        uses: mikepenz/action-junit-report@v5
+        if: hashFiles('junit-${{ inputs.max-python-version }}.xml') != ''
+        with:
+          check_name: Unit Tests on Python ${{ inputs.max-python-version }}
+          report_paths: junit-${{ inputs.max-python-version }}.xml
 
-      # - name: Combine Coverage Reports
-      #   continue-on-error: true
-      #   if: hashFiles('*.cov') != ''
-      #   run: |
-      #     hatch run hatch-test.py${{ inputs.max-python-version }}:coverage combine
-      #   shell: bash
+      - name: Combine Coverage Reports
+        continue-on-error: true
+        if: hashFiles('*.cov') != ''
+        run: |
+          hatch run hatch-test.py${{ inputs.max-python-version }}:coverage combine
+        shell: bash
 
-      # - name: Report coverage
-      #   continue-on-error: true
-      #   if: hashFiles('*.cov') != ''
-      #   run: |
-      #     hatch run hatch-test.py${{ inputs.max-python-version }}:coverage xml
-      #   shell: bash
+      - name: Report coverage
+        continue-on-error: true
+        if: hashFiles('*.cov') != ''
+        run: |
+          hatch run hatch-test.py${{ inputs.max-python-version }}:coverage xml
+        shell: bash
 
-      # - name: SonarQube Scan
-      #   if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
-      #   uses: sonarsource/sonarqube-scan-action@v2.2.0
-      #   env:
-      #     SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-      #     SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
-      #   with:
-      #     args: >
-      #       -Dsonar.tests=tests/
-      #       -Dsonar.verbose=true
-      #       -Dsonar.sources=src/
-      #       -Dsonar.projectKey=${{github.repository_owner}}_${{github.event.repository.name}}
-      #       -Dsonar.python.coverage.reportPaths=coverage.xml
-      #       -Dsonar.python.ruff.reportPaths=lint.json
+      - name: SonarQube Scan
+        if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+        uses: sonarsource/sonarqube-scan-action@v2.2.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        with:
+          args: >
+            -Dsonar.tests=tests/
+            -Dsonar.verbose=true
+            -Dsonar.sources=src/
+            -Dsonar.projectKey=${{github.repository_owner}}_${{github.event.repository.name}}
+            -Dsonar.python.coverage.reportPaths=coverage.xml
+            -Dsonar.python.ruff.reportPaths=lint.json
 
-      # - name: SonarQube Quality Gate check
-      #   if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-      #   id: sonarqube-quality-gate-check
-      #   uses: sonarsource/sonarqube-quality-gate-action@master
-      #   env:
-      #     SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-      #     SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+      - name: SonarQube Quality Gate check
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        id: sonarqube-quality-gate-check
+        uses: sonarsource/sonarqube-quality-gate-action@master
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
 
-      # - name: Comment on PR with Test Results
-      #   if: (hashFiles('junit-*.xml') != '') && (hashFiles('coverage.xml') != '')
-      #   continue-on-error: true
-      #   env:
-      #     MIN_PYTHON_VERSION_FILE: ${{ format('junit-{0}.xml', inputs.min-python-version) }}
-      #     MAX_PYTHON_VERSION_FILE: ${{ format('junit-{0}.xml', inputs.max-python-version) }}
-      #   uses: xportation/junit-coverage-report@main
-      #   with:
-      #     junit-path: ${{ hashFiles('junit-default.xml') != '' && 'junit-default.xml' || hashFiles(env.MIN_PYTHON_VERSION_FILE) != '' && env.MIN_PYTHON_VERSION_FILE || hashFiles(env.MAX_PYTHON_VERSION_FILE) != '' && env.MAX_PYTHON_VERSION_FILE }}
-      #     coverage-path: coverage.xml
+      - name: Comment on PR with Test Results
+        if: (hashFiles('junit-*.xml') != '') && (hashFiles('coverage.xml') != '')
+        continue-on-error: true
+        env:
+          MIN_PYTHON_VERSION_FILE: ${{ format('junit-{0}.xml', inputs.min-python-version) }}
+          MAX_PYTHON_VERSION_FILE: ${{ format('junit-{0}.xml', inputs.max-python-version) }}
+        uses: xportation/junit-coverage-report@main
+        with:
+          junit-path: ${{ hashFiles('junit-default.xml') != '' && 'junit-default.xml' || hashFiles(env.MIN_PYTHON_VERSION_FILE) != '' && env.MIN_PYTHON_VERSION_FILE || hashFiles(env.MAX_PYTHON_VERSION_FILE) != '' && env.MAX_PYTHON_VERSION_FILE }}
+          coverage-path: coverage.xml
 
       - name: Build
         shell: bash
         run: hatch build
 
-      # - name: Verify Packages
-      #   run: |
-      #     ls dist/*.tar.gz | xargs -n1 hatch run python -m twine check
-      #     ls dist/*.whl | xargs -n1 hatch run python -m twine check
-      #   shell: bash
+      - name: Verify Packages
+        run: |
+          ls dist/*.tar.gz | xargs -n1 hatch run python -m twine check
+          ls dist/*.whl | xargs -n1 hatch run python -m twine check
+        shell: bash
 
 
-      # - name: Run Whitesource Scan
-      #   if: ${{ github.repository_owner == 'SolaceDev' }}
-      #   id: whitesource-scan
-      #   uses: SolaceDev/solace-public-workflows/.github/actions/whitesource-scan@security_tools
-      #   with:
-      #     whitesource_product_name: ${{ inputs.whitesource_product_name }}
-      #     whitesource_project_name: ${{ inputs.whitesource_project_name }}
-      #     whitesource_api_key: ${{ secrets.WHITESOURCE_API_KEY }}
+      - name: Run Whitesource Scan
+        if: ${{ github.repository_owner == 'SolaceDev' }}
+        id: whitesource-scan
+        uses: SolaceDev/solace-public-workflows/.github/actions/whitesource-scan@main
+        with:
+          whitesource_product_name: ${{ inputs.whitesource_product_name }}
+          whitesource_project_name: ${{ inputs.whitesource_project_name }}
+          whitesource_api_key: ${{ secrets.WHITESOURCE_API_KEY }}
 
       - name: Run WhiteSource Policy Gate
-        uses: docker://ghcr.io/solacedev/maas-build-actions:ws_policy_checker_image
+        uses: docker://ghcr.io/solacedev/maas-build-actions:latest
         env:
           WS_API_KEY: ${{ secrets.WHITESOURCE_API_KEY }}
           WS_PRODUCT_NAME: ${{ inputs.whitesource_product_name }}
@@ -204,7 +204,7 @@ jobs:
             "
 
       - name: Run WhiteSource Vulnerability Gate
-        uses: docker://ghcr.io/solacedev/maas-build-actions:ws_policy_checker_image
+        uses: docker://ghcr.io/solacedev/maas-build-actions:latest
         continue-on-error: true
         env:
           WS_API_KEY: ${{ secrets.WHITESOURCE_API_KEY }}
