@@ -175,7 +175,11 @@ jobs:
         shell: bash
 
       - name: Run Whitesource Scan
-        if: ${{ github.repository_owner == 'SolaceDev' && inputs.whitesource_product_name != '' && inputs.whitesource_project_name != '' }}
+        if: ${{ 
+          github.repository_owner == 'SolaceDev' && 
+          inputs.whitesource_product_name != '' && 
+          inputs.whitesource_project_name != '' 
+          }}
         uses: SolaceDev/solace-public-workflows/.github/actions/whitesource-scan@security_tools
         with:
           whitesource_product_name: ${{ inputs.whitesource_product_name }}
@@ -183,7 +187,12 @@ jobs:
           whitesource_api_key: ${{ secrets.WHITESOURCE_API_KEY }}
 
       - name: Run WhiteSource Policy Gate
-        if: ${{ github.repository_owner == 'SolaceDev' && inputs.whitesource_product_name && inputs.whitesource_project_name && github.ref == 'refs/heads/main' }}
+        if: ${{ 
+          github.repository_owner == 'SolaceDev' && 
+          inputs.whitesource_product_name != '' && 
+          inputs.whitesource_project_name != '' && 
+          github.ref == 'refs/heads/main' 
+          }}
         uses: docker://ghcr.io/solacedev/maas-build-actions:ws_policy_checker_image
         env:
           WS_API_KEY: ${{ secrets.WHITESOURCE_API_KEY }}
@@ -203,7 +212,12 @@ jobs:
             "
 
       - name: Run WhiteSource Vulnerability Gate
-        if: ${{ github.repository_owner == 'SolaceDev' && inputs.whitesource_product_name && inputs.whitesource_project_name && github.ref == 'refs/heads/main' }}
+        if: ${{ 
+          github.repository_owner == 'SolaceDev' && 
+          inputs.whitesource_product_name != '' && 
+          inputs.whitesource_project_name != '' && 
+          github.ref == 'refs/heads/main' 
+          }}
         uses: docker://ghcr.io/solacedev/maas-build-actions:ws_policy_checker_image
         continue-on-error: true
         env:
