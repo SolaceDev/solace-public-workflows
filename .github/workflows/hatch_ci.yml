@@ -20,6 +20,7 @@ on:
       whitesource_project_name:
         type: string
         required: false
+        default: ${{ github.event.repository.name }}
         description: "WhiteSource project name"
     secrets:
       SONAR_TOKEN:
