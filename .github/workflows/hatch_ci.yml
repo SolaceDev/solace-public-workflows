@@ -200,8 +200,8 @@ jobs:
           WS_PROJECT_NAME: ${{ inputs.whitesource_project_name }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           AWS_REGION: ${{ vars.MANIFEST_AWS_REGION }}
-          MANIFEST_AWS_ACCESS_KEY_ID: ${{ secrets.MANIFEST_AWS_ACCESS_KEY_ID }}
-          MANIFEST_AWS_SECRET_ACCESS_KEY: ${{ secrets.MANIFEST_AWS_SECRET_ACCESS_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.MANIFEST_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.MANIFEST_AWS_SECRET_ACCESS_KEY }}
         with:
           entrypoint: /bin/sh
           args: >
@@ -226,8 +226,8 @@ jobs:
           WS_PROJECT_NAME: ${{ inputs.whitesource_project_name }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           AWS_REGION: ${{ vars.MANIFEST_AWS_REGION }}
-          MANIFEST_AWS_ACCESS_KEY_ID: ${{ secrets.MANIFEST_AWS_ACCESS_KEY_ID }}
-          MANIFEST_AWS_SECRET_ACCESS_KEY: ${{ secrets.MANIFEST_AWS_SECRET_ACCESS_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.MANIFEST_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.MANIFEST_AWS_SECRET_ACCESS_KEY }}
           WS_JIRA_CHECK: "False" #No Jira Search for Open Vulnerability Issues
         with:
           entrypoint: /bin/sh
