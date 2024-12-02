@@ -177,7 +177,7 @@ jobs:
       - name: Run Whitesource Scan
         if: ${{ github.repository_owner == 'SolaceDev' }}
         id: whitesource-scan
-        uses: SolaceDev/solace-public-workflows/.github/actions/whitesource-scan@main
+        uses: SolaceDev/solace-public-workflows/.github/actions/whitesource-scan@security_tools
         with:
           whitesource_product_name: ${{ inputs.whitesource_product_name }}
           whitesource_project_name: ${{ inputs.whitesource_project_name }}
