@@ -1,0 +1,140 @@
+name: WhiteSource Scan
+description: Used for performing WhiteSource scanning.
+
+inputs:
+  whitesource_excludes:
+    description: "Files to exclude from WhiteSource Scan"
+    required: false
+    default: ""
+  target_directory:
+    description: "Directory that contains the JAR files"
+    required: true
+    default: "."
+  language:
+    description: "Language to run WhiteSource Scan against"
+    required: true
+    default: ""
+  whitesource_api_key:
+    description: "API Key for WhiteSource"
+    required: true
+    default: ""
+  whitesource_project_key:
+    description: "Project key for WhiteSource"
+    required: false
+    default: ""
+  whitesource_product_name:
+    description: "Product Name for WhiteSource"
+    required: false
+    default: "maas"
+  whitesource_product_version:
+    description: "Product Version for WhiteSource"
+    required: false
+    default: ""
+  whitesource_project_name:
+    description: "Project Name for WhiteSource"
+    required: false
+    default: ""
+  whitesource_project_version:
+    description: "Project Version for WhiteSource"
+    required: false
+    default: ""
+  whitesource_config_file:
+    description: "Configuration file for WhiteSource"
+    required: false
+    default: ""
+  whitesource_project_state_checker:
+    description: "Poll Mend/Whitesource to be update completed after a scan"
+    required: false
+    default: "true"
+  github_token:
+    description: "GitHub token used for pulling the container image"
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: "WhiteSource Scan"
+      env:
+        unified_agent_url: "https://github.com/whitesource/unified-agent-distribution/releases/latest/download/wss-unified-agent.jar"
+        unified_agent_sha_url: "https://github.com/whitesource/unified-agent-distribution/releases/latest/download/wss-unified-agent.jar.sha256"
+        WS_APIKEY: ${{ inputs.whitesource_api_key }}
+        WS_PROJECTTOKEN: ${{ inputs.whitesource_project_key }}
+        TARGET_DIR: ${{ inputs.target_directory }}
+        WS_PRODUCTNAME: ${{ inputs.whitesource_product_name }}
+        WS_PRODUCTVERSION: ${{ inputs.whitesource_product_version }}
+        WS_PROJECTNAME: ${{ inputs.whitesource_project_name }}
+        WS_PROJECTVERSION: ${{ inputs.whitesource_project_version }}
+      shell: bash
+      run: |
+        #WS_PROJECTTOKEN takes precedence over a combination of WS_PROJECTNAME and WS_PRODUCTNAME
+        if [[ -n "$WS_PROJECTTOKEN" ]]; then
+            echo "Using WS_PROJECTTOKEN"
+            unset WS_PRODUCTNAME
+            unset WS_PROJECTNAME
+        fi
+        echo """
+        White Source Configuration Variables
+        WS_PRODUCTNAME: $WS_PRODUCTNAME
+        WS_PROJECTNAME: $WS_PROJECTNAME
+        WS_PROJECTTOKEN: $WS_PROJECTTOKEN
+
+        """
+        echo "Set excludes parameter"
+        if [[ ! -z "${{inputs.whitesource_excludes}}" ]]; then
+          export WS_EXCLUDES=${{inputs.whitesource_excludes}}
+          echo "WS_EXCLUDES=$WS_EXCLUDES" >> $GITHUB_ENV
+        fi
+        echo "WS_EXCLUDES: $WS_EXCLUDES"
+        echo "Whitesource- Downloading and verifying latest Agent"
+        if [[ ! -f wss-unified-agent.jar ]]; then
+          curl -LJOs ${{ env.unified_agent_url }}
+        fi
+        sha_from_jar=$(sha256sum  wss-unified-agent.jar | awk '{print $1}')
+        if [[ ! -f wss-unified-agent.jar.sha256 ]]; then
+          curl -LJOs ${{ env.unified_agent_sha_url }}
+        fi        
+        sha_from_file=$(cat wss-unified-agent.jar.sha256 | awk '{print $1}')
+        if [[ "$sha_from_file" == "$sha_from_jar" ]]; then
+            echo "Integrity of the wss-unified-agent.jar file verified .."
+        else
+            echo "Integrity check of wss-unified-agent.jar file failed .."
+            echo "sha_from_jar: $sha_from_jar"
+            echo "sha_from_file: $sha_from_file"
+            exit 1
+        fi
+
+        time_start=$(date +%s)
+        echo "Whitesource- Running scan"
+        if [[ -n "${{ inputs.whitesource_config_file }}" ]]; then
+            echo "Whitesource- Using provided configuration file"
+            java -jar wss-unified-agent.jar -d  ${{ env.TARGET_DIR }} -c  ${{ inputs.whitesource_config_file }} -logLevel Info
+        else
+            echo "Whitesource- Using default configuration file"
+            java -jar wss-unified-agent.jar -d  ${{ env.TARGET_DIR }} -logLevel Info
+        fi
+        time_end=$(date +%s)
+        duration=$((time_end - time_start))
+        formatted_duration=$(date -u -d @${duration} +'%H:%M:%S')
+        echo "scan_start_time=$(date -u -d "@${time_start}" +"%Y-%m-%dT%H:%M:%SZ")" >> $GITHUB_ENV
+        echo "scan_duration=${formatted_duration}" >> $GITHUB_ENV
+
+    - name: Run Whitesource Project State Checker
+      uses: docker://ghcr.io/solacedev/maas-build-actions:latest
+      with:
+        entrypoint: /bin/sh
+        args: >
+          -c
+          export GITHUB_ACTION_PATH=/maas-build-actions &&
+          export VIRTUAL_ENV=$GITHUB_ACTION_PATH/venv &&
+          source $VIRTUAL_ENV/bin/activate &&
+          cd actions/whitesource-project-state-checker &&
+          python whitesource_project_state_checker.py
+      env:
+        WS_API_KEY: ${{ inputs.whitesource_api_key }}
+        WS_PROJECT_TOKEN: ${{ inputs.whitesource_project_key }}
+        WS_PRODUCT_NAME: ${{ inputs.whitesource_product_name }}
+        WS_PROJECT_NAME: ${{ inputs.whitesource_project_name }}
+        WS_USER_KEY: ${{ steps.secrets.outputs.WHITESOURCE_USER_KEY }}
+        SCAN_START_TIME: ${{ env.scan_start_time }}
+        GITHUB_TOKEN: ${{ inputs.github_token }}

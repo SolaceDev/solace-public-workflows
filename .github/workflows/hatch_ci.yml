@@ -13,6 +13,15 @@ on:
         required: false
         default: "3.12"
         description: "Maximum Python version to test against."
+      whitesource_product_name:
+        type: string
+        required: false
+        description: "WhiteSource product name"
+      whitesource_project_name:
+        type: string
+        required: false
+        default: ${{ github.event.repository.name }}
+        description: "WhiteSource project name"
     secrets:
       SONAR_TOKEN:
         description: "SonarQube token for the repository."
@@ -20,6 +29,23 @@ on:
       SONAR_HOST_URL:
         description: "SonarQube host URL for the repository."
         required: true
+      WHITESOURCE_API_KEY:
+        description: "WhiteSource API key"
+        required: false
+      PRISMA_ACCESS_KEY_ID:
+        description: "Prisma Access key ID"
+        required: false
+      PRISMA_SECRET_ACCESS_KEY:
+        description: "Prisma Secret Access Key"
+        required: false
+      MANIFEST_AWS_ACCESS_KEY_ID:
+        description: "AWS Access Key ID"
+        required: false
+      MANIFEST_AWS_SECRET_ACCESS_KEY:
+        description: "AWS Secret Access Key"
+        required: false
+
+
 
 permissions:
   id-token: write
@@ -148,3 +174,66 @@ jobs:
           ls dist/*.tar.gz | xargs -n1 hatch run python -m twine check
           ls dist/*.whl | xargs -n1 hatch run python -m twine check
         shell: bash
+
+      - name: Run Whitesource Scan
+        if: ${{ 
+          github.repository_owner == 'SolaceDev' && 
+          inputs.whitesource_product_name != '' && 
+          inputs.whitesource_project_name != '' 
+          }}
+        uses: SolaceDev/solace-public-workflows/.github/actions/whitesource-scan@main
+        with:
+          whitesource_product_name: ${{ inputs.whitesource_product_name }}
+          whitesource_project_name: ${{ inputs.whitesource_project_name }}
+          whitesource_api_key: ${{ secrets.WHITESOURCE_API_KEY }}
+
+      - name: Run WhiteSource Policy Gate
+        if: ${{ 
+          github.repository_owner == 'SolaceDev' && 
+          inputs.whitesource_product_name != '' && 
+          inputs.whitesource_project_name != '' && 
+          github.ref == 'refs/heads/main' 
+          }}
+        uses: docker://ghcr.io/solacedev/maas-build-actions:latest
+        env:
+          WS_API_KEY: ${{ secrets.WHITESOURCE_API_KEY }}
+          WS_PRODUCT_NAME: ${{ inputs.whitesource_product_name }}
+          WS_PROJECT_NAME: ${{ inputs.whitesource_project_name }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AWS_REGION: ${{ vars.MANIFEST_AWS_REGION }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.MANIFEST_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.MANIFEST_AWS_SECRET_ACCESS_KEY }}
+        with:
+          entrypoint: /bin/sh
+          args: >
+            -c "
+            . $VIRTUAL_ENV/bin/activate &&
+            cd $ACTIONS_PATH/whitesource-policy-violation-checker &&
+            python whitesource_policy_violation_checker.py
+            "
+
+      - name: Run WhiteSource Vulnerability Gate
+        if: ${{ 
+          github.repository_owner == 'SolaceDev' && 
+          inputs.whitesource_product_name != '' && 
+          inputs.whitesource_project_name != '' && 
+          github.ref == 'refs/heads/main' 
+          }}
+        uses: docker://ghcr.io/solacedev/maas-build-actions:latest
+        continue-on-error: true
+        env:
+          WS_API_KEY: ${{ secrets.WHITESOURCE_API_KEY }}
+          WS_PRODUCT_NAME: ${{ inputs.whitesource_product_name }}
+          WS_PROJECT_NAME: ${{ inputs.whitesource_project_name }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AWS_REGION: ${{ vars.MANIFEST_AWS_REGION }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.MANIFEST_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.MANIFEST_AWS_SECRET_ACCESS_KEY }}
+          WS_JIRA_CHECK: "False" #No Jira Search for Open Vulnerability Issues
+        with:
+          entrypoint: /bin/sh
+          args: >
+            -c ". $VIRTUAL_ENV/bin/activate &&
+            cd $ACTIONS_PATH/whitesource-vulnerability-checker &&
+            python whitesource_vulnerability_checker.py
+            "
