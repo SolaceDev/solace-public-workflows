@@ -180,7 +180,7 @@ jobs:
           inputs.whitesource_product_name != '' && 
           inputs.whitesource_project_name != '' 
           }}
-        uses: SolaceDev/solace-public-workflows/.github/actions/whitesource-scan@main
+        uses: SolaceDev/solace-public-workflows/.github/actions/whitesource-scan@ws_test
         with:
           whitesource_product_name: ${{ inputs.whitesource_product_name }}
           whitesource_project_name: ${{ inputs.whitesource_project_name }}
