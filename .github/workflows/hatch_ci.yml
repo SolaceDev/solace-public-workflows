@@ -194,7 +194,7 @@ jobs:
           github.repository_owner == 'SolaceDev' && 
           inputs.whitesource_product_name != '' && 
           inputs.whitesource_project_name != '' && 
-          github.ref == 'refs/heads/main' 
+          github.ref == 'refs/heads/include_ws_config' 
           }}
         uses: docker://ghcr.io/solacedev/maas-build-actions:latest
         env:
