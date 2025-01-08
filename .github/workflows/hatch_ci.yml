@@ -155,15 +155,15 @@ jobs:
       #     SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
 
       # - name: Comment on PR with Test Results
-        if: (hashFiles('junit-*.xml') != '') && (hashFiles('coverage.xml') != '')
-        continue-on-error: true
-        env:
-          MIN_PYTHON_VERSION_FILE: ${{ format('junit-{0}.xml', inputs.min-python-version) }}
-          MAX_PYTHON_VERSION_FILE: ${{ format('junit-{0}.xml', inputs.max-python-version) }}
-        uses: xportation/junit-coverage-report@main
-        with:
-          junit-path: ${{ hashFiles('junit-default.xml') != '' && 'junit-default.xml' || hashFiles(env.MIN_PYTHON_VERSION_FILE) != '' && env.MIN_PYTHON_VERSION_FILE || hashFiles(env.MAX_PYTHON_VERSION_FILE) != '' && env.MAX_PYTHON_VERSION_FILE }}
-          coverage-path: coverage.xml
+      #   if: (hashFiles('junit-*.xml') != '') && (hashFiles('coverage.xml') != '')
+      #   continue-on-error: true
+      #   env:
+      #     MIN_PYTHON_VERSION_FILE: ${{ format('junit-{0}.xml', inputs.min-python-version) }}
+      #     MAX_PYTHON_VERSION_FILE: ${{ format('junit-{0}.xml', inputs.max-python-version) }}
+      #   uses: xportation/junit-coverage-report@main
+      #   with:
+      #     junit-path: ${{ hashFiles('junit-default.xml') != '' && 'junit-default.xml' || hashFiles(env.MIN_PYTHON_VERSION_FILE) != '' && env.MIN_PYTHON_VERSION_FILE || hashFiles(env.MAX_PYTHON_VERSION_FILE) != '' && env.MAX_PYTHON_VERSION_FILE }}
+      #     coverage-path: coverage.xml
 
       - name: Build
         shell: bash
