@@ -179,7 +179,8 @@ jobs:
         if: ${{ 
           github.repository_owner == 'SolaceDev' && 
           inputs.whitesource_product_name != '' && 
-          inputs.whitesource_project_name != '' 
+          inputs.whitesource_project_name != '' &&
+          github.ref == 'refs/heads/include_ws_config' 
           }}
         uses: SolaceDev/solace-public-workflows/.github/actions/whitesource-scan@main
         with:
@@ -203,6 +204,7 @@ jobs:
           AWS_REGION: ${{ vars.MANIFEST_AWS_REGION }}
           AWS_ACCESS_KEY_ID: ${{ secrets.MANIFEST_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.MANIFEST_AWS_SECRET_ACCESS_KEY }}
+          WS_BLOCKING_POLICY_VIOLATION_LEVELS: "major,minor"
         with:
           entrypoint: /bin/sh
           args: >
