@@ -22,6 +22,11 @@ on:
         required: false
         default: ${{ github.event.repository.name }}
         description: "WhiteSource project name"
+      whitesource_config_file:
+        type: string
+        required: false
+        default: ""
+        description: "WhiteSource configuration file"
     secrets:
       SONAR_TOKEN:
         description: "SonarQube token for the repository."
@@ -187,7 +192,7 @@ jobs:
           whitesource_product_name: ${{ inputs.whitesource_product_name }}
           whitesource_project_name: ${{ inputs.whitesource_project_name }}
           whitesource_api_key: ${{ secrets.WHITESOURCE_API_KEY }}
-          whitesource_config_file: ""
+          whitesource_config_file: ${{ inputs.whitesource_config_file }}
 
       - name: Run WhiteSource Policy Gate
         if: ${{ 
