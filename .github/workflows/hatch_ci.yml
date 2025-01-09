@@ -181,6 +181,13 @@ jobs:
           ls dist/*.tar.gz | xargs -n1 hatch run python -m twine check
           ls dist/*.whl | xargs -n1 hatch run python -m twine check
         shell: bash
+      
+
+
+      - name: Set up Python for Virtualenv used by Whitesource Scan
+        uses: actions/setup-python@v4
+        with:
+            python-version: ${{ inputs.min-python-version }}
 
       - name: Run Whitesource Scan
         if: ${{ 
