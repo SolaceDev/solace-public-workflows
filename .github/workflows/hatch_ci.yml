@@ -172,7 +172,9 @@ jobs:
 
       - name: Build
         shell: bash
-        run: hatch build
+        run: |
+          hatch build
+          hatch run pip freeze > requirements.txt
 
       - name: Verify Packages
         run: |
