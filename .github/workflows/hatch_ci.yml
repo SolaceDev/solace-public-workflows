@@ -173,9 +173,9 @@ jobs:
       - name: Build
         shell: bash
         run: |
-          hatch build
           hatch run pip freeze > requirements.txt
-
+          hatch build
+          
       - name: Verify Packages
         run: |
           ls dist/*.tar.gz | xargs -n1 hatch run python -m twine check
