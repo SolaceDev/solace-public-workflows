@@ -209,7 +209,7 @@ jobs:
           github.ref == 'refs/heads/include_ws_config' 
           }}
         uses: docker://ghcr.io/solacedev/maas-build-actions:latest
-        continue-on-error: true
+        continue-on-error: false
         env:
           WS_API_KEY: ${{ secrets.WHITESOURCE_API_KEY }}
           WS_PRODUCT_NAME: ${{ inputs.whitesource_product_name }}
@@ -233,7 +233,7 @@ jobs:
           github.repository_owner == 'SolaceDev' && 
           inputs.whitesource_product_name != '' && 
           inputs.whitesource_project_name != '' && 
-          github.ref == 'refs/heads/refs/heads/include_ws_config' 
+          github.ref == 'refs/heads/include_ws_config' 
           }}
         uses: docker://ghcr.io/solacedev/maas-build-actions:latest
         continue-on-error: true
