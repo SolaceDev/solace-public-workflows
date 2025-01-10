@@ -173,8 +173,8 @@ jobs:
       - name: Build
         shell: bash
         run: |
-          hatch run pip freeze > requirements.txt
           hatch build
+          hatch dep show requirements > requirements.txt
           
       - name: Verify Packages
         run: |
@@ -187,10 +187,10 @@ jobs:
       #   with:
       #     python-version: ${{ inputs.min-python-version }}
 
-      - name: Install Virtualenv
-        run: |
-          python -m pip install --upgrade pip
-          pip install virtualenv
+      # - name: Install Virtualenv
+      #   run: |
+      #     python -m pip install --upgrade pip
+      #     pip install virtualenv
 
       - name: Run Whitesource Scan
         if: ${{ 
