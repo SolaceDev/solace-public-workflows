@@ -92,7 +92,9 @@ runs:
     # Build and verify packages
     - name: Build
       shell: bash
-      run: hatch build
+      run: |
+        hatch build
+        hatch dep show requirements > requirements.txt
 
     - name: Verify Packages
       run: |
