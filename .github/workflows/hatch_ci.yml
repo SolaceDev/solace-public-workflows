@@ -187,10 +187,10 @@ jobs:
       #   with:
       #     python-version: ${{ inputs.min-python-version }}
 
-      # - name: Install Virtualenv
-      #   run: |
-      #     python -m pip install --upgrade pip
-      #     pip install virtualenv
+      - name: Install Virtualenv
+        run: |
+          python -m pip install --upgrade pip
+          pip install virtualenv
 
       - name: Run Whitesource Scan
         if: ${{ 
