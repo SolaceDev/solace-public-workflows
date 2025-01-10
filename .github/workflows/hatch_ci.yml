@@ -219,6 +219,7 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.MANIFEST_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.MANIFEST_AWS_SECRET_ACCESS_KEY }}
           WS_BLOCKING_POLICY_VIOLATION_LEVELS: "Major,Minor"
+          FAIL_IF_POLICY_VIOLATIONS_FOUND: "True"
         with:
           entrypoint: /bin/sh
           args: >
