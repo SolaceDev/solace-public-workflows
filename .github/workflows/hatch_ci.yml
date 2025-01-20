@@ -76,6 +76,8 @@ jobs:
       - name: Run Lint
         continue-on-error: true
         run: |
+          # Verify where ruff check will run
+          hatch run hatch-static-analysis:ruff check --show-files 
           # Run ruff and capture its exit code
           hatch run hatch-static-analysis:ruff check -o lint.json --output-format json || true
           # Verify if lint.json exists and contains valid JSON
