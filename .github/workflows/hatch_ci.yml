@@ -200,7 +200,7 @@ jobs:
           github.repository_owner == 'SolaceDev' &&
           inputs.whitesource_product_name != '' &&
           inputs.whitesource_project_name != '' &&
-          github.ref == 'refs/heads/main'
+          github.ref == 'refs/heads/main' || github.ref == 'refs/heads/ci-version'
           }}
         uses: SolaceDev/solace-public-workflows/.github/actions/whitesource-scan@main
         with:
@@ -214,7 +214,7 @@ jobs:
           github.repository_owner == 'SolaceDev' &&
           inputs.whitesource_product_name != '' &&
           inputs.whitesource_project_name != '' &&
-          github.ref == 'refs/heads/main'
+          github.ref == 'refs/heads/main' || github.ref == 'refs/heads/ci-version'
           }}
         uses: docker://ghcr.io/solacedev/maas-build-actions:latest
         continue-on-error: true
