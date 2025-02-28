@@ -8,14 +8,9 @@ on:
         type: string
         required: true
       version:
-        description: "Version increment (if full_version not provided) for release."
+        description: "Version increment type."
         type: string
         required: true
-      full_version:
-        description: "Optional full version (format: x.y.z). If provided, sets the version exactly."
-        type: string
-        required: false
-        default: ""
       pypi-project:
         description: "PyPi repository to release to."
         type: string

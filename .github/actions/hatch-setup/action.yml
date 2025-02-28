@@ -27,27 +27,6 @@ runs:
     - name: Install Hatch
       uses: pypa/hatch@install
 
-    - name: Restore Hatch Directory
-      uses: actions/cache@v4
-      id: cache
-      with:
-        path: |
-          ${{ env.HATCH_CACHE_DIR }}
-          ${{ env.HATCH_DATA_DIR }}
-        key: ${{ runner.os }}-hatch-${{ hashFiles('pyproject.toml') }}-${{ hashFiles('requirements.txt') }}
-
-    - name: Install Hatch Python
-      shell: bash
-      if: steps.cache.outputs.cache-hit != 'true'
-      run: |
-        hatch python install ${{ inputs.min-python-version }} ${{ inputs.max-python-version }}
-
-    - name: Install Dependencies
-      shell: bash
-      if: steps.cache.outputs.cache-hit != 'true'
-      run: |
-        hatch env create
-
     - name: Test Matrix Present
       id: test-matrix-present
       shell: bash
@@ -72,6 +51,33 @@ runs:
             }
           ' pyproject.toml)
         echo "matrix-present=$MATRIX_PRESENT" >> $GITHUB_OUTPUT
+
+    - name: Restore Hatch Directory
+      uses: actions/cache@v4
+      id: cache
+      with:
+        path: |
+          ${{ env.HATCH_CACHE_DIR }}
+          ${{ env.HATCH_DATA_DIR }}
+        key: ${{ runner.os }}-hatch-${{ hashFiles('pyproject.toml') }}-${{ hashFiles('requirements.txt') }}
+
+    - name: Install Hatch Python
+      shell: bash
+      if: steps.cache.outputs.cache-hit != 'true' && steps.test-matrix-present.outputs.matrix-present == 'true'
+      run: |
+        hatch python install ${{ inputs.min-python-version }} ${{ inputs.max-python-version }}
+
+    - name: Install Hatch Python
+      shell: bash
+      if: steps.cache.outputs.cache-hit != 'true' && steps.test-matrix-present.outputs.matrix-present == 'false'
+      run: |
+        hatch python install ${{ inputs.max-python-version }}
+
+    - name: Install Dependencies
+      shell: bash
+      if: steps.cache.outputs.cache-hit != 'true'
+      run: |
+        hatch env create
 
     - name: Install Requirements.txt Dependencies for default python version
       shell: bash

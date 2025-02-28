@@ -111,21 +111,21 @@ jobs:
 
       - name: Status Check - Unit Tests on default python version
         uses: mikepenz/action-junit-report@v5
-        if: hashFiles('junit-default.xml') != ''
+        if: steps.hatch-setup.outputs.matrix-present == 'false' && hashFiles('junit-default.xml') != ''
         with:
           check_name: Unit Tests on default python version
           report_paths: junit-default.xml
 
       - name: Status Check - Unit Tests on Python ${{ inputs.min-python-version }}
         uses: mikepenz/action-junit-report@v5
-        if: hashFiles('junit-${{ inputs.min-python-version }}.xml') != ''
+        if: steps.hatch-setup.outputs.matrix-present == 'true' && hashFiles('junit-${{ inputs.min-python-version }}.xml') != ''
         with:
           check_name: Unit Tests on Python ${{ inputs.min-python-version }}
           report_paths: junit-${{ inputs.min-python-version }}.xml
 
       - name: Status Check - Unit Tests on Python ${{ inputs.max-python-version }}
         uses: mikepenz/action-junit-report@v5
-        if: hashFiles('junit-${{ inputs.max-python-version }}.xml') != ''
+        if: steps.hatch-setup.outputs.matrix-present == 'true' && hashFiles('junit-${{ inputs.max-python-version }}.xml') != ''
         with:
           check_name: Unit Tests on Python ${{ inputs.max-python-version }}
           report_paths: junit-${{ inputs.max-python-version }}.xml
@@ -197,7 +197,6 @@ jobs:
 
       - name: Run Whitesource Scan
         if: ${{
-          github.repository_owner == 'SolaceDev' &&
           inputs.whitesource_product_name != '' &&
           inputs.whitesource_project_name != '' &&
           github.ref == 'refs/heads/main'
@@ -211,7 +210,6 @@ jobs:
 
       - name: Run WhiteSource Policy Gate
         if: ${{
-          github.repository_owner == 'SolaceDev' &&
           inputs.whitesource_product_name != '' &&
           inputs.whitesource_project_name != '' &&
           github.ref == 'refs/heads/main'
@@ -239,7 +237,6 @@ jobs:
 
       - name: Run WhiteSource Vulnerability Gate
         if: ${{
-          github.repository_owner == 'SolaceDev' &&
           inputs.whitesource_product_name != '' &&
           inputs.whitesource_project_name != '' &&
           github.ref == 'refs/heads/main'
