@@ -27,6 +27,21 @@ on:
         required: false
         default: ""
         description: "WhiteSource configuration file"
+      npm_package_path:
+        type: string
+        required: false
+        default: ""
+        description: "Path to the npm package"
+      node_version:
+        type: string
+        required: false
+        default: "20"
+        description: "Node version to use for the npm package"
+      npm_lock_file:
+        type: string
+        required: false
+        default: "package-lock.json"
+        description: "Path to the npm lock file"
     secrets:
       SONAR_TOKEN:
         description: "SonarQube token for the repository."
@@ -177,6 +192,21 @@ jobs:
         with:
           junit-path: ${{ hashFiles('junit-default.xml') != '' && 'junit-default.xml' || hashFiles(env.MIN_PYTHON_VERSION_FILE) != '' && env.MIN_PYTHON_VERSION_FILE || hashFiles(env.MAX_PYTHON_VERSION_FILE) != '' && env.MAX_PYTHON_VERSION_FILE }}
           coverage-path: coverage.xml
+
+      - name: Setup Node.js
+        if: inputs.npm_package_path != ''
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: "npm"
+          cache-dependency-path: ${{ inputs.npm_package_path }}/${{ inputs.npm_lock_file }}
+
+      - name: Install Dependencies
+        if: inputs.npm_package_path != ''
+        run: |
+          cd ${{ inputs.npm_package_path }}
+          npm install
+          npm run build
 
       - name: Build
         shell: bash
