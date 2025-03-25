@@ -81,6 +81,21 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Setup Node.js
+        if: inputs.npm_package_path != ''
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: "npm"
+          cache-dependency-path: ${{ inputs.npm_package_path }}/${{ inputs.npm_lock_file }}
+
+      - name: Install Dependencies
+        if: inputs.npm_package_path != ''
+        run: |
+          cd ${{ inputs.npm_package_path }}
+          npm install
+          npm run build
+
       - name: Set up Hatch
         id: hatch-setup
         uses: SolaceDev/solace-public-workflows/.github/actions/hatch-setup@main
@@ -192,21 +207,6 @@ jobs:
         with:
           junit-path: ${{ hashFiles('junit-default.xml') != '' && 'junit-default.xml' || hashFiles(env.MIN_PYTHON_VERSION_FILE) != '' && env.MIN_PYTHON_VERSION_FILE || hashFiles(env.MAX_PYTHON_VERSION_FILE) != '' && env.MAX_PYTHON_VERSION_FILE }}
           coverage-path: coverage.xml
-
-      - name: Setup Node.js
-        if: inputs.npm_package_path != ''
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ inputs.node_version }}
-          cache: "npm"
-          cache-dependency-path: ${{ inputs.npm_package_path }}/${{ inputs.npm_lock_file }}
-
-      - name: Install Dependencies
-        if: inputs.npm_package_path != ''
-        run: |
-          cd ${{ inputs.npm_package_path }}
-          npm install
-          npm run build
 
       - name: Build
         shell: bash

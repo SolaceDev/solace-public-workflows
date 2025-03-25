@@ -54,9 +54,6 @@ jobs:
           fetch-depth: 0
           ssh-key: ${{ secrets.COMMIT_KEY }}
 
-      - name: Set up Hatch
-        uses: SolaceDev/solace-public-workflows/.github/actions/hatch-setup@main
-
       - name: Setup Node.js
         if: inputs.npm_package_path != ''
         uses: actions/setup-node@v4
@@ -71,6 +68,9 @@ jobs:
           cd ${{ inputs.npm_package_path }}
           npm install
           npm run build
+
+      - name: Set up Hatch
+        uses: SolaceDev/solace-public-workflows/.github/actions/hatch-setup@main
 
       - name: Get Current Version
         id: current_version
