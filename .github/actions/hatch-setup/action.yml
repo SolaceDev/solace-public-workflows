@@ -63,6 +63,17 @@ runs:
 
     - name: Install Python
       uses: actions/setup-python@v5
+      if: steps.test-matrix-present.outputs.matrix-present == 'true'
+      with:
+        python-version: |
+          ${{ inputs.min-python-version }}
+          ${{ inputs.max-python-version }}
+        cache: "pip"
+        cache-dependency-path: pyproject.toml
+
+    - name: Install Python
+      uses: actions/setup-python@v5
+      if: steps.test-matrix-present.outputs.matrix-present == 'true'
       with:
         python-version-file: pyproject.toml
         cache: "pip"
