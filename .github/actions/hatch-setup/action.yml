@@ -3,10 +3,10 @@ description: Hatch install with support for caching of dependency groups.
 inputs:
   min-python-version:
     description: "Minimum Python version to support."
-    default: "3.10"
+    default: "3.10.16"
   max-python-version:
     description: "Maximum Python version to support."
-    default: "3.12"
+    default: "3.13"
 outputs:
   matrix-present:
     description: "Whether the test matrix is present."
@@ -61,17 +61,12 @@ runs:
           ${{ env.HATCH_DATA_DIR }}
         key: ${{ runner.os }}-hatch-${{ hashFiles('pyproject.toml') }}-${{ hashFiles('requirements.txt') }}
 
-    - name: Install Hatch Python
-      shell: bash
-      if: steps.cache.outputs.cache-hit != 'true' && steps.test-matrix-present.outputs.matrix-present == 'true'
-      run: |
-        hatch python install ${{ inputs.min-python-version }} ${{ inputs.max-python-version }}
-
-    - name: Install Hatch Python
-      shell: bash
-      if: steps.cache.outputs.cache-hit != 'true' && steps.test-matrix-present.outputs.matrix-present == 'false'
-      run: |
-        hatch python install ${{ inputs.max-python-version }}
+    - name: Install Python
+      uses: actions/setup-python@v5
+      with:
+        python-version-file: pyproject.toml
+        cache: "pip"
+        cache-dependency-path: pyproject.toml
 
     - name: Install Dependencies
       shell: bash

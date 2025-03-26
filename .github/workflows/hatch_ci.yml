@@ -6,12 +6,12 @@ on:
       min-python-version:
         type: string
         required: false
-        default: "3.10"
+        default: "3.10.16"
         description: "Minimum Python version to test against."
       max-python-version:
         type: string
         required: false
-        default: "3.12"
+        default: "3.13"
         description: "Maximum Python version to test against."
       whitesource_product_name:
         type: string
@@ -98,7 +98,7 @@ jobs:
 
       - name: Set up Hatch
         id: hatch-setup
-        uses: SolaceDev/solace-public-workflows/.github/actions/hatch-setup@main
+        uses: SolaceDev/solace-public-workflows/.github/actions/hatch-setup@python-install
         with:
           min-python-version: ${{ inputs.min-python-version }}
           max-python-version: ${{ inputs.max-python-version }}
