@@ -73,7 +73,7 @@ runs:
 
     - name: Install Python
       uses: actions/setup-python@v5
-      if: steps.test-matrix-present.outputs.matrix-present == 'true'
+      if: steps.test-matrix-present.outputs.matrix-present == 'false'
       with:
         python-version-file: pyproject.toml
         cache: "pip"
