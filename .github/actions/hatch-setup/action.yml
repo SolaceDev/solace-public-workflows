@@ -86,13 +86,27 @@ runs:
         hatch env create hatch-test.py${{ inputs.min-python-version }}
         hatch env create hatch-test.py${{ inputs.max-python-version }}
 
+    - name: Install Dependencies for default python version
+      shell: bash
+      if: steps.cache.outputs.cache-hit != 'true' && steps.test-matrix-present.outputs.matrix-present == 'false'
+      run: |
+        hatch run pip install --upgrade pip
+        hatch run pip install twine pytest pytest-cov
+
+    - name: Install Dependencies for test matrix python version
+      shell: bash
+      if: steps.cache.outputs.cache-hit != 'true' && steps.test-matrix-present.outputs.matrix-present == 'true'
+      run: |
+        hatch run hatch-test.py${{ inputs.min-python-version }}:pip install --upgrade pip
+        hatch run hatch-test.py${{ inputs.max-python-version }}:pip install --upgrade pip
+        hatch run hatch-test.py${{ inputs.min-python-version }}:pip install twine pytest pytest-cov
+        hatch run hatch-test.py${{ inputs.max-python-version }}:pip install twine pytest pytest-cov
+
     - name: Install Requirements.txt Dependencies for default python version
       shell: bash
       if: hashFiles('requirements.txt') != '' && steps.cache.outputs.cache-hit != 'true' && steps.test-matrix-present.outputs.matrix-present == 'false'
       run: |
-        hatch run pip install --upgrade pip
         hatch run pip install --upgrade -r requirements.txt
-        hatch run pip install twine pytest pytest-cov
 
     - name: Install Requirements.txt Dependencies for test matrix python version
       shell: bash
