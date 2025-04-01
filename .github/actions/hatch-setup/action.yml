@@ -88,6 +88,8 @@ runs:
           echo "Min Version Path: $min_version_path"
           echo "Max Version Path: $max_version_path"
 
+          hatch python show
+
           # Set hatch enviornment variable name for python Distribution eg. HATCH_PYTHON_SOURCE_PYPY3_10
           MIN_VERSION_ENV_NAME="HATCH_PYTHON_SOURCE_PYPY${MIN_PYTHON_VERSION_SHORT//./\_}"
           MAX_VERSION_ENV_NAME="HATCH_PYTHON_SOURCE_PYPY${MAX_PYTHON_VERSION_SHORT//./\_}"
@@ -107,6 +109,10 @@ runs:
 
     - name: Install Dependencies for test matrix
       shell: bash
+      with:
+        env:
+          HATCH_PYTHON_SOURCE_PYPY3_10: ${{ env.HATCH_PYTHON_SOURCE_PYPY3_10 }}
+          HATCH_PYTHON_SOURCE_PYPY3_12: ${{ env.HATCH_PYTHON_SOURCE_PYPY3_12 }}
       if: steps.cache.outputs.cache-hit != 'true' && steps.test-matrix-present.outputs.matrix-present == 'true'
       run: |
         hatch env create hatch-test.py${{ inputs.min-python-version }}
