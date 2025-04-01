@@ -62,16 +62,22 @@ runs:
         key: ${{ runner.os }}-hatch-${{ hashFiles('pyproject.toml') }}-${{ hashFiles('requirements.txt') }}
 
     - name: Install Hatch Matrix Python Versions
-      shell: bash
       if: steps.cache.outputs.cache-hit != 'true' && steps.test-matrix-present.outputs.matrix-present == 'true'
-      run: |
-        hatch python install ${{ inputs.min-python-version }} ${{ inputs.max-python-version }}
+      uses: hatch-community/setup-python@v5.5.0
+      with:
+        python-versions: |
+          ${{ inputs.min-python-version }}
+          ${{ inputs.max-python-version }}
+        cache: "pip"
+        cache-dependency-path: "pyproject.toml"
 
-    - name: Install Default Python
-      shell: bash
+    - name: Install Hatch Matrix Python Versions
       if: steps.cache.outputs.cache-hit != 'true' && steps.test-matrix-present.outputs.matrix-present == 'false'
-      run: |
-        hatch python install ${{ inputs.max-python-version }}
+      uses: hatch-community/setup-python@v5.5.0
+      with:
+        python-version-file: "pyproject.toml"
+        cache: "pip"
+        cache-dependency-path: "pyproject.toml"
 
     - name: Export Hatch Python Path
       shell: bash
@@ -106,18 +112,6 @@ runs:
       if: steps.cache.outputs.cache-hit != 'true' && steps.test-matrix-present.outputs.matrix-present == 'false'
       run: |
         hatch env create
-
-    - name: Install Dependencies for test matrix
-      shell: bash
-      if: steps.cache.outputs.cache-hit != 'true' && steps.test-matrix-present.outputs.matrix-present == 'true'
-      run: |
-        echo "CPU Information:"
-        cat /proc/cpuinfo
-        echo "Number of CPU Cores:"
-        nproc
-        echo "-------------------"
-        hatch env create hatch-test.py${{ inputs.min-python-version }}
-        hatch env create hatch-test.py${{ inputs.max-python-version }}
 
     - name: Install Dependencies for default python version
       shell: bash
