@@ -66,7 +66,7 @@ runs:
       if: steps.cache.outputs.cache-hit != 'true' && steps.test-matrix-present.outputs.matrix-present == 'true'
       uses: actions/setup-python@v5.5.0
       with:
-        python-versions: |
+        python-version: |
           ${{ inputs.min-python-version }}
           ${{ inputs.max-python-version }}
         cache: "pip"
