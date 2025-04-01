@@ -92,7 +92,7 @@ runs:
 
     - name: Install Dependencies
       shell: bash
-      if: steps.cache.outputs.cache-hit != 'true' && steps.test-matrix-present.outputs.matrix-present == 'false'
+      if: steps.cache.outputs.cache-hit != 'true'
       run: |
         hatch env create
 
