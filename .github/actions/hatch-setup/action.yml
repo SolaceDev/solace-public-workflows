@@ -81,24 +81,10 @@ runs:
         cache: "pip"
         cache-dependency-path: "pyproject.toml"
 
-    - name: Export Hatch Python Path
+    - name: Export Python Path For Hatch
       shell: bash
       run: |
-        if [ "${{ steps.test-matrix-present.outputs.matrix-present }}" == "true" ]; then
-          # Get short python version, like "3.10", "3.11", "3.12"
-          # MIN_PYTHON_VERSION_SHORT=$(echo "${{ inputs.min-python-version }}" | cut -d. -f1,2)
-          # MAX_PYTHON_VERSION_SHORT=$(echo "${{ inputs.max-python-version }}" | cut -d. -f1,2)
-          
-          # # Set hatch enviornment variable name for python Distribution eg. HATCH_PYTHON_SOURCE_PYPY3_10
-          # MIN_VERSION_ENV_NAME="HATCH_PYTHON_SOURCE_PYPY${MIN_PYTHON_VERSION_SHORT//./\_}"
-          # MAX_VERSION_ENV_NAME="HATCH_PYTHON_SOURCE_PYPY${MAX_PYTHON_VERSION_SHORT//./\_}"
-
-          
-
-          # # Set the hatch enviornment variable for the python distribution
-          # echo "${MIN_VERSION_ENV_NAME}=${{ steps.setup-python.outputs.python-path }}" >> $GITHUB_ENV
-          # echo "${MAX_VERSION_ENV_NAME}=${{ steps.setup-python.outputs.python-path }}" >> $GITHUB_ENV
-          
+        if [ "${{ steps.test-matrix-present.outputs.matrix-present }}" == "true" ]; then          
           echo "HATCH_PYTHON_PATH=${{ steps.setup-python.outputs.python-path }}" >> $GITHUB_ENV
         elif [ "${{ steps.test-matrix-present.outputs.matrix-present }}" == "false" ]; then
           echo "HATCH_PYTHON_PATH=${{ steps.setup-python-default.outputs.python-path }}" >> $GITHUB_ENV
