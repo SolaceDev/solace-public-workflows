@@ -216,8 +216,8 @@ jobs:
 
       - name: Verify Packages
         run: |
-          ls dist/*.tar.gz | xargs -n1 hatch run hatch-test.py${{ inputs.max-python-version }}:python -m twine check
-          ls dist/*.whl | xargs -n1 hatch run hatch-test.py${{ inputs.max-python-version }}:python -m twine check
+          ls dist/*.tar.gz | xargs -n1 hatch run python -m twine check
+          ls dist/*.whl | xargs -n1 hatch run python -m twine check
         shell: bash
 
       - name: Install Virtualenv for Whitesource Scan
