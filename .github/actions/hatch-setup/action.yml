@@ -73,7 +73,7 @@ runs:
         cache-dependency-path: "pyproject.toml"
 
     - name: Install Hatch Matrix Python Versions
-      id: setup-python
+      id: setup-python-default
       if: steps.cache.outputs.cache-hit != 'true' && steps.test-matrix-present.outputs.matrix-present == 'false'
       uses: hatch-community/setup-python@v5.5.0
       with:
@@ -112,10 +112,11 @@ runs:
     - name: Install Dependencies
       shell: bash
       env:
-        HATCH_PYTHON_PATH: ${{ steps.setup-python.outputs.pythonLocation }}
+        HATCH_PYTHON_PATH: ${{ steps.setup-python-default.outputs.pythonLocation }}
       if: steps.cache.outputs.cache-hit != 'true' && steps.test-matrix-present.outputs.matrix-present == 'false'
       run: |
         hatch env create
+
     - name: Create Hatch Environment for Matrix Python Versions
       shell: bash
       env:
@@ -127,7 +128,7 @@ runs:
     - name: Install Dependencies for default python version
       shell: bash
       env:
-        HATCH_PYTHON_PATH: ${{ steps.setup-python.outputs.pythonLocation }}
+        HATCH_PYTHON_PATH: ${{ steps.setup-python-default.outputs.pythonLocation }}
       if: steps.cache.outputs.cache-hit != 'true' && steps.test-matrix-present.outputs.matrix-present == 'false'
       run: |
         hatch run pip install --upgrade pip
@@ -135,6 +136,8 @@ runs:
 
     - name: Install Dependencies for test matrix python version
       shell: bash
+      env:
+        HATCH_PYTHON_PATH: ${{ steps.setup-python.outputs.pythonLocation }}
       if: steps.cache.outputs.cache-hit != 'true' && steps.test-matrix-present.outputs.matrix-present == 'true'
       run: |
         hatch run hatch-test.py${{ inputs.min-python-version }}:pip install --upgrade pip
