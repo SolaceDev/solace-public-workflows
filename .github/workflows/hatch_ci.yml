@@ -227,8 +227,7 @@ jobs:
       - name: Run Whitesource Scan
         if: ${{
           inputs.whitesource_product_name != '' &&
-          inputs.whitesource_project_name != '' &&
-          github.ref == 'refs/heads/main'
+          inputs.whitesource_project_name != ''
           }}
         uses: SolaceDev/solace-public-workflows/.github/actions/whitesource-scan@main
         with:
@@ -240,8 +239,7 @@ jobs:
       - name: Run WhiteSource Policy Gate
         if: ${{
           inputs.whitesource_product_name != '' &&
-          inputs.whitesource_project_name != '' &&
-          github.ref == 'refs/heads/main'
+          inputs.whitesource_project_name != ''
           }}
         uses: docker://ghcr.io/solacedev/maas-build-actions:latest
         continue-on-error: true
