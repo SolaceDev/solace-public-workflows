@@ -86,49 +86,38 @@ runs:
       run: |
         if [ "${{ steps.test-matrix-present.outputs.matrix-present }}" == "true" ]; then
           # Get short python version, like "3.10", "3.11", "3.12"
-          MIN_PYTHON_VERSION_SHORT=$(echo "${{ inputs.min-python-version }}" | cut -d. -f1,2)
-          MAX_PYTHON_VERSION_SHORT=$(echo "${{ inputs.max-python-version }}" | cut -d. -f1,2)
+          # MIN_PYTHON_VERSION_SHORT=$(echo "${{ inputs.min-python-version }}" | cut -d. -f1,2)
+          # MAX_PYTHON_VERSION_SHORT=$(echo "${{ inputs.max-python-version }}" | cut -d. -f1,2)
           
-          # Find the path to the python version in the hatch directory
-          min_version_path=$(hatch python find $MIN_PYTHON_VERSION_SHORT)
-          max_version_path=$(hatch python find $MAX_PYTHON_VERSION_SHORT)
+          # # Set hatch enviornment variable name for python Distribution eg. HATCH_PYTHON_SOURCE_PYPY3_10
+          # MIN_VERSION_ENV_NAME="HATCH_PYTHON_SOURCE_PYPY${MIN_PYTHON_VERSION_SHORT//./\_}"
+          # MAX_VERSION_ENV_NAME="HATCH_PYTHON_SOURCE_PYPY${MAX_PYTHON_VERSION_SHORT//./\_}"
 
-          echo "Min Version Path: $min_version_path"
-          echo "Max Version Path: $max_version_path"
+          
 
-          hatch python show
-
-          # Set hatch enviornment variable name for python Distribution eg. HATCH_PYTHON_SOURCE_PYPY3_10
-          MIN_VERSION_ENV_NAME="HATCH_PYTHON_SOURCE_PYPY${MIN_PYTHON_VERSION_SHORT//./\_}"
-          MAX_VERSION_ENV_NAME="HATCH_PYTHON_SOURCE_PYPY${MAX_PYTHON_VERSION_SHORT//./\_}"
-
-          # Set the hatch enviornment variable for the python distribution
-          echo "${MIN_VERSION_ENV_NAME}=${min_version_path}" >> $GITHUB_ENV
-          echo "${MAX_VERSION_ENV_NAME}=${max_version_path}" >> $GITHUB_ENV
+          # # Set the hatch enviornment variable for the python distribution
+          # echo "${MIN_VERSION_ENV_NAME}=${{ steps.setup-python.outputs.python-path }}" >> $GITHUB_ENV
+          # echo "${MAX_VERSION_ENV_NAME}=${{ steps.setup-python.outputs.python-path }}" >> $GITHUB_ENV
+          
+          echo "HATCH_PYTHON_PATH=${{ steps.setup-python.outputs.python-path }}" >> $GITHUB_ENV
         elif [ "${{ steps.test-matrix-present.outputs.matrix-present }}" == "false" ]; then
-          echo "HATCH_PYTHON_PATH=${{ steps.hatch-setup.outputs.hatch-python-path }}" >> $GITHUB_ENV
+          echo "HATCH_PYTHON_PATH=${{ steps.setup-python-default.outputs.python-path }}" >> $GITHUB_ENV
         fi
 
     - name: Install Dependencies
       shell: bash
-      env:
-        HATCH_PYTHON_PATH: ${{ steps.setup-python-default.outputs.pythonLocation }}
       if: steps.cache.outputs.cache-hit != 'true' && steps.test-matrix-present.outputs.matrix-present == 'false'
       run: |
         hatch env create
 
     - name: Create Hatch Environment for Matrix Python Versions
       shell: bash
-      env:
-        HATCH_PYTHON_PATH: ${{ steps.setup-python.outputs.pythonLocation }}
       run: |
         hatch env create hatch-test.py${{ inputs.min-python-version }}
         hatch env create hatch-test.py${{ inputs.max-python-version }}
 
     - name: Install Dependencies for default python version
       shell: bash
-      env:
-        HATCH_PYTHON_PATH: ${{ steps.setup-python-default.outputs.pythonLocation }}
       if: steps.cache.outputs.cache-hit != 'true' && steps.test-matrix-present.outputs.matrix-present == 'false'
       run: |
         hatch run pip install --upgrade pip
@@ -136,8 +125,6 @@ runs:
 
     - name: Install Dependencies for test matrix python version
       shell: bash
-      env:
-        HATCH_PYTHON_PATH: ${{ steps.setup-python.outputs.pythonLocation }}
       if: steps.cache.outputs.cache-hit != 'true' && steps.test-matrix-present.outputs.matrix-present == 'true'
       run: |
         hatch run hatch-test.py${{ inputs.min-python-version }}:pip install --upgrade pip
