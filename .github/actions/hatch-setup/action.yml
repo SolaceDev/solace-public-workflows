@@ -109,12 +109,13 @@ runs:
 
     - name: Install Dependencies for test matrix
       shell: bash
-      with:
-        env:
-          HATCH_PYTHON_SOURCE_PYPY3_10: ${{ env.HATCH_PYTHON_SOURCE_PYPY3_10 }}
-          HATCH_PYTHON_SOURCE_PYPY3_12: ${{ env.HATCH_PYTHON_SOURCE_PYPY3_12 }}
       if: steps.cache.outputs.cache-hit != 'true' && steps.test-matrix-present.outputs.matrix-present == 'true'
       run: |
+        echo "CPU Information:"
+        cat /proc/cpuinfo
+        echo "Number of CPU Cores:"
+        nproc
+        echo "-------------------"
         hatch env create hatch-test.py${{ inputs.min-python-version }}
         hatch env create hatch-test.py${{ inputs.max-python-version }}
 
