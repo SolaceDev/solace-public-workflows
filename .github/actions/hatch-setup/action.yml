@@ -64,7 +64,7 @@ runs:
     - name: Install Hatch Matrix Python Versions
       id: setup-python
       if: steps.cache.outputs.cache-hit != 'true' && steps.test-matrix-present.outputs.matrix-present == 'true'
-      uses: hatch-community/setup-python@v5.5.0
+      uses: actions/setup-python@v5.5.0
       with:
         python-versions: |
           ${{ inputs.min-python-version }}
@@ -75,7 +75,7 @@ runs:
     - name: Install Hatch Matrix Python Versions
       id: setup-python-default
       if: steps.cache.outputs.cache-hit != 'true' && steps.test-matrix-present.outputs.matrix-present == 'false'
-      uses: hatch-community/setup-python@v5.5.0
+      uses: actions/setup-python@v5.5.0
       with:
         python-version-file: "pyproject.toml"
         cache: "pip"
