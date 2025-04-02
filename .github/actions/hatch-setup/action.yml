@@ -61,7 +61,7 @@ runs:
           ${{ env.HATCH_DATA_DIR }}
         key: ${{ runner.os }}-hatch-${{ hashFiles('pyproject.toml') }}-${{ hashFiles('requirements.txt') }}
 
-    - name: Install Hatch Matrix Python Versions
+    - name: Install Python Versions for Hatch Test Matrix
       id: setup-python
       if: steps.cache.outputs.cache-hit != 'true' && steps.test-matrix-present.outputs.matrix-present == 'true'
       uses: actions/setup-python@v5.5.0
@@ -72,7 +72,7 @@ runs:
         cache: "pip"
         cache-dependency-path: "pyproject.toml"
 
-    - name: Install Hatch Matrix Python Versions
+    - name: Install Python Version from pyproject.toml
       id: setup-python-default
       if: steps.cache.outputs.cache-hit != 'true' && steps.test-matrix-present.outputs.matrix-present == 'false'
       uses: actions/setup-python@v5.5.0
