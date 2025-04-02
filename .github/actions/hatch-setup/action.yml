@@ -63,7 +63,7 @@ runs:
 
     - name: Install Python Versions for Hatch Test Matrix
       id: setup-python
-      if: steps.cache.outputs.cache-hit != 'true' && steps.test-matrix-present.outputs.matrix-present == 'true'
+      if: steps.test-matrix-present.outputs.matrix-present == 'true'
       uses: actions/setup-python@v5.5.0
       with:
         python-version: |
@@ -74,7 +74,7 @@ runs:
 
     - name: Install Python Version from pyproject.toml
       id: setup-python-default
-      if: steps.cache.outputs.cache-hit != 'true' && steps.test-matrix-present.outputs.matrix-present == 'false'
+      if: steps.test-matrix-present.outputs.matrix-present == 'false'
       uses: actions/setup-python@v5.5.0
       with:
         python-version-file: "pyproject.toml"
