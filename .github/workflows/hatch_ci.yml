@@ -11,7 +11,7 @@ on:
       max-python-version:
         type: string
         required: false
-        default: "3.12"
+        default: "3.13"
         description: "Maximum Python version to test against."
       whitesource_product_name:
         type: string

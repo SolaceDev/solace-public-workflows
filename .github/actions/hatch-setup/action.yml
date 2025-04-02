@@ -6,7 +6,7 @@ inputs:
     default: "3.10"
   max-python-version:
     description: "Maximum Python version to support."
-    default: "3.12"
+    default: "3.13"
 outputs:
   matrix-present:
     description: "Whether the test matrix is present."
@@ -61,17 +61,34 @@ runs:
           ${{ env.HATCH_DATA_DIR }}
         key: ${{ runner.os }}-hatch-${{ hashFiles('pyproject.toml') }}-${{ hashFiles('requirements.txt') }}
 
-    - name: Install Hatch Python
-      shell: bash
-      if: steps.cache.outputs.cache-hit != 'true' && steps.test-matrix-present.outputs.matrix-present == 'true'
-      run: |
-        hatch python install ${{ inputs.min-python-version }} ${{ inputs.max-python-version }}
+    - name: Install Python Versions for Hatch Test Matrix
+      id: setup-python
+      if: steps.test-matrix-present.outputs.matrix-present == 'true'
+      uses: actions/setup-python@v5.5.0
+      with:
+        python-version: |
+          ${{ inputs.min-python-version }}
+          ${{ inputs.max-python-version }}
+        cache: "pip"
+        cache-dependency-path: "pyproject.toml"
 
-    - name: Install Hatch Python
+    - name: Install Python Version from pyproject.toml
+      id: setup-python-default
+      if: steps.test-matrix-present.outputs.matrix-present == 'false'
+      uses: actions/setup-python@v5.5.0
+      with:
+        python-version-file: "pyproject.toml"
+        cache: "pip"
+        cache-dependency-path: "pyproject.toml"
+
+    - name: Export Python Path For Hatch
       shell: bash
-      if: steps.cache.outputs.cache-hit != 'true' && steps.test-matrix-present.outputs.matrix-present == 'false'
       run: |
-        hatch python install ${{ inputs.max-python-version }}
+        if [ "${{ steps.test-matrix-present.outputs.matrix-present }}" == "true" ]; then          
+          echo "HATCH_PYTHON_PATH=${{ steps.setup-python.outputs.python-path }}" >> $GITHUB_ENV
+        elif [ "${{ steps.test-matrix-present.outputs.matrix-present }}" == "false" ]; then
+          echo "HATCH_PYTHON_PATH=${{ steps.setup-python-default.outputs.python-path }}" >> $GITHUB_ENV
+        fi
 
     - name: Install Dependencies
       shell: bash
@@ -79,17 +96,33 @@ runs:
       run: |
         hatch env create
 
+    - name: Create Hatch Environment for Matrix Python Versions
+      shell: bash
+      run: |
+        hatch env create hatch-test.py${{ inputs.min-python-version }}
+        hatch env create hatch-test.py${{ inputs.max-python-version }}
+
+    - name: Install Dependencies for default python version
+      shell: bash
+      if: steps.cache.outputs.cache-hit != 'true'
+      run: |
+        hatch run pip install --upgrade pip
+        hatch run pip install twine pytest pytest-cov
+
+    - name: Install Dependencies for test matrix python version
+      shell: bash
+      if: steps.cache.outputs.cache-hit != 'true' && steps.test-matrix-present.outputs.matrix-present == 'true'
+      run: |
+        hatch run hatch-test.py${{ inputs.min-python-version }}:pip install --upgrade pip
+        hatch run hatch-test.py${{ inputs.max-python-version }}:pip install --upgrade pip
+        hatch run hatch-test.py${{ inputs.min-python-version }}:pip install twine pytest pytest-cov
+        hatch run hatch-test.py${{ inputs.max-python-version }}:pip install twine pytest pytest-cov
+
     - name: Install Requirements.txt Dependencies for default python version
       shell: bash
       if: hashFiles('requirements.txt') != '' && steps.cache.outputs.cache-hit != 'true' && steps.test-matrix-present.outputs.matrix-present == 'false'
       run: |
         hatch run pip install --upgrade -r requirements.txt
-
-    - name: Install test dependencies for default python version
-      shell: bash
-      if: steps.cache.outputs.cache-hit != 'true'
-      run: |
-        hatch run pip install twine pytest pytest-cov
 
     - name: Install Requirements.txt Dependencies for test matrix python version
       shell: bash
