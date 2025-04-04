@@ -98,6 +98,7 @@ runs:
 
     - name: Create Hatch Environment for Matrix Python Versions
       shell: bash
+      if: steps.cache.outputs.cache-hit != 'true' && steps.test-matrix-present.outputs.matrix-present == 'true'
       run: |
         hatch env create hatch-test.py${{ inputs.min-python-version }}
         hatch env create hatch-test.py${{ inputs.max-python-version }}
