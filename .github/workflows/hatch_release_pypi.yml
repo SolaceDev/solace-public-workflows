@@ -71,6 +71,8 @@ jobs:
 
       - name: Set up Hatch
         uses: SolaceDev/solace-public-workflows/.github/actions/hatch-setup@main
+        with:
+          build: "false"
 
       - name: Get Current Version
         id: current_version
