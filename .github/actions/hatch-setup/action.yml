@@ -7,6 +7,9 @@ inputs:
   max-python-version:
     description: "Maximum Python version to support."
     default: "3.13"
+  build:
+    description: "Whether to run the build step."
+    default: "true"
 outputs:
   matrix-present:
     description: "Whether the test matrix is present."
@@ -134,5 +137,6 @@ runs:
 
     - name: Build Hatch Package
       shell: bash
+      if: inputs.build == 'true'
       run: |
         hatch build
