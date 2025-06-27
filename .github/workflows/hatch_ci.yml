@@ -211,7 +211,7 @@ jobs:
       - name: Build
         shell: bash
         run: |
-          hatch dep show requirements > requirements.txt
+          hatch dep show requirements --all > requirements.txt
 
       - name: Verify Packages
         run: |
