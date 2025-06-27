@@ -211,7 +211,7 @@ jobs:
       - name: Build
         shell: bash
         run: |
-          hatch dep show requirements > requirements.txt
+          hatch dep show requirements --all > requirements.txt
 
       - name: Verify Packages
         run: |
@@ -228,12 +228,12 @@ jobs:
         if: ${{
           inputs.whitesource_product_name != '' &&
           inputs.whitesource_project_name != '' &&
-          github.ref == 'refs/heads/main'
+          (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/test-ws')
           }}
         uses: SolaceDev/solace-public-workflows/.github/actions/whitesource-scan@main
         with:
-          whitesource_product_name: ${{ inputs.whitesource_product_name }}
-          whitesource_project_name: ${{ inputs.whitesource_project_name }}
+          whitesource_product_name: cicd_playground
+          whitesource_project_name: solace-ai-connector
           whitesource_api_key: ${{ secrets.WHITESOURCE_API_KEY }}
           whitesource_config_file: ${{ inputs.whitesource_config_file }}
 
@@ -241,14 +241,14 @@ jobs:
         if: ${{
           inputs.whitesource_product_name != '' &&
           inputs.whitesource_project_name != '' &&
-          github.ref == 'refs/heads/main'
+          (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/test-ws')
           }}
         uses: docker://ghcr.io/solacedev/maas-build-actions:latest
         continue-on-error: true
         env:
           WS_API_KEY: ${{ secrets.WHITESOURCE_API_KEY }}
-          WS_PRODUCT_NAME: ${{ inputs.whitesource_product_name }}
-          WS_PROJECT_NAME: ${{ inputs.whitesource_project_name }}
+          WS_PRODUCT_NAME: cicd_playground
+          WS_PROJECT_NAME: solace-ai-connector
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           AWS_REGION: ${{ vars.MANIFEST_AWS_REGION }}
           AWS_ACCESS_KEY_ID: ${{ secrets.MANIFEST_AWS_ACCESS_KEY_ID }}
@@ -268,14 +268,14 @@ jobs:
         if: ${{
           inputs.whitesource_product_name != '' &&
           inputs.whitesource_project_name != '' &&
-          github.ref == 'refs/heads/main'
+          (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/test-ws')
           }}
         uses: docker://ghcr.io/solacedev/maas-build-actions:latest
         continue-on-error: true
         env:
           WS_API_KEY: ${{ secrets.WHITESOURCE_API_KEY }}
-          WS_PRODUCT_NAME: ${{ inputs.whitesource_product_name }}
-          WS_PROJECT_NAME: ${{ inputs.whitesource_project_name }}
+          WS_PRODUCT_NAME: cicd_playground
+          WS_PROJECT_NAME: solace-ai-connector
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           AWS_REGION: ${{ vars.MANIFEST_AWS_REGION }}
           AWS_ACCESS_KEY_ID: ${{ secrets.MANIFEST_AWS_ACCESS_KEY_ID }}
