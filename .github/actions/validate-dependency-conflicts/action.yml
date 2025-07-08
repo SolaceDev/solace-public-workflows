@@ -34,7 +34,7 @@ runs:
         args: >
           -c ". $VIRTUAL_ENV/bin/activate &&
           cd $ACTIONS_PATH/validate-toml-dependencies &&
-          python validate_dependencies.py ${{ inputs.pyproject-file }} --detailed
+          python validate_dependencies.py ${{ inputs.pyproject-file }} --detailed --output ${{ github.workspace }}/dependency_conflicts.txt
           "
 
     - name: Process Validation Results
