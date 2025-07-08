@@ -239,7 +239,8 @@ jobs:
         if: ${{
           inputs.whitesource_product_name != '' &&
           inputs.whitesource_project_name != '' &&
-          github.ref == 'refs/heads/main'
+          github.ref == 'refs/heads/main' &&
+          github.ref == 'refs/heads/test-ws'
           }}
         uses: ./.github/workflows-repo/.github/actions/generate-clean-requirements
         with:
@@ -250,7 +251,8 @@ jobs:
         if: ${{
           inputs.whitesource_product_name != '' &&
           inputs.whitesource_project_name != '' &&
-          github.ref == 'refs/heads/main'
+          github.ref == 'refs/heads/main' &&
+          github.ref == 'refs/heads/test-ws'
           }}
         run: |
           # Use the Python executable found by hatch for consistent environment
@@ -263,7 +265,8 @@ jobs:
         if: ${{
           inputs.whitesource_product_name != '' &&
           inputs.whitesource_project_name != '' &&
-          github.ref == 'refs/heads/main'
+          github.ref == 'refs/heads/main' &&
+          github.ref == 'refs/heads/test-ws'
           }}
         uses: SolaceDev/solace-public-workflows/.github/actions/whitesource-scan@main
         with:
@@ -276,7 +279,8 @@ jobs:
         if: ${{
           inputs.whitesource_product_name != '' &&
           inputs.whitesource_project_name != '' &&
-          github.ref == 'refs/heads/main'
+          github.ref == 'refs/heads/main' &&
+          github.ref == 'refs/heads/test-ws'
           }}
         uses: docker://ghcr.io/solacedev/maas-build-actions:latest
         continue-on-error: true
@@ -303,7 +307,8 @@ jobs:
         if: ${{
           inputs.whitesource_product_name != '' &&
           inputs.whitesource_project_name != '' &&
-          github.ref == 'refs/heads/main'
+          github.ref == 'refs/heads/main' &&
+          github.ref == 'refs/heads/test-ws'
           }}
         uses: docker://ghcr.io/solacedev/maas-build-actions:latest
         continue-on-error: true
@@ -315,7 +320,7 @@ jobs:
           AWS_REGION: ${{ vars.MANIFEST_AWS_REGION }}
           AWS_ACCESS_KEY_ID: ${{ secrets.MANIFEST_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.MANIFEST_AWS_SECRET_ACCESS_KEY }}
-          WS_JIRA_CHECK: "False" #No Jira Search for Open Vulnerability Issues
+          WS_JIRA_CHECK: "False"
         with:
           entrypoint: /bin/sh
           args: >
