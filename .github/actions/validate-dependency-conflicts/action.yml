@@ -23,7 +23,7 @@ runs:
   using: composite
   steps:
     - name: Validate Dependencies script
-      uses: docker://ghcr.io/solacedev/maas-build-actions:pip-dep-script-8d66295fa0
+      uses: docker://ghcr.io/solacedev/maas-build-actions:pip-dep-script
       continue-on-error: true
       with:
         entrypoint: /bin/sh
