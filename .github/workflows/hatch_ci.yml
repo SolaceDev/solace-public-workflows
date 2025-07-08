@@ -120,7 +120,7 @@ jobs:
         if: ${{ inputs.validate_dependency_conflicts }}
         uses: ./.github/workflows-repo/.github/actions/validate-dependency-conflicts
         with:
-          pyproject-file: ${{ github.workspace }}/pyproject.toml
+          pyproject-file: pyproject.toml
           fail-on-conflicts: true
           action_path: .github/workflows-repo
 
@@ -241,6 +241,7 @@ jobs:
           max-python-version: ${{ inputs.max-python-version }}
           whitesource_config_file: ${{ inputs.whitesource_config_file }}
           action_path: .github/workflows-repo
+
       - name: Install Virtualenv for Whitesource Scan
         run: |
           # Use the Python executable found by hatch for consistent environment

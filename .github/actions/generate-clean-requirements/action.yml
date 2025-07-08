@@ -26,7 +26,7 @@ runs:
         args: >
           -c ". $VIRTUAL_ENV/bin/activate &&
           cd $ACTIONS_PATH/requirements-from-tom &&
-          python consolidate_requirements.py /github/workspace/pyproject.toml /github/workspace/requirements.txt
+          python consolidate_requirements.py pyproject.toml requirements.txt
           "
 
     - name: Find Python and Pip paths
