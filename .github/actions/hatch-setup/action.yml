@@ -14,6 +14,9 @@ outputs:
   matrix-present:
     description: "Whether the test matrix is present."
     value: ${{ steps.test-matrix-present.outputs.matrix-present == 'true' }}
+  hatch-python-path:
+    description: "The path to the Python interpreter."
+    value: ${{ steps.export-python-path.outputs.hatch_python_path }}
 runs:
   using: composite
   steps:
@@ -86,12 +89,15 @@ runs:
 
     - name: Export Python Path For Hatch
       shell: bash
+      id: export-python-path
       run: |
         if [ "${{ steps.test-matrix-present.outputs.matrix-present }}" == "true" ]; then          
-          echo "HATCH_PYTHON_PATH=${{ steps.setup-python.outputs.python-path }}" >> $GITHUB_ENV
+          PYTHON_PATH=${{ steps.setup-python.outputs.python-path }}
         elif [ "${{ steps.test-matrix-present.outputs.matrix-present }}" == "false" ]; then
-          echo "HATCH_PYTHON_PATH=${{ steps.setup-python-default.outputs.python-path }}" >> $GITHUB_ENV
+          PYTHON_PATH=${{ steps.setup-python-default.outputs.python-path }}
         fi
+        echo "HATCH_PYTHON_PATH=${PYTHON_PATH}" >> $GITHUB_ENV
+        echo "hatch_python_path=${PYTHON_PATH}" >> $GITHUB_OUTPUT
 
     - name: Install Dependencies
       shell: bash

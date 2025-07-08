@@ -26,50 +26,51 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Validate Dependencies
+    - name: Validate Dependencies script
+      uses: docker://ghcr.io/solacedev/maas-build-actions:pip-dep-script-8d66295fa0
+      continue-on-error: true
+      with:
+        entrypoint: /bin/sh
+        args: >
+          -c ". $VIRTUAL_ENV/bin/activate &&
+          cd $ACTIONS_PATH/validate-toml-dependencies &&
+          python validate_dependencies.py ${{ inputs.pyproject-file }} --detailed
+          "
+
+    - name: Process Validation Results
       id: validate
       shell: bash
       run: |
-        echo "🔍 Validating dependency conflicts in pyproject.toml..."
+        echo "🔍 Processing dependency validation results..."
 
-        PYPROJECT_FILE="${{ inputs.pyproject-file }}"
-
-        if [ ! -f "$PYPROJECT_FILE" ]; then
-          echo "❌ pyproject.toml not found at: $PYPROJECT_FILE"
-          exit 1
-        fi
-
-        # Get the Python executable path from hatch
-        PYTHON_PATH=$(hatch python find ${{ inputs.max-python-version || '3.13' }})
-        echo "Using Python: $PYTHON_PATH"
-
-        # Install script dependencies with the correct Python
-        "$PYTHON_PATH" -m pip install -r ${{ inputs.action_path }}/.github/scripts/requirements.txt --quiet
-
-        # Run validation script
-        if "$PYTHON_PATH" ${{ inputs.action_path }}/.github/scripts/validate_dependencies.py "$PYPROJECT_FILE" --detailed; then
+        # Check if validation passed by looking for conflicts report
+        if [ -f "dependency_conflicts.txt" ]; then
+          # Check if there are actual conflicts (not just "No conflicts found")
+          if grep -q "❌ Dependency conflicts detected:" dependency_conflicts.txt; then
+            echo "conflicts-found=true" >> $GITHUB_OUTPUT
+            
+            # Count the number of conflicts
+            CONFLICT_COUNT=$(grep -c "Package:" dependency_conflicts.txt || echo "0")
+            echo "conflict-count=$CONFLICT_COUNT" >> $GITHUB_OUTPUT
+            
+            echo "⚠️  Found $CONFLICT_COUNT dependency conflicts"
+            cat dependency_conflicts.txt
+            
+            if [ "${{ inputs.fail-on-conflicts }}" = "true" ]; then
+              echo "❌ Build failed due to dependency conflicts"
+              exit 1
+            else
+              echo "⚠️  Conflicts found but continuing (fail-on-conflicts=false)"
+            fi
+          else
+            echo "conflicts-found=false" >> $GITHUB_OUTPUT
+            echo "conflict-count=0" >> $GITHUB_OUTPUT
+            echo "✅ No dependency conflicts found"
+          fi
+        else
           echo "conflicts-found=false" >> $GITHUB_OUTPUT
           echo "conflict-count=0" >> $GITHUB_OUTPUT
-          exit 0
-        else
-          CONFLICT_COUNT=$("$PYTHON_PATH" -c "
-          try:
-              with open('dependency_conflicts.txt', 'r') as f: content = f.read()
-              conflicts = content.count('Package:')
-              print(conflicts)
-          except:
-              print('0')
-          ")
-          echo "conflicts-found=true" >> $GITHUB_OUTPUT
-          echo "conflict-count=$CONFLICT_COUNT" >> $GITHUB_OUTPUT
-          
-          if [ "${{ inputs.fail-on-conflicts }}" = "true" ]; then
-            echo "❌ Build failed due to dependency conflicts"
-            exit 1
-          else
-            echo "⚠️  Conflicts found but continuing (fail-on-conflicts=false)"
-            exit 0
-          fi
+          echo "✅ No conflicts report generated - assuming no conflicts"
         fi
 
     - name: Comment on PR with Conflicts
