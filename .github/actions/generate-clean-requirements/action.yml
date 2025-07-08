@@ -25,7 +25,7 @@ runs:
         entrypoint: /bin/sh
         args: >
           -c ". $VIRTUAL_ENV/bin/activate &&
-          cd $ACTIONS_PATH/requirements-from-tom &&
+          cd $ACTIONS_PATH/requirements-from-toml &&
           python consolidate_requirements.py /github/workspace/pyproject.toml /github/workspace/requirements.txt
           "
 
