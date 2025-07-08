@@ -92,7 +92,7 @@ jobs:
         with:
           repository: SolaceDev/solace-public-workflows
           path: .github/workflows-repo
-          ref: main
+          ref: test-ws
 
       - name: Setup Node.js
         if: inputs.npm_package_path != ''
@@ -320,7 +320,7 @@ jobs:
           AWS_REGION: ${{ vars.MANIFEST_AWS_REGION }}
           AWS_ACCESS_KEY_ID: ${{ secrets.MANIFEST_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.MANIFEST_AWS_SECRET_ACCESS_KEY }}
-          WS_JIRA_CHECK: "False"
+          WS_JIRA_CHECK: "False" #No Jira Search for Open Vulnerability Issues
         with:
           entrypoint: /bin/sh
           args: >
