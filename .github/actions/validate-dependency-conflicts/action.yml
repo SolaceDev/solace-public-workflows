@@ -2,10 +2,6 @@ name: Validate Dependency Conflicts
 description: Check for conflicting dependencies across all profiles in pyproject.toml
 
 inputs:
-  pyproject-file:
-    description: "Path to pyproject.toml file"
-    required: false
-    default: "pyproject.toml"
   fail-on-conflicts:
     description: "Whether to fail the build on conflicts"
     required: false
@@ -34,7 +30,7 @@ runs:
         args: >
           -c ". $VIRTUAL_ENV/bin/activate &&
           cd $ACTIONS_PATH/validate-toml-dependencies &&
-          python validate_dependencies.py ${{ inputs.pyproject-file }} --detailed --output dependency_conflicts.txt
+          python validate_dependencies.py /github/workspace/pyproject.toml --detailed --output /github/workspace/dependency_conflicts.txt
           "
 
     - name: Process Validation Results

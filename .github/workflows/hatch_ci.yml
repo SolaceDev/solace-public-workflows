@@ -244,11 +244,8 @@ jobs:
 
       - name: Install Virtualenv for Whitesource Scan
         run: |
-          # Use the Python executable found by hatch for consistent environment
-          PYTHON_PATH=$(hatch python find ${{ inputs.max-python-version }})
-          echo "Using Python: $PYTHON_PATH"
-          "$PYTHON_PATH" -m pip install --upgrade pip
-          "$PYTHON_PATH" -m pip install virtualenv
+          python3 -m pip install --upgrade pip
+          python3 -m pip install virtualenv
 
       - name: Run Whitesource Scan
         uses: SolaceDev/solace-public-workflows/.github/actions/whitesource-scan@main

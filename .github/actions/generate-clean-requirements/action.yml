@@ -26,7 +26,7 @@ runs:
         args: >
           -c ". $VIRTUAL_ENV/bin/activate &&
           cd $ACTIONS_PATH/requirements-from-tom &&
-          python consolidate_requirements.py pyproject.toml requirements.txt
+          python consolidate_requirements.py /github/workspace/pyproject.toml /github/workspace/requirements.txt
           "
 
     - name: Find Python and Pip paths
@@ -35,15 +35,11 @@ runs:
       env:
         HATCH_DATA_DIR: ${{ github.workspace }}/.hatch/data
       run: |
-        # Get the Python executable path from hatch
-        PYTHON_PATH=$(hatch python find ${{ inputs.max-python-version }})
+        PYTHON_PATH=$Python3_ROOT_DIR/bin/python
         echo "Using Python: $PYTHON_PATH"
         echo "python-path=$PYTHON_PATH" >> $GITHUB_OUTPUT
-
-        # Get pip path
-        PIP_PATH=$("$PYTHON_PATH" -c "import sys; print(sys.executable.replace('python', 'pip'))")
+        PIP_PATH=$Python3_ROOT_DIR/bin/pip
         echo "pip-path=$PIP_PATH" >> $GITHUB_OUTPUT
-
         # Verify paths exist
         if [ ! -f "$PYTHON_PATH" ]; then
           echo "❌ Python executable not found at: $PYTHON_PATH"
