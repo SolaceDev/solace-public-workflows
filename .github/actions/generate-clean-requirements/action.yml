@@ -1,0 +1,156 @@
+name: Generate Clean Requirements
+description: Generate consolidated requirements.txt without conflicts and update WhiteSource config with Python paths
+
+inputs:
+  max-python-version:
+    description: "Maximum Python version to use"
+    required: true
+    default: "3.13"
+  whitesource_config_file:
+    description: "Path to WhiteSource configuration file"
+    required: false
+    default: ""
+  action_path:
+    description: "Path to the workflows repository"
+    required: false
+    default: "."
+
+outputs:
+  requirements-generated:
+    description: "Whether requirements.txt was successfully generated"
+    value: ${{ steps.generate.outputs.success }}
+  python-path:
+    description: "Python executable path used"
+    value: ${{ steps.find-python.outputs.python-path }}
+  pip-path:
+    description: "Pip executable path used"
+    value: ${{ steps.find-python.outputs.pip-path }}
+
+runs:
+  using: composite
+  steps:
+    - name: Find Python and Pip paths
+      id: find-python
+      shell: bash
+      run: |
+        echo "Finding Python ${{ inputs.max-python-version }} installation..."
+
+        # Find Python path using hatch
+        PYTHON_PATH=$(hatch python find ${{ inputs.max-python-version }})
+        if [ -z "$PYTHON_PATH" ]; then
+          echo "❌ Could not find Python ${{ inputs.max-python-version }}"
+          exit 1
+        fi
+
+        echo "Found Python: $PYTHON_PATH"
+        echo "python-path=$PYTHON_PATH" >> $GITHUB_OUTPUT
+
+        # Find pip path (usually in the same directory)
+        PYTHON_DIR=$(dirname "$PYTHON_PATH")
+        PIP_PATH="$PYTHON_DIR/pip"
+
+        # Verify pip exists
+        if [ ! -f "$PIP_PATH" ]; then
+          echo "❌ Could not find pip at $PIP_PATH"
+          exit 1
+        fi
+
+        echo "Found pip: $PIP_PATH"
+        echo "pip-path=$PIP_PATH" >> $GITHUB_OUTPUT
+
+    - name: Generate All Requirements
+      shell: bash
+      run: |
+        echo "Generating all requirements from hatch..."
+        hatch dep show requirements --all > all_requirements_raw.txt
+        echo "Raw requirements generated:"
+        head -20 all_requirements_raw.txt
+
+    - name: Generate Clean Requirements
+      id: generate
+      shell: bash
+      run: |
+        echo "Consolidating requirements to resolve conflicts..."
+
+        # Get the Python executable path
+        PYTHON_PATH="${{ steps.find-python.outputs.python-path }}"
+        echo "Using Python: $PYTHON_PATH"
+
+        # Install script dependencies with the correct Python
+        "$PYTHON_PATH" -m pip install -r ${{ inputs.action_path }}/.github/scripts/requirements.txt --quiet
+
+        # Run consolidation script
+        "$PYTHON_PATH" ${{ inputs.action_path }}/.github/scripts/consolidate_requirements.py all_requirements_raw.txt
+
+        if [ -f "requirements.txt" ]; then
+          echo "✅ Clean requirements.txt generated successfully"
+          echo "📊 Requirements summary:"
+          wc -l requirements.txt
+          echo "success=true" >> $GITHUB_OUTPUT
+          
+          if [ -f "requirements_conflicts.txt" ]; then
+            echo ""
+            echo "⚠️  Conflicts were resolved. See summary:"
+            head -50 requirements_conflicts.txt
+          fi
+        else
+          echo "❌ Failed to generate requirements.txt"
+          echo "success=false" >> $GITHUB_OUTPUT
+          exit 1
+        fi
+
+    - name: Update WhiteSource Config
+      if: inputs.whitesource_config_file != ''
+      shell: bash
+      run: |
+        CONFIG_FILE="${{ inputs.whitesource_config_file }}"
+        PYTHON_PATH="${{ steps.find-python.outputs.python-path }}"
+        PIP_PATH="${{ steps.find-python.outputs.pip-path }}"
+
+        if [ ! -f "$CONFIG_FILE" ]; then
+          echo "⚠️  WhiteSource config file not found: $CONFIG_FILE"
+          exit 0
+        fi
+
+        echo "🔧 Updating WhiteSource config with Python paths..."
+
+        # Create backup
+        cp "$CONFIG_FILE" "$CONFIG_FILE.backup"
+
+        # Update or add python.path and python.pipPath
+        if grep -q "^python\.path=" "$CONFIG_FILE"; then
+          # Update existing python.path
+          sed -i.tmp "s|^python\.path=.*|python.path=$PYTHON_PATH|" "$CONFIG_FILE"
+          echo "✅ Updated python.path=$PYTHON_PATH"
+        else
+          # Add python.path
+          echo "python.path=$PYTHON_PATH" >> "$CONFIG_FILE"
+          echo "✅ Added python.path=$PYTHON_PATH"
+        fi
+
+        if grep -q "^python\.pipPath=" "$CONFIG_FILE"; then
+          # Update existing python.pipPath
+          sed -i.tmp "s|^python\.pipPath=.*|python.pipPath=$PIP_PATH|" "$CONFIG_FILE"
+          echo "✅ Updated python.pipPath=$PIP_PATH"
+        else
+          # Add python.pipPath
+          echo "python.pipPath=$PIP_PATH" >> "$CONFIG_FILE"
+          echo "✅ Added python.pipPath=$PIP_PATH"
+        fi
+
+        # Clean up temporary files
+        rm -f "$CONFIG_FILE.tmp"
+
+        echo "🔍 Updated WhiteSource config:"
+        grep -E "^python\.(path|pipPath)=" "$CONFIG_FILE" || echo "No python paths found in config"
+
+    - name: Upload Requirements Artifacts
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: requirements-files
+        path: |
+          requirements.txt
+          all_requirements_raw.txt
+          requirements_conflicts.txt
+        retention-days: 7
