@@ -343,7 +343,7 @@ jobs:
           target_url: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
       - name: Send WhiteSource Summary to Slack
-        if: env.is_pr_to_main == 'true' && inputs.slack_notification_profile != ''
+        if: env.run_whitesource_scan == 'true' && inputs.slack_notification_profile != ''
         id: slack-notification
         run: |
           REQUEST_URL="${{ secrets.AUTOBOTS_BASE_URL }}${{ secrets.AUTOBOTS_WHITESOURCE_API_URL }}"
@@ -399,7 +399,7 @@ jobs:
         shell: bash
 
       - name: WhiteSource PR Status Check
-        if: env.is_pr_to_main == 'true' && env.run_whitesource_scan == 'true' && steps.slack-notification.api_success == 'true'
+        if: env.run_whitesource_scan == 'true' && inputs.slack_notification_profile != ''
         uses: billyjbryant/create-status-check@v2
         with:
           authToken: ${{ secrets.GITHUB_TOKEN }}
