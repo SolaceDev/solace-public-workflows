@@ -95,7 +95,7 @@ jobs:
         with:
           repository: SolaceDev/solace-public-workflows
           path: .github/workflows-repo
-          ref: 0e888c7169ecf256fa65096cb435da964d76dc97
+          ref: test-ws
 
       - name: Setup Node.js
         if: inputs.npm_package_path != ''
@@ -238,20 +238,16 @@ jobs:
           ls dist/*.whl | xargs -n1 hatch run python -m twine check
         shell: bash
 
+      - name: Install Virtualenv for Whitesource Scan
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install virtualenv
       - name: Generate Clean Requirements for WhiteSource
         uses: ./.github/workflows-repo/.github/actions/generate-clean-requirements
         with:
           max-python-version: ${{ inputs.max-python-version }}
           whitesource_config_file: ${{ inputs.whitesource_config_file }}
           script-path: .github/workflows-repo/.github/scripts/consolidate_requirements.py
-
-      - name: Install Virtualenv for Whitesource Scan
-        run: |
-          # Use the Python executable found by hatch for consistent environment
-          PYTHON_PATH=$(hatch python find ${{ inputs.max-python-version }})
-          echo "Using Python: $PYTHON_PATH"
-          "$PYTHON_PATH" -m pip install --upgrade pip
-          "$PYTHON_PATH" -m pip install virtualenv
 
       - name: Run Whitesource Scan
         if: ${{
