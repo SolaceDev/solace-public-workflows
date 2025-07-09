@@ -2,14 +2,18 @@ name: Validate Dependency Conflicts
 description: Check for conflicting dependencies across all profiles in pyproject.toml
 
 inputs:
+  pyproject-file:
+    description: "Path to pyproject.toml file"
+    required: false
+    default: "pyproject.toml"
   fail-on-conflicts:
     description: "Whether to fail the build on conflicts"
     required: false
     default: "true"
-  action_path:
-    description: "Path to the workflows repository"
+  script-path:
+    description: "Path to the validation script"
     required: false
-    default: "."
+    default: ".github/workflows-repo/.github/scripts/validate_dependencies.py"
 
 outputs:
   conflicts-found:
@@ -22,51 +26,65 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Validate Dependencies script
-      uses: docker://ghcr.io/solacedev/maas-build-actions:pip-dep-script
-      continue-on-error: true
-      with:
-        entrypoint: /bin/sh
-        args: >
-          -c ". $VIRTUAL_ENV/bin/activate &&
-          cd $ACTIONS_PATH/validate-toml-dependencies &&
-          python validate_dependencies.py /github/workspace/pyproject.toml --detailed --output /github/workspace/dependency_conflicts.txt
-          "
+    - name: Setup Python Dependencies
+      shell: bash
+      run: |
+        echo "🔧 Installing required Python dependencies..."
+        python -m pip install packaging toml --quiet
+        echo "✅ Dependencies installed"
 
-    - name: Process Validation Results
+    - name: Validate Dependencies
       id: validate
       shell: bash
       run: |
-        echo "🔍 Processing dependency validation results..."
+        echo "🔍 Validating dependency conflicts in pyproject.toml..."
 
-        # Check if validation passed by looking for conflicts report
-        if [ -f "dependency_conflicts.txt" ]; then
-          # Check if there are actual conflicts (not just "No conflicts found")
-          if grep -q "❌ Dependency conflicts detected:" dependency_conflicts.txt; then
-            echo "conflicts-found=true" >> $GITHUB_OUTPUT
-            
-            # Count the number of conflicts
-            CONFLICT_COUNT=$(grep -c "Package:" dependency_conflicts.txt || echo "0")
-            echo "conflict-count=$CONFLICT_COUNT" >> $GITHUB_OUTPUT
-            
-            echo "⚠️  Found $CONFLICT_COUNT dependency conflicts"
-            cat dependency_conflicts.txt
-            
-            if [ "${{ inputs.fail-on-conflicts }}" = "true" ]; then
-              echo "❌ Build failed due to dependency conflicts"
-              exit 1
+        PYPROJECT_FILE="${{ inputs.pyproject-file }}"
+        SCRIPT_PATH="${{ inputs.script-path }}"
+        OUTPUT_FILE="dependency_conflicts.txt"
+
+        if [ ! -f "$PYPROJECT_FILE" ]; then
+          echo "❌ pyproject.toml not found at: $PYPROJECT_FILE"
+          exit 1
+        fi
+
+        if [ ! -f "$SCRIPT_PATH" ]; then
+          echo "❌ Validation script not found at: $SCRIPT_PATH"
+          exit 1
+        fi
+
+        # Run validation script and capture exit code
+        if python "$SCRIPT_PATH" "$PYPROJECT_FILE" --detailed --output "$OUTPUT_FILE"; then
+          echo "conflicts-found=false" >> $GITHUB_OUTPUT
+          echo "conflict-count=0" >> $GITHUB_OUTPUT
+          echo "✅ No dependency conflicts found"
+        else
+          # Check if conflicts file was created and has conflicts
+          if [ -f "$OUTPUT_FILE" ]; then
+            if grep -q "❌ Dependency conflicts detected:" "$OUTPUT_FILE"; then
+              CONFLICT_COUNT=$(grep -c "Package:" "$OUTPUT_FILE" || echo "0")
+              echo "conflicts-found=true" >> $GITHUB_OUTPUT
+              echo "conflict-count=$CONFLICT_COUNT" >> $GITHUB_OUTPUT
+              
+              echo "⚠️  Found $CONFLICT_COUNT dependency conflicts"
+              cat "$OUTPUT_FILE"
+              
+              if [ "${{ inputs.fail-on-conflicts }}" = "true" ]; then
+                echo "❌ Build failed due to dependency conflicts"
+                exit 1
+              else
+                echo "⚠️  Conflicts found but continuing (fail-on-conflicts=false)"
+              fi
             else
-              echo "⚠️  Conflicts found but continuing (fail-on-conflicts=false)"
+              echo "conflicts-found=false" >> $GITHUB_OUTPUT
+              echo "conflict-count=0" >> $GITHUB_OUTPUT
+              echo "✅ No dependency conflicts found"
             fi
           else
             echo "conflicts-found=false" >> $GITHUB_OUTPUT
             echo "conflict-count=0" >> $GITHUB_OUTPUT
-            echo "✅ No dependency conflicts found"
+            echo "✅ No conflicts report generated - assuming no conflicts"
           fi
-        else
-          echo "conflicts-found=false" >> $GITHUB_OUTPUT
-          echo "conflict-count=0" >> $GITHUB_OUTPUT
-          echo "✅ No conflicts report generated - assuming no conflicts"
         fi
 
     - name: Comment on PR with Conflicts

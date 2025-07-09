@@ -122,7 +122,7 @@ jobs:
         with:
           pyproject-file: pyproject.toml
           fail-on-conflicts: true
-          action_path: .github/workflows-repo
+          script-path: .github/workflows-repo/.github/scripts/validate_dependencies.py
 
       - name: Run Lint
         continue-on-error: true
@@ -240,15 +240,22 @@ jobs:
         with:
           max-python-version: ${{ inputs.max-python-version }}
           whitesource_config_file: ${{ inputs.whitesource_config_file }}
-          action_path: .github/workflows-repo
+          script-path: .github/workflows-repo/.github/scripts/consolidate_requirements.py
 
       - name: Install Virtualenv for Whitesource Scan
         run: |
-          echo "Installing virtualenv"
-          python3 -m pip install --upgrade pip
-          python3 -m pip install virtualenv
+          # Use the Python executable found by hatch for consistent environment
+          PYTHON_PATH=$(hatch python find ${{ inputs.max-python-version }})
+          echo "Using Python: $PYTHON_PATH"
+          "$PYTHON_PATH" -m pip install --upgrade pip
+          "$PYTHON_PATH" -m pip install virtualenv
 
       - name: Run Whitesource Scan
+        if: ${{
+          inputs.whitesource_product_name != '' &&
+          inputs.whitesource_project_name != '' &&
+          github.ref == 'refs/heads/main'
+          }}
         uses: SolaceDev/solace-public-workflows/.github/actions/whitesource-scan@main
         with:
           whitesource_product_name: ${{ inputs.whitesource_product_name }}
@@ -257,6 +264,11 @@ jobs:
           whitesource_config_file: ${{ inputs.whitesource_config_file }}
 
       - name: Run WhiteSource Policy Gate
+        if: ${{
+          inputs.whitesource_product_name != '' &&
+          inputs.whitesource_project_name != '' &&
+          github.ref == 'refs/heads/main'
+          }}
         uses: docker://ghcr.io/solacedev/maas-build-actions:latest
         continue-on-error: true
         env:
@@ -279,6 +291,11 @@ jobs:
             "
 
       - name: Run WhiteSource Vulnerability Gate
+        if: ${{
+          inputs.whitesource_product_name != '' &&
+          inputs.whitesource_project_name != '' &&
+          github.ref == 'refs/heads/main'
+          }}
         uses: docker://ghcr.io/solacedev/maas-build-actions:latest
         continue-on-error: true
         env:

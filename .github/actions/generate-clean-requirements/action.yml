@@ -10,24 +10,55 @@ inputs:
     description: "Path to WhiteSource config file to update"
     required: false
     default: ""
-  action_path:
-    description: "Path to the workflows repository"
+  script-path:
+    description: "Path to the consolidation script"
     required: false
-    default: "."
+    default: ".github/workflows-repo/.github/scripts/consolidate_requirements.py"
 
 runs:
   using: composite
   steps:
-    - name: Generate Clean Requirements script
-      uses: docker://ghcr.io/solacedev/maas-build-actions:pip-dep-script
-      continue-on-error: true
-      with:
-        entrypoint: /bin/sh
-        args: >
-          -c ". $VIRTUAL_ENV/bin/activate &&
-          cd $ACTIONS_PATH/requirements-from-toml &&
-          python consolidate_requirements.py /github/workspace/pyproject.toml /github/workspace/requirements.txt
-          "
+    - name: Setup Python Dependencies
+      shell: bash
+      run: |
+        echo "🔧 Installing required Python dependencies..."
+        python -m pip install packaging toml --quiet
+        echo "✅ Dependencies installed"
+
+    - name: Generate Clean Requirements
+      shell: bash
+      run: |
+        echo "🔧 Generating clean requirements.txt from pyproject.toml..."
+
+        SCRIPT_PATH="${{ inputs.script-path }}"
+        PYPROJECT_FILE="pyproject.toml"
+        OUTPUT_FILE="requirements.txt"
+
+        if [ ! -f "$PYPROJECT_FILE" ]; then
+          echo "❌ pyproject.toml not found at: $PYPROJECT_FILE"
+          exit 1
+        fi
+
+        if [ ! -f "$SCRIPT_PATH" ]; then
+          echo "❌ Consolidation script not found at: $SCRIPT_PATH"
+          exit 1
+        fi
+
+        # Run the consolidation script
+        if ! python "$SCRIPT_PATH" "$PYPROJECT_FILE" "$OUTPUT_FILE"; then
+          echo "❌ Failed to generate clean requirements.txt"
+          exit 1
+        fi
+
+        # Display the generated requirements
+        echo "📄 Generated requirements.txt:"
+        if [ -f "$OUTPUT_FILE" ]; then
+          cat "$OUTPUT_FILE"
+          echo "✅ Requirements file generated successfully with $(wc -l < "$OUTPUT_FILE") packages"
+        else
+          echo "❌ No requirements.txt file found after script execution"
+          exit 1
+        fi
 
     - name: Find Python and Pip paths
       id: find-python
@@ -35,11 +66,15 @@ runs:
       env:
         HATCH_DATA_DIR: ${{ github.workspace }}/.hatch/data
       run: |
-        PYTHON_PATH=$Python3_ROOT_DIR/bin/python
+        # Get the Python executable path from hatch
+        PYTHON_PATH=$(hatch python find ${{ inputs.max-python-version }})
         echo "Using Python: $PYTHON_PATH"
         echo "python-path=$PYTHON_PATH" >> $GITHUB_OUTPUT
-        PIP_PATH=$Python3_ROOT_DIR/bin/pip
+
+        # Get pip path
+        PIP_PATH=$("$PYTHON_PATH" -c "import sys; print(sys.executable.replace('python', 'pip'))")
         echo "pip-path=$PIP_PATH" >> $GITHUB_OUTPUT
+
         # Verify paths exist
         if [ ! -f "$PYTHON_PATH" ]; then
           echo "❌ Python executable not found at: $PYTHON_PATH"
@@ -48,18 +83,6 @@ runs:
 
         echo "✅ Python executable found: $PYTHON_PATH"
         echo "✅ Pip path: $PIP_PATH"
-
-    - name: Display Generated Requirements
-      shell: bash
-      run: |
-        echo "📄 Generated requirements.txt:"
-        if [ -f "requirements.txt" ]; then
-          cat requirements.txt
-          echo "✅ Requirements file generated successfully with $(wc -l < requirements.txt) packages"
-        else
-          echo "❌ No requirements.txt file found"
-          exit 1
-        fi
 
     - name: Update WhiteSource Config
       if: inputs.whitesource_config_file != ''
