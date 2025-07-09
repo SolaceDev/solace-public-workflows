@@ -270,7 +270,7 @@ jobs:
           python3 -m pip install --upgrade pip
           python3 -m pip install virtualenv
       - name: Generate Clean Requirements for WhiteSource
-        if: env.run_whitesource_checks == 'true'
+        if: env.run_whitesource_scan == 'true'
         uses: ./workflows-repo/.github/actions/generate-clean-requirements
         with:
           max-python-version: ${{ inputs.max-python-version }}
@@ -425,11 +425,6 @@ jobs:
             ${jiraSection}
             `;
 
-            const issue_number = context.issue.number;
-            const owner = context.repo.owner;
-            const repo = context.repo.repo;
-
-            // Check if a comment with the vulnerability report already exists
             const issue_number = context.issue.number;
             const owner = context.repo.owner;
             const repo = context.repo.repo;
