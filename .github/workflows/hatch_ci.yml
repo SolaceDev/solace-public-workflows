@@ -335,7 +335,7 @@ jobs:
         if: env.run_whitesource_checks == 'true'
         uses: billyjbryant/create-status-check@v2
         with:
-          authToken: ${{ secrets.GITHUB_TOKEN }}
+          authToken: ${{ github.token }}
           context: "WhiteSource Vulnerability Gate"
           description: ${{ steps.whitesource-vulnerability-gate.outcome == 'success' && 'WhiteSource Vulnerability Gate completed successfully' || 'WhiteSource Vulnerability Gate failed or found issues' }}
           state: ${{ steps.whitesource-vulnerability-gate.outcome == 'success' && 'success' || 'failure' }}
@@ -402,7 +402,7 @@ jobs:
         if: env.run_whitesource_scan == 'true' && inputs.slack_notification_profile != ''
         uses: billyjbryant/create-status-check@v2
         with:
-          authToken: ${{ secrets.GITHUB_TOKEN }}
+          authToken: ${{ github.token }}
           context: "WhiteSource Scan"
           description: ${{ steps.slack-notification.api_success == 'true' && 'WhiteSource Scan completed successfully' || 'WhiteSource Scan failed or found issues' }}
           state: ${{ steps.slack-notification.api_success == 'true' && 'success' || 'failure' }}
