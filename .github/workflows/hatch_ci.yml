@@ -95,7 +95,7 @@ jobs:
         with:
           repository: SolaceDev/solace-public-workflows
           path: .github/workflows-repo
-          ref: test-ws
+          ref: 0e888c7169ecf256fa65096cb435da964d76dc97
 
       - name: Setup Node.js
         if: inputs.npm_package_path != ''
