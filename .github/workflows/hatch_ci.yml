@@ -118,7 +118,7 @@ jobs:
           echo "is_pr=${{ github.event_name == 'pull_request' }}" >> $GITHUB_ENV
           echo "is_fork_pr=${{ github.event.pull_request.head.repo.full_name != github.repository }}" >> $GITHUB_ENV
           echo "is_main=${{ github.ref == 'refs/heads/main' }}" >> $GITHUB_ENV
-          echo "is_main_or_pr=${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'main' || github.ref == 'refs/heads/main' }}" >> $GITHUB_ENV
+          echo "is_pr_to_main=${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.repo.full_name == github.repository }}" >> $GITHUB_ENV
           echo "has_whitesource_config=${{ inputs.whitesource_product_name != '' && inputs.whitesource_project_name != '' }}" >> $GITHUB_ENV
           echo "run_whitesource_scan=${{ inputs.whitesource_product_name != '' && inputs.whitesource_project_name != '' && (github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'main' || github.ref == 'refs/heads/main') }}" >> $GITHUB_ENV
           echo "run_whitesource_checks=${{ inputs.whitesource_product_name != '' && inputs.whitesource_project_name != '' && github.ref == 'refs/heads/main' }}" >> $GITHUB_ENV
@@ -225,7 +225,7 @@ jobs:
         shell: bash
 
       - name: SonarQube Scan
-        if: env.is_pr == 'true' && env.is_fork_pr == 'false'
+        if: env.is_pr_to_main == 'true'
         uses: sonarsource/sonarqube-scan-action@v2.2.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
@@ -240,7 +240,7 @@ jobs:
             -Dsonar.python.ruff.reportPaths=lint.json
 
       - name: SonarQube Quality Gate check
-        if: env.is_pr == 'true' && env.is_fork_pr == 'false'
+        if: env.is_pr_to_main == 'true'
         id: sonarqube-quality-gate-check
         uses: sonarsource/sonarqube-quality-gate-action@master
         env:
@@ -311,6 +311,7 @@ jobs:
 
       - name: Run WhiteSource Vulnerability Gate
         if: env.run_whitesource_checks == 'true'
+        id: whitesource-vulnerability-gate
         uses: docker://ghcr.io/solacedev/maas-build-actions:latest
         continue-on-error: true
         env:
@@ -330,8 +331,19 @@ jobs:
             python whitesource_vulnerability_checker.py
             "
 
+      - name: Post WhiteSource Vulnerability Gate Status Check
+        if: env.run_whitesource_checks == 'true'
+        uses: billyjbryant/create-status-check@v2
+        with:
+          authToken: ${{ secrets.GITHUB_TOKEN }}
+          context: "WhiteSource Vulnerability Gate"
+          description: ${{ steps.whitesource-vulnerability-gate.outcome == 'success' && 'WhiteSource Vulnerability Gate completed successfully' || 'WhiteSource Vulnerability Gate failed or found issues' }}
+          state: ${{ steps.whitesource-vulnerability-gate.outcome == 'success' && 'success' || 'failure' }}
+          sha: ${{ github.sha }}
+          target_url: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
       - name: Send WhiteSource Summary to Slack
-        if: env.is_pr == 'true' && env.is_fork_pr == 'false' && inputs.slack_notification_profile != ''
+        if: env.is_pr_to_main == 'true' && inputs.slack_notification_profile != ''
         id: slack-notification
         run: |
           REQUEST_URL="${{ secrets.AUTOBOTS_BASE_URL }}${{ secrets.AUTOBOTS_WHITESOURCE_API_URL }}"
@@ -386,8 +398,19 @@ jobs:
           fi
         shell: bash
 
+      - name: WhiteSource PR Status Check
+        if: env.is_pr_to_main == 'true' && env.run_whitesource_scan == 'true' && steps.slack-notification.api_success == 'true'
+        uses: billyjbryant/create-status-check@v2
+        with:
+          authToken: ${{ secrets.GITHUB_TOKEN }}
+          context: "WhiteSource Scan"
+          description: ${{ steps.slack-notification.api_success == 'true' && 'WhiteSource Scan completed successfully' || 'WhiteSource Scan failed or found issues' }}
+          state: ${{ steps.slack-notification.api_success == 'true' && 'success' || 'failure' }}
+          sha: ${{ github.sha }}
+          target_url: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
       - name: Comment on PR with Slack Thread Link
-        if: env.is_pr == 'true' && env.is_fork_pr == 'false' && steps.slack-notification.outputs.api_success == 'true'
+        if: env.is_pr_to_main == 'true' && steps.slack-notification.outputs.api_success == 'true'
         uses: actions/github-script@v7
         with:
           script: |
