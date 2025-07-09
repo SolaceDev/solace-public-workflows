@@ -67,12 +67,12 @@ runs:
         HATCH_DATA_DIR: ${{ github.workspace }}/.hatch/data
       run: |
         # Get the Python executable path from hatch
-        PYTHON_PATH=$(hatch python find ${{ inputs.max-python-version }})
+        PYTHON_PATH=$Python3_ROOT_DIR/bin/python
         echo "Using Python: $PYTHON_PATH"
         echo "python-path=$PYTHON_PATH" >> $GITHUB_OUTPUT
 
         # Get pip path
-        PIP_PATH=$("$PYTHON_PATH" -c "import sys; print(sys.executable.replace('python', 'pip'))")
+        PIP_PATH=$Python3_ROOT_DIR/bin/pip
         echo "pip-path=$PIP_PATH" >> $GITHUB_OUTPUT
 
         # Verify paths exist

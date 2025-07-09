@@ -76,7 +76,10 @@ permissions:
   pull-requests: write
   checks: write
   contents: write
-
+concurrency:
+  # Only run once for latest commit per ref and cancel other (previous) runs.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   build:
     name: Lint, Test, and Build
