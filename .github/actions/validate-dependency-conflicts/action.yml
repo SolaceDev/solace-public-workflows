@@ -1,0 +1,154 @@
+name: Validate Dependency Conflicts
+description: Check for conflicting dependencies across all profiles in pyproject.toml
+
+inputs:
+  pyproject-file:
+    description: "Path to pyproject.toml file"
+    required: false
+    default: "pyproject.toml"
+  fail-on-conflicts:
+    description: "Whether to fail the build on conflicts"
+    required: false
+    default: "true"
+  script-path:
+    description: "Path to the validation script"
+    required: false
+    default: ".github/workflows-repo/.github/scripts/validate_dependencies.py"
+
+outputs:
+  conflicts-found:
+    description: "Whether dependency conflicts were found"
+    value: ${{ steps.validate.outputs.conflicts-found }}
+  conflict-count:
+    description: "Number of conflicts found"
+    value: ${{ steps.validate.outputs.conflict-count }}
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Python Dependencies
+      shell: bash
+      run: |
+        echo "🔧 Installing required Python dependencies..."
+        python -m pip install packaging toml --quiet
+        echo "✅ Dependencies installed"
+
+    - name: Validate Dependencies
+      id: validate
+      shell: bash
+      run: |
+        echo "🔍 Validating dependency conflicts in pyproject.toml..."
+
+        PYPROJECT_FILE="${{ inputs.pyproject-file }}"
+        SCRIPT_PATH="${{ inputs.script-path }}"
+        OUTPUT_FILE="dependency_conflicts.txt"
+
+        if [ ! -f "$PYPROJECT_FILE" ]; then
+          echo "❌ pyproject.toml not found at: $PYPROJECT_FILE"
+          exit 1
+        fi
+
+        if [ ! -f "$SCRIPT_PATH" ]; then
+          echo "❌ Validation script not found at: $SCRIPT_PATH"
+          exit 1
+        fi
+
+        # Run validation script and capture exit code
+        if python "$SCRIPT_PATH" "$PYPROJECT_FILE" --detailed --output "$OUTPUT_FILE"; then
+          echo "conflicts-found=false" >> $GITHUB_OUTPUT
+          echo "conflict-count=0" >> $GITHUB_OUTPUT
+          echo "✅ No dependency conflicts found"
+        else
+          # Check if conflicts file was created and has conflicts
+          if [ -f "$OUTPUT_FILE" ]; then
+            if grep -q "❌ Dependency conflicts detected:" "$OUTPUT_FILE"; then
+              CONFLICT_COUNT=$(grep -c "Package:" "$OUTPUT_FILE" || echo "0")
+              echo "conflicts-found=true" >> $GITHUB_OUTPUT
+              echo "conflict-count=$CONFLICT_COUNT" >> $GITHUB_OUTPUT
+              
+              echo "⚠️  Found $CONFLICT_COUNT dependency conflicts"
+              cat "$OUTPUT_FILE"
+              
+              if [ "${{ inputs.fail-on-conflicts }}" = "true" ]; then
+                echo "❌ Build failed due to dependency conflicts"
+                exit 1
+              else
+                echo "⚠️  Conflicts found but continuing (fail-on-conflicts=false)"
+              fi
+            else
+              echo "conflicts-found=false" >> $GITHUB_OUTPUT
+              echo "conflict-count=0" >> $GITHUB_OUTPUT
+              echo "✅ No dependency conflicts found"
+            fi
+          else
+            echo "conflicts-found=false" >> $GITHUB_OUTPUT
+            echo "conflict-count=0" >> $GITHUB_OUTPUT
+            echo "✅ No conflicts report generated - assuming no conflicts"
+          fi
+        fi
+
+    - name: Comment on PR with Conflicts
+      if: steps.validate.outputs.conflicts-found == 'true' && github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+
+          let conflictReport = '';
+          try {
+            conflictReport = fs.readFileSync('dependency_conflicts.txt', 'utf8');
+          } catch (error) {
+            conflictReport = 'Error reading conflict report.';
+          }
+
+          const conflictCount = '${{ steps.validate.outputs.conflict-count }}';
+
+          const comment = `## 🚨 Dependency Conflicts Detected
+
+          Found **${conflictCount}** dependency conflict(s) in [\`pyproject.toml\`](${context.payload.pull_request.head.repo.html_url}/blob/${context.payload.pull_request.head.sha}/pyproject.toml).
+
+          <details>
+          <summary>📋 Click to view conflict details</summary>
+
+          \`\`\`
+          ${conflictReport}
+          \`\`\`
+
+          </details>
+
+          ### 💡 How to Fix
+
+          1. **Align versions**: Make sure the same package uses the same version across all profiles
+          2. **Remove duplicates**: If a dependency appears in multiple profiles, consider if it's really needed in each
+          3. **Use version ranges**: Instead of exact pins (\`==\`), consider using ranges (\`>=\`, \`<\`) where appropriate
+
+          ### 📝 Example Fix
+
+          If you have:
+          \`\`\`toml
+          all = ["qdrant-client==1.10.1"]
+          qdrant_ext_release = ["qdrant-client==1.13.3"]
+          \`\`\`
+
+          Fix by using the same version:
+          \`\`\`toml
+          all = ["qdrant-client==1.13.3"]
+          qdrant_ext_release = ["qdrant-client==1.13.3"]
+          \`\`\`
+          `;
+
+          // Post comment on PR
+          await github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: comment
+          });
+
+    - name: Upload Conflict Report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: dependency-conflict-report
+        path: dependency_conflicts.txt
+        retention-days: 7

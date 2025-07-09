@@ -1,0 +1,119 @@
+name: Generate Clean Requirements
+description: Generate a clean requirements.txt file from pyproject.toml, removing duplicates and using highest versions
+
+inputs:
+  max-python-version:
+    description: "Maximum Python version to use for hatch"
+    required: false
+    default: "3.13"
+  whitesource_config_file:
+    description: "Path to WhiteSource config file to update"
+    required: false
+    default: ""
+  script-path:
+    description: "Path to the consolidation script"
+    required: false
+    default: ".github/workflows-repo/.github/scripts/consolidate_requirements.py"
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Python Dependencies
+      shell: bash
+      run: |
+        echo "🔧 Installing required Python dependencies..."
+        python -m pip install packaging toml --quiet
+        echo "✅ Dependencies installed"
+
+    - name: Generate Clean Requirements
+      shell: bash
+      run: |
+        echo "🔧 Generating clean requirements.txt from pyproject.toml..."
+
+        SCRIPT_PATH="${{ inputs.script-path }}"
+        PYPROJECT_FILE="pyproject.toml"
+        OUTPUT_FILE="requirements.txt"
+
+        if [ ! -f "$PYPROJECT_FILE" ]; then
+          echo "❌ pyproject.toml not found at: $PYPROJECT_FILE"
+          exit 1
+        fi
+
+        if [ ! -f "$SCRIPT_PATH" ]; then
+          echo "❌ Consolidation script not found at: $SCRIPT_PATH"
+          exit 1
+        fi
+
+        # Run the consolidation script
+        if ! python "$SCRIPT_PATH" "$PYPROJECT_FILE" "$OUTPUT_FILE"; then
+          echo "❌ Failed to generate clean requirements.txt"
+          exit 1
+        fi
+
+        # Display the generated requirements
+        echo "📄 Generated requirements.txt:"
+        if [ -f "$OUTPUT_FILE" ]; then
+          cat "$OUTPUT_FILE"
+          echo "✅ Requirements file generated successfully with $(wc -l < "$OUTPUT_FILE") packages"
+        else
+          echo "❌ No requirements.txt file found after script execution"
+          exit 1
+        fi
+
+    - name: Find Python and Pip paths
+      id: find-python
+      shell: bash
+      env:
+        HATCH_DATA_DIR: ${{ github.workspace }}/.hatch/data
+      run: |
+        # Get the Python executable path from hatch
+        PYTHON_PATH=$Python3_ROOT_DIR/bin/python
+        echo "Using Python: $PYTHON_PATH"
+        echo "python-path=$PYTHON_PATH" >> $GITHUB_OUTPUT
+
+        # Get pip path
+        PIP_PATH=$Python3_ROOT_DIR/bin/pip
+        echo "pip-path=$PIP_PATH" >> $GITHUB_OUTPUT
+
+        # Verify paths exist
+        if [ ! -f "$PYTHON_PATH" ]; then
+          echo "❌ Python executable not found at: $PYTHON_PATH"
+          exit 1
+        fi
+
+        echo "✅ Python executable found: $PYTHON_PATH"
+        echo "✅ Pip path: $PIP_PATH"
+
+    - name: Update WhiteSource Config
+      if: inputs.whitesource_config_file != ''
+      shell: bash
+      run: |
+        echo "🔧 Updating WhiteSource configuration..."
+
+        PYTHON_PATH="${{ steps.find-python.outputs.python-path }}"
+        PIP_PATH="${{ steps.find-python.outputs.pip-path }}"
+        CONFIG_FILE="${{ inputs.whitesource_config_file }}"
+
+        if [ ! -f "$CONFIG_FILE" ]; then
+          echo "❌ WhiteSource config file not found: $CONFIG_FILE"
+          exit 1
+        fi
+
+        # Create a backup
+        cp "$CONFIG_FILE" "$CONFIG_FILE.backup"
+
+        # Update Python and pip paths in the config
+        sed -i "s|python.path=.*|python.path=$PYTHON_PATH|g" "$CONFIG_FILE"
+        sed -i "s|pip.path=.*|pip.path=$PIP_PATH|g" "$CONFIG_FILE"
+
+        # Update requirements path
+        sed -i "s|pip.requirementsFilePath=.*|pip.requirementsFilePath=requirements.txt|g" "$CONFIG_FILE"
+
+        echo "✅ WhiteSource configuration updated:"
+        echo "   - python.path=$PYTHON_PATH"
+        echo "   - pip.path=$PIP_PATH"
+        echo "   - pip.requirementsFilePath=requirements.txt"
+
+        # Show what changed
+        echo "📝 Configuration changes:"
+        diff "$CONFIG_FILE.backup" "$CONFIG_FILE" || true

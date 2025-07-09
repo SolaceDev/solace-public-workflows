@@ -42,6 +42,12 @@ on:
         required: false
         default: "package-lock.json"
         description: "Path to the npm lock file"
+
+      validate_dependency_conflicts:
+        type: boolean
+        required: false
+        default: true
+        description: "Validate dependency conflicts"
     secrets:
       SONAR_TOKEN:
         description: "SonarQube token for the repository."
@@ -70,7 +76,10 @@ permissions:
   pull-requests: write
   checks: write
   contents: write
-
+concurrency:
+  # Only run once for latest commit per ref and cancel other (previous) runs.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   build:
     name: Lint, Test, and Build
@@ -80,6 +89,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Checkout Workflows Repository
+        uses: actions/checkout@v4
+        with:
+          repository: SolaceDev/solace-public-workflows
+          path: workflows-repo
+          ref: fc1cec30fb7440e479712e56633d3bedaacd8102
 
       - name: Setup Node.js
         if: inputs.npm_package_path != ''
@@ -98,10 +114,18 @@ jobs:
 
       - name: Set up Hatch
         id: hatch-setup
-        uses: SolaceDev/solace-public-workflows/.github/actions/hatch-setup@main
+        uses: ./workflows-repo/.github/actions/hatch-setup
         with:
           min-python-version: ${{ inputs.min-python-version }}
           max-python-version: ${{ inputs.max-python-version }}
+
+      - name: Validate Dependency Conflicts
+        if: ${{ inputs.validate_dependency_conflicts }}
+        uses: ./workflows-repo/.github/actions/validate-dependency-conflicts
+        with:
+          pyproject-file: pyproject.toml
+          fail-on-conflicts: true
+          script-path: workflows-repo/.github/scripts/validate_dependencies.py
 
       - name: Run Lint
         continue-on-error: true
@@ -208,11 +232,6 @@ jobs:
           junit-path: ${{ hashFiles('junit-default.xml') != '' && 'junit-default.xml' || hashFiles(env.MIN_PYTHON_VERSION_FILE) != '' && env.MIN_PYTHON_VERSION_FILE || hashFiles(env.MAX_PYTHON_VERSION_FILE) != '' && env.MAX_PYTHON_VERSION_FILE }}
           coverage-path: coverage.xml
 
-      - name: Build
-        shell: bash
-        run: |
-          hatch dep show requirements --all > requirements.txt
-
       - name: Verify Packages
         run: |
           ls dist/*.tar.gz | xargs -n1 hatch run python -m twine check
@@ -221,8 +240,14 @@ jobs:
 
       - name: Install Virtualenv for Whitesource Scan
         run: |
-          python -m pip install --upgrade pip
-          pip install virtualenv
+          python3 -m pip install --upgrade pip
+          python3 -m pip install virtualenv
+      - name: Generate Clean Requirements for WhiteSource
+        uses: ./workflows-repo/.github/actions/generate-clean-requirements
+        with:
+          max-python-version: ${{ inputs.max-python-version }}
+          whitesource_config_file: ${{ inputs.whitesource_config_file }}
+          script-path: workflows-repo/.github/scripts/consolidate_requirements.py
 
       - name: Run Whitesource Scan
         if: ${{
