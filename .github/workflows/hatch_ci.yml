@@ -42,6 +42,16 @@ on:
         required: false
         default: "package-lock.json"
         description: "Path to the npm lock file"
+      validate_dependency_conflicts:
+        type: boolean
+        required: false
+        default: true
+        description: "Validate dependency conflicts"
+      slack_notification_profile:
+        type: string
+        required: false
+        default: ""
+        description: "Profile name for Slack notification"
     secrets:
       SONAR_TOKEN:
         description: "SonarQube token for the repository."
@@ -64,13 +74,25 @@ on:
       MANIFEST_AWS_SECRET_ACCESS_KEY:
         description: "AWS Secret Access Key"
         required: false
+      AUTOBOTS_BASE_URL:
+        description: "Autobots base URL for Slack notifications"
+        required: false
+      AUTOBOTS_WHITESOURCE_API_URL:
+        description: "Autobots WhiteSource API URL for Slack notifications"
+        required: false
+      SLACK_CHANNEL_LINK:
+        description: "Slack channel link for Slack notifications"
+        required: false
 
 permissions:
   id-token: write
   pull-requests: write
   checks: write
   contents: write
-
+concurrency:
+  # Only run once for latest commit per ref and cancel other (previous) runs.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   build:
     name: Lint, Test, and Build
@@ -80,6 +102,25 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Checkout Workflows Repository
+        uses: actions/checkout@v4
+        with:
+          repository: SolaceDev/solace-public-workflows
+          path: workflows-repo
+
+      - name: Setup Conditional Steps
+        id: conditional-steps
+        shell: bash
+        run: |
+          # Set environment variables for conditional steps
+          echo "is_pr=${{ github.event_name == 'pull_request' }}" >> $GITHUB_ENV
+          echo "is_fork_pr=${{ github.event.pull_request.head.repo.full_name != github.repository }}" >> $GITHUB_ENV
+          echo "is_main=${{ github.ref == 'refs/heads/main' }}" >> $GITHUB_ENV
+          echo "is_pr_to_main=${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.repo.full_name == github.repository }}" >> $GITHUB_ENV
+          echo "has_whitesource_config=${{ inputs.whitesource_product_name != '' && inputs.whitesource_project_name != '' }}" >> $GITHUB_ENV
+          echo "run_whitesource_scan=${{ inputs.whitesource_product_name != '' && inputs.whitesource_project_name != '' && (github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'main' || github.ref == 'refs/heads/main') }}" >> $GITHUB_ENV
+          echo "run_whitesource_checks=${{ inputs.whitesource_product_name != '' && inputs.whitesource_project_name != '' && github.ref == 'refs/heads/main' }}" >> $GITHUB_ENV
 
       - name: Setup Node.js
         if: inputs.npm_package_path != ''
@@ -98,10 +139,18 @@ jobs:
 
       - name: Set up Hatch
         id: hatch-setup
-        uses: SolaceDev/solace-public-workflows/.github/actions/hatch-setup@main
+        uses: ./workflows-repo/.github/actions/hatch-setup
         with:
           min-python-version: ${{ inputs.min-python-version }}
           max-python-version: ${{ inputs.max-python-version }}
+
+      - name: Validate Dependency Conflicts
+        if: fromJson(inputs.validate_dependency_conflicts)
+        uses: ./workflows-repo/.github/actions/validate-dependency-conflicts
+        with:
+          pyproject-file: pyproject.toml
+          fail-on-conflicts: true
+          script-path: workflows-repo/.github/scripts/validate_dependencies.py
 
       - name: Run Lint
         continue-on-error: true
@@ -175,7 +224,7 @@ jobs:
         shell: bash
 
       - name: SonarQube Scan
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        if: env.is_pr_to_main == 'true'
         uses: sonarsource/sonarqube-scan-action@v2.2.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
@@ -190,7 +239,7 @@ jobs:
             -Dsonar.python.ruff.reportPaths=lint.json
 
       - name: SonarQube Quality Gate check
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        if: env.is_pr_to_main == 'true'
         id: sonarqube-quality-gate-check
         uses: sonarsource/sonarqube-quality-gate-action@master
         env:
@@ -198,7 +247,7 @@ jobs:
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
 
       - name: Comment on PR with Test Results
-        if: (hashFiles('junit-*.xml') != '') && (hashFiles('coverage.xml') != '')
+        if: fromJson(env.is_pr) && (hashFiles('junit-*.xml') != '') && (hashFiles('coverage.xml') != '')
         continue-on-error: true
         env:
           MIN_PYTHON_VERSION_FILE: ${{ format('junit-{0}.xml', inputs.min-python-version) }}
@@ -208,11 +257,6 @@ jobs:
           junit-path: ${{ hashFiles('junit-default.xml') != '' && 'junit-default.xml' || hashFiles(env.MIN_PYTHON_VERSION_FILE) != '' && env.MIN_PYTHON_VERSION_FILE || hashFiles(env.MAX_PYTHON_VERSION_FILE) != '' && env.MAX_PYTHON_VERSION_FILE }}
           coverage-path: coverage.xml
 
-      - name: Build
-        shell: bash
-        run: |
-          hatch dep show requirements --all > requirements.txt
-
       - name: Verify Packages
         run: |
           ls dist/*.tar.gz | xargs -n1 hatch run python -m twine check
@@ -220,17 +264,21 @@ jobs:
         shell: bash
 
       - name: Install Virtualenv for Whitesource Scan
+        if: env.run_whitesource_scan == 'true'
         run: |
-          python -m pip install --upgrade pip
-          pip install virtualenv
+          python3 -m pip install --upgrade pip
+          python3 -m pip install virtualenv
+      - name: Generate Clean Requirements for WhiteSource
+        if: env.run_whitesource_scan == 'true'
+        uses: ./workflows-repo/.github/actions/generate-clean-requirements
+        with:
+          max-python-version: ${{ inputs.max-python-version }}
+          whitesource_config_file: ${{ inputs.whitesource_config_file }}
+          script-path: workflows-repo/.github/scripts/consolidate_requirements.py
 
       - name: Run Whitesource Scan
-        if: ${{
-          inputs.whitesource_product_name != '' &&
-          inputs.whitesource_project_name != '' &&
-          github.ref == 'refs/heads/main'
-          }}
-        uses: SolaceDev/solace-public-workflows/.github/actions/whitesource-scan@main
+        if: env.run_whitesource_scan == 'true'
+        uses: ./workflows-repo/.github/actions/whitesource-scan
         with:
           whitesource_product_name: ${{ inputs.whitesource_product_name }}
           whitesource_project_name: ${{ inputs.whitesource_project_name }}
@@ -238,11 +286,7 @@ jobs:
           whitesource_config_file: ${{ inputs.whitesource_config_file }}
 
       - name: Run WhiteSource Policy Gate
-        if: ${{
-          inputs.whitesource_product_name != '' &&
-          inputs.whitesource_project_name != '' &&
-          github.ref == 'refs/heads/main'
-          }}
+        if: env.run_whitesource_checks == 'true'
         uses: docker://ghcr.io/solacedev/maas-build-actions:latest
         continue-on-error: true
         env:
@@ -265,11 +309,8 @@ jobs:
             "
 
       - name: Run WhiteSource Vulnerability Gate
-        if: ${{
-          inputs.whitesource_product_name != '' &&
-          inputs.whitesource_project_name != '' &&
-          github.ref == 'refs/heads/main'
-          }}
+        if: env.run_whitesource_checks == 'true'
+        id: whitesource-vulnerability-gate
         uses: docker://ghcr.io/solacedev/maas-build-actions:latest
         continue-on-error: true
         env:
@@ -280,7 +321,7 @@ jobs:
           AWS_REGION: ${{ vars.MANIFEST_AWS_REGION }}
           AWS_ACCESS_KEY_ID: ${{ secrets.MANIFEST_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.MANIFEST_AWS_SECRET_ACCESS_KEY }}
-          WS_JIRA_CHECK: "False" #No Jira Search for Open Vulnerability Issues
+          WS_JIRA_CHECK: "True" #No Jira Search for Open Vulnerability Issues
         with:
           entrypoint: /bin/sh
           args: >
@@ -288,3 +329,183 @@ jobs:
             cd $ACTIONS_PATH/whitesource-vulnerability-checker &&
             python whitesource_vulnerability_checker.py
             "
+
+      - name: Post WhiteSource Vulnerability Gate Check
+        if: env.run_whitesource_checks == 'true'
+        uses: LouisBrunner/checks-action@v2.0.0
+        with:
+          token: ${{ github.token }}
+          name: "WhiteSource Vulnerability Gate"
+          conclusion: ${{ steps.whitesource-vulnerability-gate.outcome == 'success' && 'success' || 'failure' }}
+          details_url: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          output: |
+            {"summary":"WhiteSource vulnerability gate scan ${{ steps.whitesource-vulnerability-gate.outcome == 'success' && 'completed successfully' || 'failed or found issues' }}"}
+
+      - name: Send WhiteSource Summary to Slack
+        if: env.run_whitesource_scan == 'true' && inputs.slack_notification_profile != ''
+        id: slack-notification
+        run: |
+          REQUEST_URL="${{ secrets.AUTOBOTS_BASE_URL }}${{ secrets.AUTOBOTS_WHITESOURCE_API_URL }}"
+          REPOSITORIES='["${{ github.event.repository.name }}"]'
+          PARENT_REPOSITORY='N/A'
+          PROFILE='${{ inputs.slack_notification_profile }}'
+          BUILD_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          THREAD_TS="null"
+          FULL_REPORT='true'
+
+          echo "Sending WhiteSource summary to Slack..."
+          echo "Request URL: $REQUEST_URL"
+          echo "Repositories: $REPOSITORIES"
+          echo "Parent Repository: $PARENT_REPOSITORY"
+          echo "Profile: $PROFILE"
+          echo "Build URL: $BUILD_URL"
+
+          RESPONSE=$(curl -s -X POST "$REQUEST_URL" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"repositories\": $REPOSITORIES,
+              \"parentRepository\": \"$PARENT_REPOSITORY\",
+              \"profile\": \"$PROFILE\",
+              \"buildUrl\": \"$BUILD_URL\",
+              \"threadTs\": $THREAD_TS,
+              \"fullReport\": $FULL_REPORT
+            }")
+
+          echo "Response: $RESPONSE"
+
+          # Extract status and Jira information from response
+          STATUS=$(echo "$RESPONSE" | jq -r '.status // empty')
+          PENDING_JIRAS=$(echo "$RESPONSE" | jq -r '.pendingJiras // empty')
+          BLOCKING_JIRAS=$(echo "$RESPONSE" | jq -r '.blockingJiras // empty')
+          EXCLUDED_JIRAS=$(echo "$RESPONSE" | jq -r '.excludedJiras // empty')
+
+          if [ "$STATUS" = "Success" ]; then
+            echo "api_success=true" >> $GITHUB_OUTPUT
+            echo "pending_jiras=$PENDING_JIRAS" >> $GITHUB_OUTPUT
+            echo "blocking_jiras=$BLOCKING_JIRAS" >> $GITHUB_OUTPUT
+            echo "excluded_jiras=$EXCLUDED_JIRAS" >> $GITHUB_OUTPUT
+            echo "Successfully sent summary to Slack API. Status: $STATUS"
+            echo "Pending Jiras: $PENDING_JIRAS"
+            echo "Blocking Jiras: $BLOCKING_JIRAS"
+            echo "Excluded Jiras: $EXCLUDED_JIRAS"
+          else
+            echo "API request failed or returned unsuccessful status: $STATUS"
+            echo "api_success=false" >> $GITHUB_OUTPUT
+            echo "pending_jiras=" >> $GITHUB_OUTPUT
+            echo "blocking_jiras=" >> $GITHUB_OUTPUT
+            echo "excluded_jiras=" >> $GITHUB_OUTPUT
+          fi
+        shell: bash
+
+      - name: Format Jira Links
+        if: env.run_whitesource_scan == 'true' && inputs.slack_notification_profile != ''
+        id: format-jira-links
+        shell: bash
+        run: |
+          # Function to format Jira array into URL format
+          format_jira_url() {
+            local jira_array="$1"
+            local jira_type="$2"
+            
+            if [ "$jira_array" = "[]" ] || [ -z "$jira_array" ] || [ "$jira_array" = "null" ]; then
+              echo "${jira_type}_formatted=None" >> $GITHUB_OUTPUT
+            else
+              # Remove brackets and quotes, replace with URL-encoded format
+              formatted=$(echo "$jira_array" | sed 's/\[//g' | sed 's/\]//g' | sed 's/"//g' | sed "s/,/%27,%27/g" | sed "s/^/%27/" | sed "s/$/%27/")
+              jira_url="https://sol-jira.atlassian.net/issues/?jql=issue%20in%20($formatted)"
+              echo "${jira_type}_formatted=[View Issues]($jira_url)" >> $GITHUB_OUTPUT
+            fi
+          }
+
+          # Format each Jira type
+          format_jira_url '${{ steps.slack-notification.outputs.pending_jiras }}' 'pending'
+          format_jira_url '${{ steps.slack-notification.outputs.blocking_jiras }}' 'blocking'
+          format_jira_url '${{ steps.slack-notification.outputs.excluded_jiras }}' 'excluded'
+
+      - name: WhiteSource Scan Check
+        if: env.run_whitesource_scan == 'true' && inputs.slack_notification_profile != ''
+        uses: LouisBrunner/checks-action@v2.0.0
+        with:
+          token: ${{ github.token }}
+          name: "WhiteSource Scan"
+          conclusion: ${{ steps.slack-notification.outputs.api_success == 'true' && 'success' || 'failure' }}
+          details_url: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          output: |
+            {
+              "summary": "WhiteSource scan ${{ steps.slack-notification.outputs.api_success == 'true' && 'completed successfully' || 'failed or encountered issues' }}",
+              "text_description": "### WhiteSource Scan Results\n\n${{ steps.slack-notification.outputs.api_success == 'true' && '✅ Scan completed successfully' || '❌ Scan failed or encountered issues' }}\n\n#### Jira Issues\n\n**Pending Issues:** ${{ steps.format-jira-links.outputs.pending_formatted }}\n\n**Blocking Issues:** ${{ steps.format-jira-links.outputs.blocking_formatted }}\n\n**Excluded Issues:** ${{ steps.format-jira-links.outputs.excluded_formatted }}\n\n*For detailed vulnerability report, check the Slack notification.*"
+            }
+
+      - name: Comment on PR with Slack Thread Link
+        if: env.is_pr_to_main == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pendingJiras = '${{ steps.slack-notification.outputs.pending_jiras }}';
+            const blockingJiras = '${{ steps.slack-notification.outputs.blocking_jiras }}';
+            const excludedJiras = '${{ steps.slack-notification.outputs.excluded_jiras }}';
+            const slackChannelLink = '${{ secrets.SLACK_CHANNEL_LINK }}';
+
+            let jiraSection = '';
+
+            // Parse and format Jira tickets
+            try {
+              const pending = JSON.parse(pendingJiras);
+              const blocking = JSON.parse(blockingJiras);
+              const excluded = JSON.parse(excludedJiras);
+              
+              if (pending.length > 0) {
+                jiraSection += `\n**Pending Jira Issues:** ${pending.join(', ')}`;
+              }
+              if (blocking.length > 0) {
+                jiraSection += `\n**Blocking Jira Issues:** ${blocking.join(', ')}`;
+              }
+              if (excluded.length > 0) {
+                jiraSection += `\n**Excluded Jira Issues:** ${excluded.join(', ')}`;
+              }
+            } catch (e) {
+              console.log('Error parsing Jira data:', e);
+            }
+
+            const commentBody = `## 🔒 WhiteSource Vulnerability Report
+
+            A vulnerability scan has been completed for this PR. You can view the detailed report in our Slack channel:
+
+            📋 **[View Vulnerability Report](${slackChannelLink})**
+            ${jiraSection}
+            `;
+
+            const issue_number = context.issue.number;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            // Check if a comment with the vulnerability report already exists
+            const comments = await github.rest.issues.listComments({
+              owner,
+              repo,
+              issue_number
+            });
+
+            const existingComment = comments.data.find(comment => 
+              comment.body.includes('## 🔒 WhiteSource Vulnerability Report')
+            );
+
+            if (existingComment) {
+              // Update the existing comment
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: existingComment.id,
+                body: commentBody
+              });
+              console.log('Updated existing vulnerability report comment');
+            } else {
+              // Create a new comment
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number,
+                body: commentBody
+              });
+              console.log('Created new vulnerability report comment');
+            }

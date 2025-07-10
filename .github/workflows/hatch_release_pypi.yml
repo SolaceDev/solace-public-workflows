@@ -30,12 +30,35 @@ on:
         required: false
         default: "package-lock.json"
         description: "Path to the npm lock file"
+
+      whitesource_product_name:
+        type: string
+        required: false
+        default: ""
+        description: "Whitesource product name"
+      whitesource_project_name:
+        type: string
+        required: false
+        default: ""
+        description: "Whitesource project name"
     secrets:
       COMMIT_KEY:
         description: "SSH private key for the repository."
         required: true
       PYPI_TOKEN:
         description: "PyPi token"
+        required: true
+      WHITESOURCE_API_KEY:
+        description: "Whitesource API key"
+        required: true
+      MANIFEST_AWS_REGION:
+        description: "AWS region for the manifest"
+        required: true
+      MANIFEST_AWS_ACCESS_KEY_ID:
+        description: "AWS access key ID for the manifest"
+        required: true
+      MANIFEST_AWS_SECRET_ACCESS_KEY:
+        description: "AWS secret access key for the manifest"
         required: true
 permissions:
   id-token: write
@@ -54,6 +77,47 @@ jobs:
           fetch-depth: 0
           ssh-key: ${{ secrets.COMMIT_KEY }}
 
+      - name: Run WhiteSource Policy Gate
+        if: ${{ inputs.whitesource_product_name != '' && inputs.whitesource_project_name != '' }}
+        uses: docker://ghcr.io/solacedev/maas-build-actions:latest
+        env:
+          WS_API_KEY: ${{ secrets.WHITESOURCE_API_KEY }}
+          WS_PRODUCT_NAME: ${{ inputs.whitesource_product_name }}
+          WS_PROJECT_NAME: ${{ inputs.whitesource_project_name }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AWS_REGION: ${{ secrets.MANIFEST_AWS_REGION }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.MANIFEST_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.MANIFEST_AWS_SECRET_ACCESS_KEY }}
+          WS_BLOCKING_POLICY_VIOLATION_LEVELS: "Major,Minor"
+          FAIL_IF_POLICY_VIOLATIONS_FOUND: "True"
+        with:
+          entrypoint: /bin/sh
+          args: >
+            -c "
+            . $VIRTUAL_ENV/bin/activate &&
+            cd $ACTIONS_PATH/whitesource-policy-violation-checker &&
+            python whitesource_policy_violation_checker.py
+            "
+
+      - name: Run WhiteSource Vulnerability Gate
+        if: ${{ inputs.whitesource_product_name != '' && inputs.whitesource_project_name != '' }}
+        uses: docker://ghcr.io/solacedev/maas-build-actions:latest
+        env:
+          WS_API_KEY: ${{ secrets.WHITESOURCE_API_KEY }}
+          WS_PRODUCT_NAME: ${{ inputs.whitesource_product_name }}
+          WS_PROJECT_NAME: ${{ inputs.whitesource_project_name }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AWS_REGION: ${{ secrets.MANIFEST_AWS_REGION }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.MANIFEST_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.MANIFEST_AWS_SECRET_ACCESS_KEY }}
+          WS_JIRA_CHECK: "True" #No Jira Search for Open Vulnerability Issues
+        with:
+          entrypoint: /bin/sh
+          args: >
+            -c ". $VIRTUAL_ENV/bin/activate &&
+            cd $ACTIONS_PATH/whitesource-vulnerability-checker &&
+            python whitesource_vulnerability_checker.py
+            "
       - name: Setup Node.js
         if: inputs.npm_package_path != ''
         uses: actions/setup-node@v4
