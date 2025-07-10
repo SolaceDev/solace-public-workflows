@@ -60,9 +60,6 @@ on:
       MANIFEST_AWS_SECRET_ACCESS_KEY:
         description: "AWS secret access key for the manifest"
         required: true
-      SQUAD:
-        description: "Squad for the manifest"
-        required: true
 permissions:
   id-token: write
   contents: write
