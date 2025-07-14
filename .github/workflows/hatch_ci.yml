@@ -409,9 +409,9 @@ jobs:
 
           # Extract status and Jira information from response
           STATUS=$(echo "$RESPONSE" | jq -r '.status // empty')
-          PENDING_JIRAS=$(echo "$RESPONSE" | jq -r '.pendingJiras // empty')
-          BLOCKING_JIRAS=$(echo "$RESPONSE" | jq -r '.blockingJiras // empty')
-          EXCLUDED_JIRAS=$(echo "$RESPONSE" | jq -r '.excludedJiras // empty')
+          PENDING_JIRAS=$(echo "$RESPONSE" | jq -c '.pendingJiras // []')
+          BLOCKING_JIRAS=$(echo "$RESPONSE" | jq -c '.blockingJiras // []')
+          EXCLUDED_JIRAS=$(echo "$RESPONSE" | jq -c '.excludedJiras // []')
 
           if [ "$STATUS" = "Success" ]; then
             echo "api_success=true" >> $GITHUB_OUTPUT
