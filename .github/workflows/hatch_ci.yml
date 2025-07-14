@@ -298,6 +298,18 @@ jobs:
             fi
           done
 
+      - name: Show WhiteSource Configuration
+        if: env.run_whitesource_scan == 'true' && inputs.whitesource_config_file != ''
+        shell: bash
+        run: |
+          echo "🔧 WhiteSource Configuration File:"
+          if [ -f "${{ inputs.whitesource_config_file }}" ]; then
+            echo "=== ${{ inputs.whitesource_config_file }} ==="
+            cat "${{ inputs.whitesource_config_file }}"
+          else
+            echo "❌ WhiteSource config file not found: ${{ inputs.whitesource_config_file }}"
+          fi
+
       - name: Run Whitesource Scan
         if: env.run_whitesource_scan == 'true'
         uses: ./workflows-repo/.github/actions/whitesource-scan

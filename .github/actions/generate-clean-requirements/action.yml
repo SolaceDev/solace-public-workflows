@@ -143,13 +143,24 @@ runs:
         # Set additional includes for profile-specific requirements files
         REQUIREMENTS_FILES="${{ steps.generate-requirements.outputs.requirements-files }}"
         if [ -n "$REQUIREMENTS_FILES" ]; then
-          # Add all requirements files to the includes
+          # Add all requirements files to the includes (both root and subdirectory patterns)
           INCLUDES_LINE="includes=**/*pyproject.toml"
+          REQUIREMENTS_FILES_LIST=""
+          
           for file in $REQUIREMENTS_FILES; do
             if [ "$file" != "requirements.txt" ]; then
-              INCLUDES_LINE="$INCLUDES_LINE **/$file"
+              # Add both root directory and subdirectory patterns
+              INCLUDES_LINE="$INCLUDES_LINE $file **/$file"
+            fi
+            # Build comma-separated list for python.requirementsFileIncludes
+            if [ -z "$REQUIREMENTS_FILES_LIST" ]; then
+              REQUIREMENTS_FILES_LIST="$file"
+            else
+              REQUIREMENTS_FILES_LIST="$REQUIREMENTS_FILES_LIST,$file"
             fi
           done
+          
+          REQUIREMENTS_INCLUDES_LINE="python.requirementsFileIncludes=$REQUIREMENTS_FILES_LIST"
           
           # Update or add includes line
           if grep -q "^includes=" "$CONFIG_FILE"; then
@@ -157,12 +168,21 @@ runs:
           else
             echo "$INCLUDES_LINE" >> "$CONFIG_FILE"
           fi
+          
+          # Update or add python.requirementsFileIncludes line
+          if grep -q "^python.requirementsFileIncludes=" "$CONFIG_FILE"; then
+            sed -i "s|^python.requirementsFileIncludes=.*|$REQUIREMENTS_INCLUDES_LINE|g" "$CONFIG_FILE"
+          else
+            echo "$REQUIREMENTS_INCLUDES_LINE" >> "$CONFIG_FILE"
+          fi
         fi
 
         echo "✅ WhiteSource configuration updated:"
         echo "   - python.path=$PYTHON_PATH"
         echo "   - pip.path=$PIP_PATH"
         echo "   - pip.requirementsFilePath=$MAIN_REQUIREMENTS"
+        echo "   - python.requirementsFileIncludes=$REQUIREMENTS_FILES_LIST"
+        echo "   - includes pattern: $INCLUDES_LINE"
         echo "   - Additional requirements files: $REQUIREMENTS_FILES"
 
         # Show what changed
