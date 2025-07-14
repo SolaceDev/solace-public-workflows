@@ -140,19 +140,13 @@ runs:
           sed -i "s|pip.requirementsFilePath=.*|pip.requirementsFilePath=$MAIN_REQUIREMENTS|g" "$CONFIG_FILE"
         fi
 
-        # Set additional includes for profile-specific requirements files
+        # Set python.requirementsFileIncludes for profile-specific requirements files
         REQUIREMENTS_FILES="${{ steps.generate-requirements.outputs.requirements-files }}"
         if [ -n "$REQUIREMENTS_FILES" ]; then
-          # Add all requirements files to the includes (both root and subdirectory patterns)
-          INCLUDES_LINE="includes=**/*pyproject.toml"
           REQUIREMENTS_FILES_LIST=""
           
+          # Build comma-separated list for python.requirementsFileIncludes
           for file in $REQUIREMENTS_FILES; do
-            if [ "$file" != "requirements.txt" ]; then
-              # Add both root directory and subdirectory patterns
-              INCLUDES_LINE="$INCLUDES_LINE $file **/$file"
-            fi
-            # Build comma-separated list for python.requirementsFileIncludes
             if [ -z "$REQUIREMENTS_FILES_LIST" ]; then
               REQUIREMENTS_FILES_LIST="$file"
             else
@@ -161,13 +155,6 @@ runs:
           done
           
           REQUIREMENTS_INCLUDES_LINE="python.requirementsFileIncludes=$REQUIREMENTS_FILES_LIST"
-          
-          # Update or add includes line
-          if grep -q "^includes=" "$CONFIG_FILE"; then
-            sed -i "s|^includes=.*|$INCLUDES_LINE|g" "$CONFIG_FILE"
-          else
-            echo "$INCLUDES_LINE" >> "$CONFIG_FILE"
-          fi
           
           # Update or add python.requirementsFileIncludes line
           if grep -q "^python.requirementsFileIncludes=" "$CONFIG_FILE"; then
@@ -182,7 +169,6 @@ runs:
         echo "   - pip.path=$PIP_PATH"
         echo "   - pip.requirementsFilePath=$MAIN_REQUIREMENTS"
         echo "   - python.requirementsFileIncludes=$REQUIREMENTS_FILES_LIST"
-        echo "   - includes pattern: $INCLUDES_LINE"
         echo "   - Additional requirements files: $REQUIREMENTS_FILES"
 
         # Show what changed
