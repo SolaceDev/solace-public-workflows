@@ -108,7 +108,7 @@ jobs:
         with:
           repository: SolaceDev/solace-public-workflows
           path: workflows-repo
-          ref: 0132fdfd7c76ea3e6a3cfd9d9137d578ed49deda
+          ref: 11cf2871710fbe9e7efe2d437e68217078455101
 
       - name: Setup Conditional Steps
         id: conditional-steps
