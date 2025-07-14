@@ -481,21 +481,33 @@ jobs:
 
             let jiraSection = '';
 
+            // Helper function to create Jira JQL link
+            function createJiraLink(jiraArray, label) {
+              if (jiraArray.length === 0) return '';
+              
+              // Create JQL query: issue in ('JIRA-1','JIRA-2','JIRA-3')
+              const jqlQuery = `issue in (${jiraArray.map(issue => `'${issue}'`).join(',')})`;
+              
+              // URL encode the JQL query
+              const encodedJQL = encodeURIComponent(jqlQuery);
+              
+              // Create the full Jira URL
+              const jiraUrl = `https://sol-jira.atlassian.net/issues/?jql=${encodedJQL}`;
+              
+              // Return markdown link
+              return `\n**${label}:** [View ${jiraArray.length} issue${jiraArray.length > 1 ? 's' : ''}](${jiraUrl})`;
+            }
+
             // Parse and format Jira tickets
             try {
               const pending = JSON.parse(pendingJiras);
               const blocking = JSON.parse(blockingJiras);
               const excluded = JSON.parse(excludedJiras);
               
-              if (pending.length > 0) {
-                jiraSection += `\n**Pending Jira Issues:** ${pending.join(', ')}`;
-              }
-              if (blocking.length > 0) {
-                jiraSection += `\n**Blocking Jira Issues:** ${blocking.join(', ')}`;
-              }
-              if (excluded.length > 0) {
-                jiraSection += `\n**Excluded Jira Issues:** ${excluded.join(', ')}`;
-              }
+              jiraSection += createJiraLink(pending, 'Pending Jira Issues');
+              jiraSection += createJiraLink(blocking, 'Blocking Jira Issues');
+              jiraSection += createJiraLink(excluded, 'Excluded Jira Issues');
+              
             } catch (e) {
               console.log('Error parsing Jira data:', e);
             }
