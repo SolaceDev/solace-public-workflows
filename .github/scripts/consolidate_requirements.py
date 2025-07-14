@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """
-Consolidate requirements from pyproject.toml into a clean requirements.txt file.
+Generate separate requirements.txt files for each profile in pyproject.toml.
+This prevents dependency conflicts during WhiteSource scanning.
 """
 
 import re
 import sys
+import os
 from collections import defaultdict
 from packaging import version
 import toml
@@ -36,12 +38,12 @@ def parse_dependency(dep_string):
         return pkg_name, None, None, marker
 
 
-def extract_all_dependencies(pyproject_file):
-    """Extract all dependencies from pyproject.toml."""
+def extract_dependencies_by_profile(pyproject_file):
+    """Extract dependencies organized by profile."""
     with open(pyproject_file, "r", encoding="utf-8") as f:
         data = toml.load(f)
 
-    all_deps = []
+    profiles = {}
 
     # Define development-related profile names to skip
     dev_profile_names = {
@@ -64,29 +66,34 @@ def extract_all_dependencies(pyproject_file):
         "local",
     }
 
-    # Main dependencies
+    # Main dependencies - always include these
+    main_deps = []
     if "project" in data and "dependencies" in data["project"]:
-        all_deps.extend(data["project"]["dependencies"])
+        main_deps = data["project"]["dependencies"]
+
+    # Always create a main requirements file
+    profiles["main"] = main_deps.copy()
 
     # Optional dependencies (profiles) - skip dev-related profiles
     if "project" in data and "optional-dependencies" in data["project"]:
         for profile_name, deps in data["project"]["optional-dependencies"].items():
             # Skip development-related profiles
             if profile_name.lower() not in dev_profile_names:
-                all_deps.extend(deps)
+                # Each profile gets main dependencies + its specific dependencies
+                profiles[profile_name] = main_deps + deps
             else:
                 print(f"⏭️  Skipping dev profile: {profile_name}")
 
-    return all_deps
+    return profiles
 
 
-def consolidate_requirements(all_deps):
-    """Consolidate requirements, removing duplicates and using highest versions."""
+def consolidate_profile_requirements(deps):
+    """Consolidate requirements for a single profile, removing duplicates."""
     # Parse all dependencies
     parsed_deps = {}
     original_deps = {}
 
-    for dep in all_deps:
+    for dep in deps:
         try:
             pkg_name, operator, pkg_version, marker = parse_dependency(dep)
 
@@ -99,71 +106,100 @@ def consolidate_requirements(all_deps):
                     "operator": operator,
                     "version": pkg_version,
                     "marker": marker,
+                    "original": dep,
                 }
             )
             original_deps[pkg_name].append(dep)
         except Exception as e:
             print(f"⚠️  Could not parse dependency '{dep}': {e}")
 
-    # Consolidate each package
+    # Consolidate each package within this profile
     consolidated = {}
     for pkg_name, versions in parsed_deps.items():
         if len(versions) == 1:
             # Only one version, use it as-is
-            consolidated[pkg_name] = original_deps[pkg_name][0]
+            consolidated[pkg_name] = versions[0]["original"]
         else:
             # Multiple versions, find the highest exact version
             exact_versions = []
-            for i, v in enumerate(versions):
+            for v in versions:
                 if v["operator"] == "==" and v["version"]:
                     try:
-                        exact_versions.append((version.parse(v["version"]), i))
+                        exact_versions.append(
+                            (version.parse(v["version"]), v["original"])
+                        )
                     except Exception:
                         # If version parsing fails, skip this version
                         pass
 
             if exact_versions:
                 # Use the highest exact version
-                highest_version_index = max(exact_versions, key=lambda x: x[0])[1]
-                consolidated[pkg_name] = original_deps[pkg_name][highest_version_index]
+                consolidated[pkg_name] = max(exact_versions, key=lambda x: x[0])[1]
             else:
                 # No exact versions, use the first one
-                consolidated[pkg_name] = original_deps[pkg_name][0]
+                consolidated[pkg_name] = versions[0]["original"]
 
     return consolidated
 
 
-def write_requirements_file(consolidated_deps, output_file):
-    """Write consolidated dependencies to requirements.txt."""
-    with open(output_file, "w", encoding="utf-8") as f:
-        for pkg_name in sorted(consolidated_deps.keys()):
-            f.write(f"{consolidated_deps[pkg_name]}\n")
+def write_requirements_files(profiles, output_dir):
+    """Write separate requirements files for each profile."""
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    files_created = []
+
+    for profile_name, deps in profiles.items():
+        consolidated = consolidate_profile_requirements(deps)
+
+        # Create filename
+        if profile_name == "main":
+            filename = "requirements.txt"
+        else:
+            filename = f"requirements-{profile_name}.txt"
+
+        filepath = os.path.join(output_dir, filename)
+
+        with open(filepath, "w", encoding="utf-8") as f:
+            for pkg_name in sorted(consolidated.keys()):
+                f.write(f"{consolidated[pkg_name]}\n")
+
+        files_created.append(filepath)
+        print(f"✅ Created {filepath} with {len(consolidated)} packages")
+
+    return files_created
 
 
 def main():
     """Main function."""
-    if len(sys.argv) < 3:
-        print(
-            "Usage: python consolidate_requirements.py <pyproject_file> <output_file>"
-        )
+    if len(sys.argv) < 2:
+        print("Usage: python consolidate_requirements.py <pyproject_file> [output_dir]")
         sys.exit(1)
 
     pyproject_file = sys.argv[1]
-    output_file = sys.argv[2]
+    output_dir = sys.argv[2] if len(sys.argv) > 2 else "."
 
     try:
         print(f"📦 Extracting dependencies from {pyproject_file}...")
-        all_deps = extract_all_dependencies(pyproject_file)
-        print(f"📦 Found {len(all_deps)} total dependencies")
+        profiles = extract_dependencies_by_profile(pyproject_file)
+        print(f"📦 Found {len(profiles)} profiles:")
+        for profile_name, deps in profiles.items():
+            print(f"   - {profile_name}: {len(deps)} dependencies")
 
-        print("🔧 Consolidating requirements...")
-        consolidated = consolidate_requirements(all_deps)
-        print(f"✅ Consolidated to {len(consolidated)} unique packages")
+        print(f"🔧 Generating requirements files in {output_dir}...")
+        files_created = write_requirements_files(profiles, output_dir)
 
-        print(f"📄 Writing requirements to {output_file}...")
-        write_requirements_file(consolidated, output_file)
+        print(f"✅ Successfully generated {len(files_created)} requirements files:")
+        for file_path in files_created:
+            print(f"   - {file_path}")
 
-        print(f"✅ Clean requirements.txt generated with {len(consolidated)} packages")
+        # Write a list of all requirements files for WhiteSource scanning
+        files_list_path = os.path.join(output_dir, "requirements-files.txt")
+        with open(files_list_path, "w", encoding="utf-8") as f:
+            for file_path in files_created:
+                f.write(f"{os.path.basename(file_path)}\n")
+
+        print(f"📝 Created file list: {files_list_path}")
         return 0
 
     except Exception as e:
