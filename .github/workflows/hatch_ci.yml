@@ -268,13 +268,46 @@ jobs:
         run: |
           python3 -m pip install --upgrade pip
           python3 -m pip install virtualenv
+
       - name: Generate Clean Requirements for WhiteSource
         if: env.run_whitesource_scan == 'true'
+        id: generate-requirements
         uses: ./workflows-repo/.github/actions/generate-clean-requirements
         with:
           max-python-version: ${{ inputs.max-python-version }}
           whitesource_config_file: ${{ inputs.whitesource_config_file }}
           script-path: workflows-repo/.github/scripts/consolidate_requirements.py
+          output-dir: .
+
+      - name: List Generated Requirements Files
+        if: env.run_whitesource_scan == 'true'
+        shell: bash
+        run: |
+          echo "📋 Generated requirements files:"
+          echo "Main requirements file: ${{ steps.generate-requirements.outputs.main-requirements-file }}"
+          echo "All requirements files: ${{ steps.generate-requirements.outputs.requirements-files }}"
+          echo ""
+          echo "📄 File contents preview:"
+          for file in ${{ steps.generate-requirements.outputs.requirements-files }}; do
+            if [ -f "$file" ]; then
+              echo "=== $file ==="
+              head -10 "$file"
+              echo "... (showing first 10 lines)"
+              echo ""
+            fi
+          done
+
+      - name: Show WhiteSource Configuration
+        if: env.run_whitesource_scan == 'true' && inputs.whitesource_config_file != ''
+        shell: bash
+        run: |
+          echo "🔧 WhiteSource Configuration File:"
+          if [ -f "${{ inputs.whitesource_config_file }}" ]; then
+            echo "=== ${{ inputs.whitesource_config_file }} ==="
+            cat "${{ inputs.whitesource_config_file }}"
+          else
+            echo "❌ WhiteSource config file not found: ${{ inputs.whitesource_config_file }}"
+          fi
 
       - name: Run Whitesource Scan
         if: env.run_whitesource_scan == 'true'
@@ -375,9 +408,9 @@ jobs:
 
           # Extract status and Jira information from response
           STATUS=$(echo "$RESPONSE" | jq -r '.status // empty')
-          PENDING_JIRAS=$(echo "$RESPONSE" | jq -r '.pendingJiras // empty')
-          BLOCKING_JIRAS=$(echo "$RESPONSE" | jq -r '.blockingJiras // empty')
-          EXCLUDED_JIRAS=$(echo "$RESPONSE" | jq -r '.excludedJiras // empty')
+          PENDING_JIRAS=$(echo "$RESPONSE" | jq -c '.pendingJiras // []')
+          BLOCKING_JIRAS=$(echo "$RESPONSE" | jq -c '.blockingJiras // []')
+          EXCLUDED_JIRAS=$(echo "$RESPONSE" | jq -c '.excludedJiras // []')
 
           if [ "$STATUS" = "Success" ]; then
             echo "api_success=true" >> $GITHUB_OUTPUT
@@ -448,21 +481,33 @@ jobs:
 
             let jiraSection = '';
 
+            // Helper function to create Jira JQL link
+            function createJiraLink(jiraArray, label) {
+              if (jiraArray.length === 0) return '';
+              
+              // Create JQL query: issue in ('JIRA-1','JIRA-2','JIRA-3')
+              const jqlQuery = `issue in (${jiraArray.map(issue => `'${issue}'`).join(',')})`;
+              
+              // URL encode the JQL query
+              const encodedJQL = encodeURIComponent(jqlQuery);
+              
+              // Create the full Jira URL
+              const jiraUrl = `https://sol-jira.atlassian.net/issues/?jql=${encodedJQL}`;
+              
+              // Return markdown link
+              return `\n**${label}:** [View ${jiraArray.length} issue${jiraArray.length > 1 ? 's' : ''}](${jiraUrl})`;
+            }
+
             // Parse and format Jira tickets
             try {
               const pending = JSON.parse(pendingJiras);
               const blocking = JSON.parse(blockingJiras);
               const excluded = JSON.parse(excludedJiras);
               
-              if (pending.length > 0) {
-                jiraSection += `\n**Pending Jira Issues:** ${pending.join(', ')}`;
-              }
-              if (blocking.length > 0) {
-                jiraSection += `\n**Blocking Jira Issues:** ${blocking.join(', ')}`;
-              }
-              if (excluded.length > 0) {
-                jiraSection += `\n**Excluded Jira Issues:** ${excluded.join(', ')}`;
-              }
+              jiraSection += createJiraLink(pending, 'Pending Jira Issues');
+              jiraSection += createJiraLink(blocking, 'Blocking Jira Issues');
+              jiraSection += createJiraLink(excluded, 'Excluded Jira Issues');
+              
             } catch (e) {
               console.log('Error parsing Jira data:', e);
             }

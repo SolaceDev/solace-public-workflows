@@ -1,5 +1,5 @@
 name: Generate Clean Requirements
-description: Generate a clean requirements.txt file from pyproject.toml, removing duplicates and using highest versions
+description: Generate separate requirements.txt files for each profile in pyproject.toml to prevent dependency conflicts
 
 inputs:
   max-python-version:
@@ -14,6 +14,18 @@ inputs:
     description: "Path to the consolidation script"
     required: false
     default: ".github/workflows-repo/.github/scripts/consolidate_requirements.py"
+  output-dir:
+    description: "Directory to write requirements files"
+    required: false
+    default: "."
+
+outputs:
+  requirements-files:
+    description: "List of generated requirements files"
+    value: ${{ steps.generate-requirements.outputs.requirements-files }}
+  main-requirements-file:
+    description: "Path to the main requirements file"
+    value: ${{ steps.generate-requirements.outputs.main-requirements-file }}
 
 runs:
   using: composite
@@ -25,14 +37,15 @@ runs:
         python -m pip install packaging toml --quiet
         echo "✅ Dependencies installed"
 
-    - name: Generate Clean Requirements
+    - name: Generate Requirements Files
+      id: generate-requirements
       shell: bash
       run: |
-        echo "🔧 Generating clean requirements.txt from pyproject.toml..."
+        echo "🔧 Generating requirements files from pyproject.toml..."
 
         SCRIPT_PATH="${{ inputs.script-path }}"
         PYPROJECT_FILE="pyproject.toml"
-        OUTPUT_FILE="requirements.txt"
+        OUTPUT_DIR="${{ inputs.output-dir }}"
 
         if [ ! -f "$PYPROJECT_FILE" ]; then
           echo "❌ pyproject.toml not found at: $PYPROJECT_FILE"
@@ -45,20 +58,34 @@ runs:
         fi
 
         # Run the consolidation script
-        if ! python "$SCRIPT_PATH" "$PYPROJECT_FILE" "$OUTPUT_FILE"; then
-          echo "❌ Failed to generate clean requirements.txt"
+        if ! python "$SCRIPT_PATH" "$PYPROJECT_FILE" "$OUTPUT_DIR"; then
+          echo "❌ Failed to generate requirements files"
           exit 1
         fi
 
-        # Display the generated requirements
-        echo "📄 Generated requirements.txt:"
-        if [ -f "$OUTPUT_FILE" ]; then
-          cat "$OUTPUT_FILE"
-          echo "✅ Requirements file generated successfully with $(wc -l < "$OUTPUT_FILE") packages"
+        # Read the generated files list
+        FILES_LIST_PATH="$OUTPUT_DIR/requirements-files.txt"
+        if [ -f "$FILES_LIST_PATH" ]; then
+          REQUIREMENTS_FILES=$(cat "$FILES_LIST_PATH" | tr '\n' ' ' | sed 's/ $//')
+          echo "requirements-files=$REQUIREMENTS_FILES" >> $GITHUB_OUTPUT
+          echo "✅ Generated requirements files: $REQUIREMENTS_FILES"
+          
+          # Set main requirements file
+          if [ -f "$OUTPUT_DIR/requirements.txt" ]; then
+            echo "main-requirements-file=$OUTPUT_DIR/requirements.txt" >> $GITHUB_OUTPUT
+          else
+            # Use the first file as main if requirements.txt doesn't exist
+            FIRST_FILE=$(echo "$REQUIREMENTS_FILES" | cut -d' ' -f1)
+            echo "main-requirements-file=$OUTPUT_DIR/$FIRST_FILE" >> $GITHUB_OUTPUT
+          fi
         else
-          echo "❌ No requirements.txt file found after script execution"
+          echo "❌ No requirements files list found after script execution"
           exit 1
         fi
+
+        # Display generated files
+        echo "📄 Generated requirements files:"
+        ls -la "$OUTPUT_DIR"/requirements*.txt
 
     - name: Find Python and Pip paths
       id: find-python
@@ -93,6 +120,7 @@ runs:
         PYTHON_PATH="${{ steps.find-python.outputs.python-path }}"
         PIP_PATH="${{ steps.find-python.outputs.pip-path }}"
         CONFIG_FILE="${{ inputs.whitesource_config_file }}"
+        OUTPUT_DIR="${{ inputs.output-dir }}"
 
         if [ ! -f "$CONFIG_FILE" ]; then
           echo "❌ WhiteSource config file not found: $CONFIG_FILE"
@@ -106,13 +134,42 @@ runs:
         sed -i "s|python.path=.*|python.path=$PYTHON_PATH|g" "$CONFIG_FILE"
         sed -i "s|pip.path=.*|pip.path=$PIP_PATH|g" "$CONFIG_FILE"
 
-        # Update requirements path
-        sed -i "s|pip.requirementsFilePath=.*|pip.requirementsFilePath=requirements.txt|g" "$CONFIG_FILE"
+        # Update requirements path to use the main requirements file
+        MAIN_REQUIREMENTS="${{ steps.generate-requirements.outputs.main-requirements-file }}"
+        if [ -f "$MAIN_REQUIREMENTS" ]; then
+          sed -i "s|pip.requirementsFilePath=.*|pip.requirementsFilePath=$MAIN_REQUIREMENTS|g" "$CONFIG_FILE"
+        fi
+
+        # Set python.requirementsFileIncludes for profile-specific requirements files
+        REQUIREMENTS_FILES="${{ steps.generate-requirements.outputs.requirements-files }}"
+        if [ -n "$REQUIREMENTS_FILES" ]; then
+          REQUIREMENTS_FILES_LIST=""
+          
+          # Build comma-separated list for python.requirementsFileIncludes
+          for file in $REQUIREMENTS_FILES; do
+            if [ -z "$REQUIREMENTS_FILES_LIST" ]; then
+              REQUIREMENTS_FILES_LIST="$file"
+            else
+              REQUIREMENTS_FILES_LIST="$REQUIREMENTS_FILES_LIST,$file"
+            fi
+          done
+          
+          REQUIREMENTS_INCLUDES_LINE="python.requirementsFileIncludes=$REQUIREMENTS_FILES_LIST"
+          
+          # Update or add python.requirementsFileIncludes line
+          if grep -q "^python.requirementsFileIncludes=" "$CONFIG_FILE"; then
+            sed -i "s|^python.requirementsFileIncludes=.*|$REQUIREMENTS_INCLUDES_LINE|g" "$CONFIG_FILE"
+          else
+            echo "$REQUIREMENTS_INCLUDES_LINE" >> "$CONFIG_FILE"
+          fi
+        fi
 
         echo "✅ WhiteSource configuration updated:"
         echo "   - python.path=$PYTHON_PATH"
         echo "   - pip.path=$PIP_PATH"
-        echo "   - pip.requirementsFilePath=requirements.txt"
+        echo "   - pip.requirementsFilePath=$MAIN_REQUIREMENTS"
+        echo "   - python.requirementsFileIncludes=$REQUIREMENTS_FILES_LIST"
+        echo "   - Additional requirements files: $REQUIREMENTS_FILES"
 
         # Show what changed
         echo "📝 Configuration changes:"
