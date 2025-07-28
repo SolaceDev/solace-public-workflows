@@ -16,6 +16,7 @@ on:
       whitesource_product_name:
         type: string
         required: false
+        default: "solaceai"
         description: "WhiteSource product name"
       whitesource_project_name:
         type: string
@@ -47,11 +48,6 @@ on:
         required: false
         default: true
         description: "Validate dependency conflicts"
-      slack_notification_profile:
-        type: string
-        required: false
-        default: ""
-        description: "Profile name for Slack notification"
     secrets:
       SONAR_TOKEN:
         description: "SonarQube token for the repository."
@@ -114,13 +110,10 @@ jobs:
         shell: bash
         run: |
           # Set environment variables for conditional steps
+          echo "is_push=${{ github.event_name == 'push' }}" >> $GITHUB_ENV
           echo "is_pr=${{ github.event_name == 'pull_request' }}" >> $GITHUB_ENV
           echo "is_fork_pr=${{ github.event.pull_request.head.repo.full_name != github.repository }}" >> $GITHUB_ENV
-          echo "is_main=${{ github.ref == 'refs/heads/main' }}" >> $GITHUB_ENV
-          echo "is_pr_to_main=${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.repo.full_name == github.repository }}" >> $GITHUB_ENV
           echo "has_whitesource_config=${{ inputs.whitesource_product_name != '' && inputs.whitesource_project_name != '' }}" >> $GITHUB_ENV
-          echo "run_whitesource_scan=${{ inputs.whitesource_product_name != '' && inputs.whitesource_project_name != '' && (github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'main' || github.ref == 'refs/heads/main') }}" >> $GITHUB_ENV
-          echo "run_whitesource_checks=${{ inputs.whitesource_product_name != '' && inputs.whitesource_project_name != '' && github.ref == 'refs/heads/main' }}" >> $GITHUB_ENV
 
       - name: Setup Node.js
         if: inputs.npm_package_path != ''
@@ -224,7 +217,6 @@ jobs:
         shell: bash
 
       - name: SonarQube Scan
-        if: env.is_pr_to_main == 'true'
         uses: sonarsource/sonarqube-scan-action@v2.2.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
@@ -239,7 +231,7 @@ jobs:
             -Dsonar.python.ruff.reportPaths=lint.json
 
       - name: SonarQube Quality Gate check
-        if: env.is_pr_to_main == 'true'
+        if: fromJson(env.is_pr)
         id: sonarqube-quality-gate-check
         uses: sonarsource/sonarqube-quality-gate-action@master
         env:
@@ -264,13 +256,13 @@ jobs:
         shell: bash
 
       - name: Install Virtualenv for Whitesource Scan
-        if: env.run_whitesource_scan == 'true'
+        if: fromJson(env.has_whitesource_config)
         run: |
           python3 -m pip install --upgrade pip
           python3 -m pip install virtualenv
 
       - name: Generate Clean Requirements for WhiteSource
-        if: env.run_whitesource_scan == 'true'
+        if: fromJson(env.has_whitesource_config)
         id: generate-requirements
         uses: ./workflows-repo/.github/actions/generate-clean-requirements
         with:
@@ -280,7 +272,7 @@ jobs:
           output-dir: .
 
       - name: List Generated Requirements Files
-        if: env.run_whitesource_scan == 'true'
+        if: fromJson(env.has_whitesource_config)
         shell: bash
         run: |
           echo "📋 Generated requirements files:"
@@ -298,7 +290,7 @@ jobs:
           done
 
       - name: Show WhiteSource Configuration
-        if: env.run_whitesource_scan == 'true' && inputs.whitesource_config_file != ''
+        if: fromJson(env.has_whitesource_config) && inputs.whitesource_config_file != ''
         shell: bash
         run: |
           echo "🔧 WhiteSource Configuration File:"
@@ -310,7 +302,7 @@ jobs:
           fi
 
       - name: Run Whitesource Scan
-        if: env.run_whitesource_scan == 'true'
+        if: fromJson(env.has_whitesource_config)
         uses: ./workflows-repo/.github/actions/whitesource-scan
         with:
           whitesource_product_name: ${{ inputs.whitesource_product_name }}
@@ -318,8 +310,33 @@ jobs:
           whitesource_api_key: ${{ secrets.WHITESOURCE_API_KEY }}
           whitesource_config_file: ${{ inputs.whitesource_config_file }}
 
+      - name: Run WhiteSource PR Checker (Policy Violations)
+        id: whitesource-pr-policy-violation-checker
+        if: fromJson(env.is_pr) && fromJson(env.has_whitesource_config)
+        continue-on-error: true
+        uses: docker://ghcr.io/solacedev/maas-build-actions:latest
+        env:
+          WS_API_KEY: ${{ secrets.WHITESOURCE_API_KEY }}
+          WS_PRODUCT_NAME: ${{ inputs.whitesource_product_name }}
+          WS_PROJECT_NAME: ${{ inputs.whitesource_project_name }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WS_BLOCKING_POLICY_VIOLATION_LEVELS: "Major,Minor"
+          FAIL_IF_POLICY_VIOLATIONS_FOUND: "True"
+          GH_ORG: ${{ github.repository_owner }}
+          GH_REPO: ${{ github.event.repository.name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        with:
+          entrypoint: /bin/sh
+          args: >
+            -c "
+            . $VIRTUAL_ENV/bin/activate &&
+            cd $ACTIONS_PATH/whitesource-pr-checker &&
+            python whitesource_pr_checker.py
+            "
+
       - name: Run WhiteSource Policy Gate
-        if: env.run_whitesource_checks == 'true'
+        id: whitesource-policy-gate
+        if: fromJson(env.is_push) && fromJson(env.has_whitesource_config)
         uses: docker://ghcr.io/solacedev/maas-build-actions:latest
         continue-on-error: true
         env:
@@ -327,7 +344,7 @@ jobs:
           WS_PRODUCT_NAME: ${{ inputs.whitesource_product_name }}
           WS_PROJECT_NAME: ${{ inputs.whitesource_project_name }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          AWS_REGION: ${{ vars.MANIFEST_AWS_REGION }}
+          AWS_REGION: ${{ secrets.MANIFEST_AWS_REGION }}
           AWS_ACCESS_KEY_ID: ${{ secrets.MANIFEST_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.MANIFEST_AWS_SECRET_ACCESS_KEY }}
           WS_BLOCKING_POLICY_VIOLATION_LEVELS: "Major,Minor"
@@ -342,7 +359,7 @@ jobs:
             "
 
       - name: Run WhiteSource Vulnerability Gate
-        if: env.run_whitesource_checks == 'true'
+        if: fromJson(env.is_push) && fromJson(env.has_whitesource_config)
         id: whitesource-vulnerability-gate
         uses: docker://ghcr.io/solacedev/maas-build-actions:latest
         continue-on-error: true
@@ -351,10 +368,10 @@ jobs:
           WS_PRODUCT_NAME: ${{ inputs.whitesource_product_name }}
           WS_PROJECT_NAME: ${{ inputs.whitesource_project_name }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          AWS_REGION: ${{ vars.MANIFEST_AWS_REGION }}
+          AWS_REGION: ${{ secrets.MANIFEST_AWS_REGION }}
           AWS_ACCESS_KEY_ID: ${{ secrets.MANIFEST_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.MANIFEST_AWS_SECRET_ACCESS_KEY }}
-          WS_JIRA_CHECK: "True" #No Jira Search for Open Vulnerability Issues
+          WS_JIRA_CHECK: "True" #Enable Jira Search for Open Vulnerability Issues
         with:
           entrypoint: /bin/sh
           args: >
@@ -363,8 +380,8 @@ jobs:
             python whitesource_vulnerability_checker.py
             "
 
-      - name: Post WhiteSource Vulnerability Gate Check
-        if: env.run_whitesource_checks == 'true'
+      - name: Post WhiteSource Vulnerability Gate Check Status
+        if: fromJson(env.is_push) && fromJson(env.has_whitesource_config)
         uses: LouisBrunner/checks-action@v2.0.0
         with:
           token: ${{ github.token }}
@@ -372,25 +389,32 @@ jobs:
           conclusion: ${{ steps.whitesource-vulnerability-gate.outcome == 'success' && 'success' || 'failure' }}
           details_url: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
           output: |
-            {"summary":"WhiteSource vulnerability gate scan ${{ steps.whitesource-vulnerability-gate.outcome == 'success' && 'completed successfully' || 'failed or found issues' }}"}
+            {
+              "summary": "WhiteSource vulnerability gate scan ${{ steps.whitesource-vulnerability-gate.outcome == 'success' && 'completed successfully' || 'failed or found issues' }}",
+              "text_description": "### WhiteSource Vulnerability Gate Results\n\n${{ steps.whitesource-vulnerability-gate.outcome == 'success' && '✅ No blocking vulnerabilities found' || '❌ Blocking vulnerabilities found' }}\n\n#### Jira Issues\n\n**Pending Issues:** ${{ steps.whitesource-vulnerability-gate.outputs.pending_jiras && format('[View Issues](https://sol-jira.atlassian.net/issues/?jql=issue%20in%20({0}))', steps.whitesource-vulnerability-gate.outputs.pending_jiras) || 'None' }}\n\n**Blocking Issues:** ${{ steps.whitesource-vulnerability-gate.outputs.blocking_jiras && format('[View Issues](https://sol-jira.atlassian.net/issues/?jql=issue%20in%20({0}))', steps.whitesource-vulnerability-gate.outputs.blocking_jiras) || 'None' }}"
+            }
 
-      - name: Send WhiteSource Summary to Slack
-        if: env.run_whitesource_scan == 'true' && inputs.slack_notification_profile != ''
+      - name: Post WhiteSource Policy Gate Check Status
+        if: fromJson(env.is_push) && fromJson(env.has_whitesource_config)
+        uses: LouisBrunner/checks-action@v2.0.0
+        with:
+          token: ${{ github.token }}
+          name: "WhiteSource Policy Gate"
+          conclusion: ${{ steps.whitesource-policy-gate.outcome == 'success' && 'success' || 'failure' }}
+      - name: Get Whitesource Vulnerability Report
+        if: fromJson(env.has_whitesource_config) && fromJson(env.is_pr)
         id: slack-notification
         run: |
           REQUEST_URL="${{ secrets.AUTOBOTS_BASE_URL }}${{ secrets.AUTOBOTS_WHITESOURCE_API_URL }}"
           REPOSITORIES='["${{ github.event.repository.name }}"]'
           PARENT_REPOSITORY='N/A'
-          PROFILE='${{ inputs.slack_notification_profile }}'
           BUILD_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          THREAD_TS="null"
           FULL_REPORT='true'
 
           echo "Sending WhiteSource summary to Slack..."
           echo "Request URL: $REQUEST_URL"
           echo "Repositories: $REPOSITORIES"
           echo "Parent Repository: $PARENT_REPOSITORY"
-          echo "Profile: $PROFILE"
           echo "Build URL: $BUILD_URL"
 
           RESPONSE=$(curl -s -X POST "$REQUEST_URL" \
@@ -398,9 +422,9 @@ jobs:
             -d "{
               \"repositories\": $REPOSITORIES,
               \"parentRepository\": \"$PARENT_REPOSITORY\",
-              \"profile\": \"$PROFILE\",
               \"buildUrl\": \"$BUILD_URL\",
-              \"threadTs\": $THREAD_TS,
+              \"profile\": null,
+              \"threadTs\": null,
               \"fullReport\": $FULL_REPORT
             }")
 
@@ -431,7 +455,7 @@ jobs:
         shell: bash
 
       - name: Format Jira Links
-        if: env.run_whitesource_scan == 'true' && inputs.slack_notification_profile != ''
+        if: fromJson(env.has_whitesource_config) && fromJson(env.is_pr)
         id: format-jira-links
         shell: bash
         run: |
@@ -455,22 +479,22 @@ jobs:
           format_jira_url '${{ steps.slack-notification.outputs.blocking_jiras }}' 'blocking'
           format_jira_url '${{ steps.slack-notification.outputs.excluded_jiras }}' 'excluded'
 
-      - name: WhiteSource Scan Check
-        if: env.run_whitesource_scan == 'true' && inputs.slack_notification_profile != ''
+      - name: WhiteSource PR Policy Violation Checker Status
+        if: fromJson(env.has_whitesource_config) && fromJson(env.is_pr)
         uses: LouisBrunner/checks-action@v2.0.0
         with:
           token: ${{ github.token }}
-          name: "WhiteSource Scan"
-          conclusion: ${{ steps.slack-notification.outputs.api_success == 'true' && 'success' || 'failure' }}
+          name: "WhiteSource PR Policy Violation Checker"
+          conclusion: ${{ steps.whitesource-pr-policy-violation-checker.outputs.api_success == 'true' && 'success' || 'failure' }}
           details_url: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
           output: |
             {
-              "summary": "WhiteSource scan ${{ steps.slack-notification.outputs.api_success == 'true' && 'completed successfully' || 'failed or encountered issues' }}",
-              "text_description": "### WhiteSource Scan Results\n\n${{ steps.slack-notification.outputs.api_success == 'true' && '✅ Scan completed successfully' || '❌ Scan failed or encountered issues' }}\n\n#### Jira Issues\n\n**Pending Issues:** ${{ steps.format-jira-links.outputs.pending_formatted }}\n\n**Blocking Issues:** ${{ steps.format-jira-links.outputs.blocking_formatted }}\n\n**Excluded Issues:** ${{ steps.format-jira-links.outputs.excluded_formatted }}\n\n*For detailed vulnerability report, check the Slack notification.*"
+              "summary": "WhiteSource PR Policy Violation Checker ${{ steps.whitesource-pr-policy-violation-checker.outputs.api_success == 'true' && 'completed successfully' || 'failed or encountered issues' }}",
+              "text_description": "### WhiteSource PR Policy Violation Checker Results\n\n${{ steps.whitesource-pr-policy-violation-checker.outputs.api_success == 'true' && '✅ Policy Violation Checker completed successfully' || '❌ Policy Violation Checker failed or encountered issues' }}\n\n#### Jira Issues\n\n**Pending Issues:** ${{ steps.format-jira-links.outputs.pending_formatted }}\n\n**Blocking Issues:** ${{ steps.format-jira-links.outputs.blocking_formatted }}\n\n**Excluded Issues:** ${{ steps.format-jira-links.outputs.excluded_formatted }}\n\n*For detailed policy violation report, check the Slack notification.*"
             }
 
       - name: Comment on PR with Slack Thread Link
-        if: env.is_pr_to_main == 'true'
+        if: fromJson(env.has_whitesource_config) && fromJson(env.is_pr)
         uses: actions/github-script@v7
         with:
           script: |
