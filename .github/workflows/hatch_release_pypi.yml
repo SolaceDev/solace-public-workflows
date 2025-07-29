@@ -79,7 +79,7 @@ jobs:
 
       - name: Run WhiteSource Policy Gate
         if: ${{ inputs.whitesource_product_name != '' && inputs.whitesource_project_name != '' }}
-        uses: docker://ghcr.io/solacedev/maas-build-actions:latest
+        uses: docker://ghcr.io/solacedev/maas-build-actions:ws-quiet
         env:
           WS_API_KEY: ${{ secrets.WHITESOURCE_API_KEY }}
           WS_PRODUCT_NAME: ${{ inputs.whitesource_product_name }}
@@ -89,6 +89,11 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.MANIFEST_AWS_SECRET_ACCESS_KEY }}
           WS_BLOCKING_POLICY_VIOLATION_LEVELS: "Major,Minor"
           FAIL_IF_POLICY_VIOLATIONS_FOUND: "True"
+          STATUS_CHECK: "True"
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_ORG: ${{ github.repository_owner }}
+          GH_REPO: ${{ github.event.repository.name }}
+          GH_SHA: ${{ github.sha }}
         with:
           entrypoint: /bin/sh
           args: >
@@ -100,7 +105,7 @@ jobs:
 
       - name: Run WhiteSource Vulnerability Gate
         if: ${{ inputs.whitesource_product_name != '' && inputs.whitesource_project_name != '' }}
-        uses: docker://ghcr.io/solacedev/maas-build-actions:latest
+        uses: docker://ghcr.io/solacedev/maas-build-actions:ws-quiet
         env:
           WS_API_KEY: ${{ secrets.WHITESOURCE_API_KEY }}
           WS_PRODUCT_NAME: ${{ inputs.whitesource_product_name }}
@@ -108,7 +113,13 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           AWS_ACCESS_KEY_ID: ${{ secrets.MANIFEST_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.MANIFEST_AWS_SECRET_ACCESS_KEY }}
-          WS_JIRA_CHECK: "True" #No Jira Search for Open Vulnerability Issues
+          WS_JIRA_CHECK: "True"
+          JIRA_ONLY: "True"
+          STATUS_CHECK: "True"
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_ORG: ${{ github.repository_owner }}
+          GH_REPO: ${{ github.event.repository.name }}
+          GH_SHA: ${{ github.sha }}
         with:
           entrypoint: /bin/sh
           args: >
