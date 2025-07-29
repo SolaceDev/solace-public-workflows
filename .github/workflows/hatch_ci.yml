@@ -337,7 +337,6 @@ jobs:
           WS_PRODUCT_NAME: ${{ inputs.whitesource_product_name }}
           WS_PROJECT_NAME: ${{ inputs.whitesource_project_name }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          AWS_REGION: ${{ secrets.MANIFEST_AWS_REGION }}
           AWS_ACCESS_KEY_ID: ${{ secrets.MANIFEST_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.MANIFEST_AWS_SECRET_ACCESS_KEY }}
           WS_BLOCKING_POLICY_VIOLATION_LEVELS: "Major,Minor"
@@ -365,7 +364,6 @@ jobs:
           WS_API_KEY: ${{ secrets.WHITESOURCE_API_KEY }}
           WS_PRODUCT_NAME: ${{ inputs.whitesource_product_name }}
           WS_PROJECT_NAME: ${{ inputs.whitesource_project_name }}
-          AWS_REGION: ${{ secrets.MANIFEST_AWS_REGION }}
           AWS_ACCESS_KEY_ID: ${{ secrets.MANIFEST_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.MANIFEST_AWS_SECRET_ACCESS_KEY }}
           WS_JIRA_CHECK: "True"
