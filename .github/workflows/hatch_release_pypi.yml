@@ -53,7 +53,7 @@ on:
         required: true
       MANIFEST_AWS_REGION:
         description: "AWS region for the manifest"
-        required: true
+        required: false
       MANIFEST_AWS_ACCESS_KEY_ID:
         description: "AWS access key ID for the manifest"
         required: true
