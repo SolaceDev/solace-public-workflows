@@ -63,6 +63,7 @@ on:
 permissions:
   id-token: write
   contents: write
+  checks: write
 
 jobs:
   release:
