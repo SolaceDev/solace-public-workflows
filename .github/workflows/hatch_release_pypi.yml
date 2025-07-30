@@ -46,6 +46,11 @@ on:
         required: false
         default: false
         description: "Run Prisma check"
+      sonarqube_hotspot_check:
+        type: boolean
+        required: false
+        default: false
+        description: "Run SonarQube Hotspot Check"
     secrets:
       COMMIT_KEY:
         description: "SSH private key for the repository."
@@ -182,6 +187,21 @@ jobs:
             -c ". $VIRTUAL_ENV/bin/activate &&
             cd $ACTIONS_PATH/prisma-vulnerability-checker &&
             python prisma_vulnerability_checker.py
+            "
+      - name: Run SonarQube Hotspot Check
+        uses: docker://ghcr.io/solacedev/maas-build-actions:latest
+        if: ${{ fromJson(inputs.sonarqube_hotspot_check) }}
+        env:
+          SONARQUBE_PROJECT_KEY: ${{ secrets.SONARQUBE_PROJECT_KEY }}
+          SONARQUBE_PROJECT_MAIN_BRANCH: ${{ secrets.SONARQUBE_PROJECT_MAIN_BRANCH }}
+          SONARQUBE_QUERY_TOKEN: ${{ secrets.SONARQUBE_QUERY_TOKEN }}
+          SONARQUBE_HOTSPOTS_API_URL: ${{ secrets.SONARQUBE_HOTSPOTS_API_URL }}
+        with:
+          entrypoint: /bin/sh
+          args: >
+            -c ". $VIRTUAL_ENV/bin/activate &&
+            cd $ACTIONS_PATH/sonarqube-hotspot-checker &&
+            python sonarqube_checker.py
             "
 
       - name: Setup Node.js
