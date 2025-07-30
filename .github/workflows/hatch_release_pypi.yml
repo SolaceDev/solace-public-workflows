@@ -51,6 +51,10 @@ on:
         required: false
         default: false
         description: "Run SonarQube Hotspot Check"
+    outputs:
+      new_version:
+        description: "The new version that was released"
+        value: ${{ jobs.release.outputs.new_version }}
     secrets:
       COMMIT_KEY:
         description: "SSH private key for the repository."
