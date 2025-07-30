@@ -46,11 +46,6 @@ on:
         required: false
         default: false
         description: "Run Prisma check"
-      sonarqube_hotspot_check:
-        type: boolean
-        required: false
-        default: false
-        description: "Run SonarQube Hotspot Check"
     secrets:
       COMMIT_KEY:
         description: "SSH private key for the repository."
@@ -115,7 +110,7 @@ jobs:
 
       - name: Run WhiteSource Policy Gate
         if: ${{ inputs.whitesource_product_name != '' && inputs.whitesource_project_name != '' }}
-        uses: docker://ghcr.io/solacedev/maas-build-actions:ws-quiet
+        uses: docker://ghcr.io/solacedev/maas-build-actions:latest
         env:
           WS_API_KEY: ${{ secrets.WHITESOURCE_API_KEY }}
           WS_PRODUCT_NAME: ${{ inputs.whitesource_product_name }}
@@ -141,7 +136,7 @@ jobs:
 
       - name: Run WhiteSource Vulnerability Gate
         if: ${{ inputs.whitesource_product_name != '' && inputs.whitesource_project_name != '' }}
-        uses: docker://ghcr.io/solacedev/maas-build-actions:ws-quiet
+        uses: docker://ghcr.io/solacedev/maas-build-actions:latest
         env:
           WS_API_KEY: ${{ secrets.WHITESOURCE_API_KEY }}
           WS_PRODUCT_NAME: ${{ inputs.whitesource_product_name }}
@@ -166,7 +161,7 @@ jobs:
 
       - name: Run Prisma Check
         if: ${{ fromJson(inputs.prisma_check) }}
-        uses: docker://ghcr.io/solacedev/maas-build-actions:ws-quiet
+        uses: docker://ghcr.io/solacedev/maas-build-actions:latest
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.MANIFEST_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.MANIFEST_AWS_SECRET_ACCESS_KEY }}
@@ -187,21 +182,6 @@ jobs:
             -c ". $VIRTUAL_ENV/bin/activate &&
             cd $ACTIONS_PATH/prisma-vulnerability-checker &&
             python prisma_vulnerability_checker.py
-            "
-      - name: Run SonarQube Hotspot Check
-        uses: docker://ghcr.io/solacedev/maas-build-actions:ws-quiet
-        if: ${{ fromJson(inputs.sonarqube_hotspot_check) }}
-        env:
-          SONARQUBE_PROJECT_KEY: ${{ secrets.SONARQUBE_PROJECT_KEY }}
-          SONARQUBE_PROJECT_MAIN_BRANCH: ${{ secrets.SONARQUBE_PROJECT_MAIN_BRANCH }}
-          SONARQUBE_QUERY_TOKEN: ${{ secrets.SONARQUBE_QUERY_TOKEN }}
-          SONARQUBE_HOTSPOTS_API_URL: ${{ secrets.SONARQUBE_HOTSPOTS_API_URL }}
-        with:
-          entrypoint: /bin/sh
-          args: >
-            -c ". $VIRTUAL_ENV/bin/activate &&
-            cd $ACTIONS_PATH/sonarqube-hotspot-checker &&
-            python sonarqube_checker.py
             "
 
       - name: Setup Node.js
