@@ -41,6 +41,16 @@ on:
         required: false
         default: ""
         description: "Whitesource project name"
+      prisma_check:
+        type: boolean
+        required: false
+        default: false
+        description: "Run Prisma check"
+      sonarqube_hotspot_check:
+        type: boolean
+        required: false
+        default: false
+        description: "Run SonarQube Hotspot Check"
     secrets:
       COMMIT_KEY:
         description: "SSH private key for the repository."
@@ -60,6 +70,29 @@ on:
       MANIFEST_AWS_SECRET_ACCESS_KEY:
         description: "AWS secret access key for the manifest"
         required: true
+      PRISMA_DOCKER_IMAGE_TO_CHECK:
+        description: "Prisma docker image to check"
+        required: false
+      PRISMA_ACCESS_KEY:
+        description: "Prisma access key ID"
+        required: false
+      PRISMA_ACCESS_KEY_SECRET:
+        description: "Prisma secret access key"
+        required: false
+
+      SONARQUBE_PROJECT_KEY:
+        description: "SonarQube project key"
+        required: false
+      SONARQUBE_PROJECT_MAIN_BRANCH:
+        description: "SonarQube project main branch"
+        required: false
+      SONARQUBE_QUERY_TOKEN:
+        description: "SonarQube query token"
+        required: false
+      SONARQUBE_HOTSPOTS_API_URL:
+        description: "SonarQube hotspots API URL"
+        required: false
+
 permissions:
   id-token: write
   contents: write
@@ -71,6 +104,8 @@ jobs:
     timeout-minutes: 20
     environment: ${{ github.event.inputs.ENVIRONMENT }}
     runs-on: ubuntu-latest
+    outputs:
+      new_version: ${{ steps.set_output.outputs.new_version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -128,6 +163,47 @@ jobs:
             cd $ACTIONS_PATH/whitesource-vulnerability-checker &&
             python whitesource_vulnerability_checker.py
             "
+
+      - name: Run Prisma Check
+        if: ${{ fromJson(inputs.prisma_check) }}
+        uses: docker://ghcr.io/solacedev/maas-build-actions:ws-quiet
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.MANIFEST_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.MANIFEST_AWS_SECRET_ACCESS_KEY }}
+          PRISMA_DOCKER_IMAGE_TO_CHECK: ${{ secrets.PRISMA_DOCKER_IMAGE_TO_CHECK }}
+          PRISMA_ACCESS_KEY: ${{ secrets.PRISMA_ACCESS_KEY }}
+          PRISMA_ACCESS_KEY_SECRET: ${{ secrets.PRISMA_ACCESS_KEY_SECRET }}
+          PRISMA_JIRA_CHECK: "True"
+          PRISMA_REPOSITORY_NAME: ${{ github.event.repository.name }}
+          JIRA_ONLY: "True"
+          STATUS_CHECK: "True"
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_ORG: ${{ github.repository_owner }}
+          GH_REPO: ${{ github.event.repository.name }}
+          GH_SHA: ${{ github.sha }}
+        with:
+          entrypoint: /bin/sh
+          args: >
+            -c ". $VIRTUAL_ENV/bin/activate &&
+            cd $ACTIONS_PATH/prisma-vulnerability-checker &&
+            python prisma_vulnerability_checker.py
+            "
+      - name: Run SonarQube Hotspot Check
+        uses: docker://ghcr.io/solacedev/maas-build-actions:ws-quiet
+        if: ${{ fromJson(inputs.sonarqube_hotspot_check) }}
+        env:
+          SONARQUBE_PROJECT_KEY: ${{ secrets.SONARQUBE_PROJECT_KEY }}
+          SONARQUBE_PROJECT_MAIN_BRANCH: ${{ secrets.SONARQUBE_PROJECT_MAIN_BRANCH }}
+          SONARQUBE_QUERY_TOKEN: ${{ secrets.SONARQUBE_QUERY_TOKEN }}
+          SONARQUBE_HOTSPOTS_API_URL: ${{ secrets.SONARQUBE_HOTSPOTS_API_URL }}
+        with:
+          entrypoint: /bin/sh
+          args: >
+            -c ". $VIRTUAL_ENV/bin/activate &&
+            cd $ACTIONS_PATH/sonarqube-hotspot-checker &&
+            python sonarqube_checker.py
+            "
+
       - name: Setup Node.js
         if: inputs.npm_package_path != ''
         uses: actions/setup-node@v4
@@ -190,6 +266,11 @@ jobs:
       - name: Fail if the current version doesn't exist
         if: env.CURRENT_VERSION == ''
         run: exit 1
+
+      - name: Set output for new version
+        id: set_output
+        run: |
+          echo "new_version=${NEW_VERSION}" >> $GITHUB_OUTPUT
 
       - name: Commit new version
         if: ${{ env.SKIP_BUMP == '0' }}
