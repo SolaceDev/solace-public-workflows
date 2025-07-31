@@ -41,6 +41,23 @@ on:
         required: false
         default: ""
         description: "Whitesource project name"
+      prisma_check:
+        type: boolean
+        required: false
+        default: false
+        description: "Run Prisma check"
+      sonarqube_hotspot_check:
+        type: boolean
+        required: false
+        default: false
+        description: "Run SonarQube Hotspot Check"
+    outputs:
+      new_version:
+        description: "The new version that was released"
+        value: ${{ jobs.release.outputs.new_version }}
+      commit_hash:
+        description: "The commit hash for bump commit"
+        value: ${{ jobs.release.outputs.commit_hash }}
     secrets:
       COMMIT_KEY:
         description: "SSH private key for the repository."
@@ -53,16 +70,40 @@ on:
         required: true
       MANIFEST_AWS_REGION:
         description: "AWS region for the manifest"
-        required: true
+        required: false
       MANIFEST_AWS_ACCESS_KEY_ID:
         description: "AWS access key ID for the manifest"
         required: true
       MANIFEST_AWS_SECRET_ACCESS_KEY:
         description: "AWS secret access key for the manifest"
         required: true
+      PRISMA_DOCKER_IMAGE_TO_CHECK:
+        description: "Prisma docker image to check"
+        required: false
+      PRISMA_ACCESS_KEY:
+        description: "Prisma access key ID"
+        required: false
+      PRISMA_ACCESS_KEY_SECRET:
+        description: "Prisma secret access key"
+        required: false
+
+      SONARQUBE_PROJECT_KEY:
+        description: "SonarQube project key"
+        required: false
+      SONARQUBE_PROJECT_MAIN_BRANCH:
+        description: "SonarQube project main branch"
+        required: false
+      SONARQUBE_QUERY_TOKEN:
+        description: "SonarQube query token"
+        required: false
+      SONARQUBE_HOTSPOTS_API_URL:
+        description: "SonarQube hotspots API URL"
+        required: false
+
 permissions:
   id-token: write
   contents: write
+  checks: write
 
 jobs:
   release:
@@ -70,6 +111,9 @@ jobs:
     timeout-minutes: 20
     environment: ${{ github.event.inputs.ENVIRONMENT }}
     runs-on: ubuntu-latest
+    outputs:
+      new_version: ${{ steps.set_output.outputs.new_version }}
+      commit_hash: ${{ steps.set_commit_hash.outputs.commit_hash }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -85,11 +129,16 @@ jobs:
           WS_PRODUCT_NAME: ${{ inputs.whitesource_product_name }}
           WS_PROJECT_NAME: ${{ inputs.whitesource_project_name }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          AWS_REGION: ${{ secrets.MANIFEST_AWS_REGION }}
           AWS_ACCESS_KEY_ID: ${{ secrets.MANIFEST_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.MANIFEST_AWS_SECRET_ACCESS_KEY }}
           WS_BLOCKING_POLICY_VIOLATION_LEVELS: "Major,Minor"
           FAIL_IF_POLICY_VIOLATIONS_FOUND: "True"
+          AWS_REGION: ${{ secrets.MANIFEST_AWS_REGION }}
+          STATUS_CHECK: "True"
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_ORG: ${{ github.repository_owner }}
+          GH_REPO: ${{ github.event.repository.name }}
+          GH_SHA: ${{ github.sha }}
         with:
           entrypoint: /bin/sh
           args: >
@@ -107,10 +156,16 @@ jobs:
           WS_PRODUCT_NAME: ${{ inputs.whitesource_product_name }}
           WS_PROJECT_NAME: ${{ inputs.whitesource_project_name }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          AWS_REGION: ${{ secrets.MANIFEST_AWS_REGION }}
           AWS_ACCESS_KEY_ID: ${{ secrets.MANIFEST_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.MANIFEST_AWS_SECRET_ACCESS_KEY }}
-          WS_JIRA_CHECK: "True" #No Jira Search for Open Vulnerability Issues
+          AWS_REGION: ${{ secrets.MANIFEST_AWS_REGION }}
+          WS_JIRA_CHECK: "True"
+          JIRA_ONLY: "True"
+          STATUS_CHECK: "True"
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_ORG: ${{ github.repository_owner }}
+          GH_REPO: ${{ github.event.repository.name }}
+          GH_SHA: ${{ github.sha }}
         with:
           entrypoint: /bin/sh
           args: >
@@ -118,6 +173,48 @@ jobs:
             cd $ACTIONS_PATH/whitesource-vulnerability-checker &&
             python whitesource_vulnerability_checker.py
             "
+
+      - name: Run Prisma Check
+        if: ${{ fromJson(inputs.prisma_check) }}
+        uses: docker://ghcr.io/solacedev/maas-build-actions:latest
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.MANIFEST_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.MANIFEST_AWS_SECRET_ACCESS_KEY }}
+          PRISMA_REPOSITORY_NAME: ${{ github.event.repository.name }}
+          DOCKER_IMAGE_TO_CHECK: ${{ secrets.PRISMA_DOCKER_IMAGE_TO_CHECK }}
+          PRISMA_ACCESS_KEY_ID: ${{ secrets.PRISMA_ACCESS_KEY }}
+          PRISMA_ACCESS_KEY_SECRET: ${{ secrets.PRISMA_ACCESS_KEY_SECRET }}
+          PRISMA_JIRA_CHECK: "True"
+          AWS_REGION: ${{ secrets.MANIFEST_AWS_REGION }}
+          JIRA_ONLY: "True"
+          STATUS_CHECK: "True"
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_ORG: ${{ github.repository_owner }}
+          GH_REPO: ${{ github.event.repository.name }}
+          GH_SHA: ${{ github.sha }}
+        with:
+          entrypoint: /bin/sh
+          args: >
+            -c ". $VIRTUAL_ENV/bin/activate &&
+            cd $ACTIONS_PATH/prisma-vulnerability-checker &&
+            python prisma_vulnerability_checker.py
+            "
+      - name: Run SonarQube Hotspot Check
+        uses: docker://ghcr.io/solacedev/maas-build-actions:latest
+        if: ${{ fromJson(inputs.sonarqube_hotspot_check) }}
+        env:
+          SONARQUBE_PROJECT_KEY: ${{ secrets.SONARQUBE_PROJECT_KEY }}
+          SONARQUBE_PROJECT_MAIN_BRANCH: ${{ secrets.SONARQUBE_PROJECT_MAIN_BRANCH }}
+          SONARQUBE_QUERY_TOKEN: ${{ secrets.SONARQUBE_QUERY_TOKEN }}
+          SONARQUBE_HOTSPOTS_API_URL: ${{ secrets.SONARQUBE_HOTSPOTS_API_URL }}
+        with:
+          entrypoint: /bin/sh
+          args: >
+            -c ". $VIRTUAL_ENV/bin/activate &&
+            cd $ACTIONS_PATH/sonarqube-hotspot-checker &&
+            python sonarqube_checker.py
+            "
+
       - name: Setup Node.js
         if: inputs.npm_package_path != ''
         uses: actions/setup-node@v4
@@ -163,16 +260,7 @@ jobs:
               echo "Skipping version bump as the last commit was a version bump."
               echo "NEW_VERSION=${CURRENT_VERSION}" >> $GITHUB_ENV
           else
-              if [ -n "${{ github.event.inputs.full_version }}" ]; then
-                  if [[ "${{ github.event.inputs.full_version }}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-                      hatch version "${{ github.event.inputs.full_version }}"
-                  else
-                      echo "Invalid full_version provided: ${{ github.event.inputs.full_version }}. Expected format x.y.z."
-                      exit 1
-                  fi
-              else
-                  hatch version "${{ github.event.inputs.version }}"
-              fi
+              hatch version "${{ github.event.inputs.version }}"
               NEW_VERSION=$(hatch version)
               echo "NEW_VERSION=${NEW_VERSION}" >> $GITHUB_ENV
           fi
@@ -181,6 +269,11 @@ jobs:
         if: env.CURRENT_VERSION == ''
         run: exit 1
 
+      - name: Set output for new version
+        id: set_output
+        run: |
+          echo "new_version=${NEW_VERSION}" >> $GITHUB_OUTPUT
+
       - name: Commit new version
         if: ${{ env.SKIP_BUMP == '0' }}
         run: |
@@ -188,6 +281,13 @@ jobs:
           git config --local user.name "GitHub Action"
           git commit -a -m "[ci skip] Bump version to ${NEW_VERSION}"
           git push
+
+      - name: Get Commit Hash
+        id: set_commit_hash
+        run: |
+          COMMIT_HASH=$(git rev-parse HEAD)
+          echo "Commit hash: $COMMIT_HASH"
+          echo "commit_hash=${COMMIT_HASH}" >> $GITHUB_OUTPUT
 
       - name: Build project for distribution
         run: hatch build
