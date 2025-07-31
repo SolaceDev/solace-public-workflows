@@ -176,7 +176,7 @@ jobs:
 
       - name: Run Prisma Check
         if: ${{ fromJson(inputs.prisma_check) }}
-        uses: docker://ghcr.io/solacedev/maas-build-actions:latest
+        uses: docker://ghcr.io/solacedev/maas-build-actions:fix-prisma
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.MANIFEST_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.MANIFEST_AWS_SECRET_ACCESS_KEY }}
