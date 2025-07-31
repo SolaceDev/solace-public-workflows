@@ -107,6 +107,14 @@ jobs:
           echo "is_push=${{ github.event_name == 'push' && github.ref_name == github.event.repository.default_branch }}" >> $GITHUB_ENV
           echo "is_pr=${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}" >> $GITHUB_ENV
           echo "has_whitesource_config=${{ inputs.whitesource_product_name != '' && inputs.whitesource_project_name != '' }}" >> $GITHUB_ENV
+          WS_PROJECT_NAME="${{ inputs.whitesource_project_name }}"
+
+          # Set dynamic PR WhiteSource project name based on event type
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            WS_PROJECT_NAME="${{ inputs.whitesource_project_name }}-pr-${{ github.event.pull_request.number }}"
+          fi
+
+          echo "ws_project_name=${WS_PROJECT_NAME}" >> $GITHUB_ENV
 
       - name: Setup Node.js
         if: inputs.npm_package_path != ''
@@ -299,7 +307,7 @@ jobs:
         uses: ./workflows-repo/.github/actions/whitesource-scan
         with:
           whitesource_product_name: ${{ inputs.whitesource_product_name }}
-          whitesource_project_name: ${{ inputs.whitesource_project_name }}
+          whitesource_project_name: ${{ env.ws_project_name }}
           whitesource_api_key: ${{ secrets.WHITESOURCE_API_KEY }}
           whitesource_config_file: ${{ inputs.whitesource_config_file }}
 
@@ -311,7 +319,7 @@ jobs:
         env:
           WS_API_KEY: ${{ secrets.WHITESOURCE_API_KEY }}
           WS_PRODUCT_NAME: ${{ inputs.whitesource_product_name }}
-          WS_PROJECT_NAME: ${{ inputs.whitesource_project_name }}
+          WS_PROJECT_NAME: ${{ env.ws_project_name }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           AWS_REGION: ${{ secrets.MANIFEST_AWS_REGION }}
           AWS_ACCESS_KEY_ID: ${{ secrets.MANIFEST_AWS_ACCESS_KEY_ID }}
@@ -340,7 +348,7 @@ jobs:
         env:
           WS_API_KEY: ${{ secrets.WHITESOURCE_API_KEY }}
           WS_PRODUCT_NAME: ${{ inputs.whitesource_product_name }}
-          WS_PROJECT_NAME: ${{ inputs.whitesource_project_name }}
+          WS_PROJECT_NAME: ${{ env.ws_project_name }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           AWS_ACCESS_KEY_ID: ${{ secrets.MANIFEST_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.MANIFEST_AWS_SECRET_ACCESS_KEY }}
@@ -369,7 +377,7 @@ jobs:
         env:
           WS_API_KEY: ${{ secrets.WHITESOURCE_API_KEY }}
           WS_PRODUCT_NAME: ${{ inputs.whitesource_product_name }}
-          WS_PROJECT_NAME: ${{ inputs.whitesource_project_name }}
+          WS_PROJECT_NAME: ${{ env.ws_project_name }}
           AWS_ACCESS_KEY_ID: ${{ secrets.MANIFEST_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.MANIFEST_AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: ${{ secrets.MANIFEST_AWS_REGION }}
