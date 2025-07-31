@@ -104,9 +104,8 @@ jobs:
         shell: bash
         run: |
           # Set environment variables for conditional steps
-          echo "is_push=${{ github.event_name == 'push' }}" >> $GITHUB_ENV
-          echo "is_pr=${{ github.event_name == 'pull_request' }}" >> $GITHUB_ENV
-          echo "is_fork_pr=${{ github.event.pull_request.head.repo.full_name != github.repository }}" >> $GITHUB_ENV
+          echo "is_push=${{ github.event_name == 'push' && github.ref_name == github.event.repository.default_branch }}" >> $GITHUB_ENV
+          echo "is_pr=${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}" >> $GITHUB_ENV
           echo "has_whitesource_config=${{ inputs.whitesource_product_name != '' && inputs.whitesource_project_name != '' }}" >> $GITHUB_ENV
 
       - name: Setup Node.js
