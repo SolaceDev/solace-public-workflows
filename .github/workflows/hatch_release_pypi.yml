@@ -180,12 +180,12 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.MANIFEST_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.MANIFEST_AWS_SECRET_ACCESS_KEY }}
+          PRISMA_REPOSITORY_NAME: ${{ github.event.repository.name }}
           PRISMA_DOCKER_IMAGE_TO_CHECK: ${{ secrets.PRISMA_DOCKER_IMAGE_TO_CHECK }}
           PRISMA_ACCESS_KEY_ID: ${{ secrets.PRISMA_ACCESS_KEY }}
           PRISMA_ACCESS_KEY_SECRET: ${{ secrets.PRISMA_ACCESS_KEY_SECRET }}
           PRISMA_JIRA_CHECK: "True"
           AWS_REGION: ${{ secrets.MANIFEST_AWS_REGION }}
-          PRISMA_REPOSITORY_NAME: ${{ github.event.repository.name }}
           JIRA_ONLY: "True"
           STATUS_CHECK: "True"
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
