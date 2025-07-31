@@ -1,0 +1,40 @@
+name: Cleanup WhiteSource Project
+
+on:
+  workflow_call:
+    inputs:
+      ws_product_name:
+        type: string
+        required: false
+        default: "solaceai"
+      ws_project_names:
+        type: string
+        required: false
+        default: "${{ github.event.repository.name }}-pr-${{ github.event.number }}"
+    secrets:
+      ws_api_key:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  cleanup-whitesource:
+    name: Remove WhiteSource Project
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cleanup WhiteSource Project for PR ${{ github.event.number }}
+        id: whitesource-policy-gate
+        uses: docker://ghcr.io/solacedev/maas-build-actions:latest
+        env:
+          WS_API_KEY: ${{ secrets.WS_API_KEY }}
+          WS_PRODUCT_NAME: ${{ inputs.ws_product_name }}
+          WS_PROJECT_NAMES: ${{ inputs.ws_project_names }}
+        with:
+          entrypoint: /bin/sh
+          args: >
+            -c "
+            . $VIRTUAL_ENV/bin/activate &&
+            cd $ACTIONS_PATH/whitesource-project-remover &&
+            python whitesource_project_remover.py
+            "
