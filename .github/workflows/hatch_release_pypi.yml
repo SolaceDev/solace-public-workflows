@@ -180,12 +180,12 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.MANIFEST_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.MANIFEST_AWS_SECRET_ACCESS_KEY }}
-          PRISMA_DOCKER_IMAGE_TO_CHECK: ${{ secrets.PRISMA_DOCKER_IMAGE_TO_CHECK }}
+          PRISMA_REPOSITORY_NAME: ${{ github.event.repository.name }}
+          DOCKER_IMAGE_TO_CHECK: ${{ secrets.PRISMA_DOCKER_IMAGE_TO_CHECK }}
           PRISMA_ACCESS_KEY_ID: ${{ secrets.PRISMA_ACCESS_KEY }}
           PRISMA_ACCESS_KEY_SECRET: ${{ secrets.PRISMA_ACCESS_KEY_SECRET }}
           PRISMA_JIRA_CHECK: "True"
           AWS_REGION: ${{ secrets.MANIFEST_AWS_REGION }}
-          PRISMA_REPOSITORY_NAME: ${{ github.event.repository.name }}
           JIRA_ONLY: "True"
           STATUS_CHECK: "True"
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -260,16 +260,7 @@ jobs:
               echo "Skipping version bump as the last commit was a version bump."
               echo "NEW_VERSION=${CURRENT_VERSION}" >> $GITHUB_ENV
           else
-              if [ -n "${{ github.event.inputs.full_version }}" ]; then
-                  if [[ "${{ github.event.inputs.full_version }}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-                      hatch version "${{ github.event.inputs.full_version }}"
-                  else
-                      echo "Invalid full_version provided: ${{ github.event.inputs.full_version }}. Expected format x.y.z."
-                      exit 1
-                  fi
-              else
-                  hatch version "${{ github.event.inputs.version }}"
-              fi
+              hatch version "${{ github.event.inputs.version }}"
               NEW_VERSION=$(hatch version)
               echo "NEW_VERSION=${NEW_VERSION}" >> $GITHUB_ENV
           fi
