@@ -64,19 +64,19 @@ on:
         required: true
       PYPI_TOKEN:
         description: "PyPi token"
-        required: true
+        required: false
       WHITESOURCE_API_KEY:
         description: "Whitesource API key"
-        required: true
+        required: false
       MANIFEST_AWS_REGION:
         description: "AWS region for the manifest"
         required: false
       MANIFEST_AWS_ACCESS_KEY_ID:
         description: "AWS access key ID for the manifest"
-        required: true
+        required: false
       MANIFEST_AWS_SECRET_ACCESS_KEY:
         description: "AWS secret access key for the manifest"
-        required: true
+        required: false
       PRISMA_DOCKER_IMAGE_TO_CHECK:
         description: "Prisma docker image to check"
         required: false
