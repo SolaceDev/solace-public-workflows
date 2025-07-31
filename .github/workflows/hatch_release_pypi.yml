@@ -55,6 +55,9 @@ on:
       new_version:
         description: "The new version that was released"
         value: ${{ jobs.release.outputs.new_version }}
+      commit_hash:
+        description: "The commit hash for bump commit"
+        value: ${{ jobs.release.outputs.commit_hash }}
     secrets:
       COMMIT_KEY:
         description: "SSH private key for the repository."
@@ -110,6 +113,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       new_version: ${{ steps.set_output.outputs.new_version }}
+      commit_hash: ${{ steps.set_commit_hash.outputs.commit_hash }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -286,6 +290,13 @@ jobs:
           git config --local user.name "GitHub Action"
           git commit -a -m "[ci skip] Bump version to ${NEW_VERSION}"
           git push
+
+      - name: Get Commit Hash
+        id: set_commit_hash
+        run: |
+          COMMIT_HASH=$(git rev-parse HEAD)
+          echo "Commit hash: $COMMIT_HASH"
+          echo "commit_hash=${COMMIT_HASH}" >> $GITHUB_OUTPUT
 
       - name: Build project for distribution
         run: hatch build
