@@ -138,7 +138,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_ORG: ${{ github.repository_owner }}
           GH_REPO: ${{ github.event.repository.name }}
-          GH_SHA: ${{ github.sha }}
+          GITHUB_SHA: ${{ github.sha }}
         with:
           entrypoint: /bin/sh
           args: >
@@ -165,7 +165,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_ORG: ${{ github.repository_owner }}
           GH_REPO: ${{ github.event.repository.name }}
-          GH_SHA: ${{ github.sha }}
+          GITHUB_SHA: ${{ github.sha }}
         with:
           entrypoint: /bin/sh
           args: >
@@ -191,7 +191,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_ORG: ${{ github.repository_owner }}
           GH_REPO: ${{ github.event.repository.name }}
-          GH_SHA: ${{ github.sha }}
+          GITHUB_SHA: ${{ github.sha }}
         with:
           entrypoint: /bin/sh
           args: >
