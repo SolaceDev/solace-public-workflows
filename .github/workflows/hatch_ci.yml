@@ -327,7 +327,7 @@ jobs:
           FAIL_IF_POLICY_VIOLATIONS_FOUND: "True"
           GH_ORG: ${{ github.repository_owner }}
           GH_REPO: ${{ github.event.repository.name }}
-          GITHUB_SHA: ${{ github.event.pull_request.head.sha }}
+          GH_SHA: ${{ github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           STATUS_CHECK: "True"
         with:
