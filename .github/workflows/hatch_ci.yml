@@ -104,7 +104,7 @@ jobs:
         shell: bash
         run: |
           # Set environment variables for conditional steps
-          echo "is_push=${{ github.event_name == 'push' && github.ref_name == github.event.repository.default_branch }}" >> $GITHUB_ENV
+          echo "is_push=${{ github.event_name == 'push' }}" >> $GITHUB_ENV
           echo "is_pr=${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}" >> $GITHUB_ENV
           echo "has_whitesource_config=${{ inputs.whitesource_product_name != '' && inputs.whitesource_project_name != '' }}" >> $GITHUB_ENV
           WS_PROJECT_NAME="${{ inputs.whitesource_project_name }}"
@@ -314,7 +314,7 @@ jobs:
       - name: Run WhiteSource PR Checker (Policy Violations)
         id: whitesource-pr-policy-violation-checker
         if: fromJson(env.is_pr) && fromJson(env.has_whitesource_config)
-        uses: docker://ghcr.io/solacedev/maas-build-actions:latest
+        uses: docker://ghcr.io/solacedev/maas-build-actions:ws-pr-status-message
         env:
           WS_API_KEY: ${{ secrets.WHITESOURCE_API_KEY }}
           WS_PRODUCT_NAME: ${{ inputs.whitesource_product_name }}
@@ -329,6 +329,7 @@ jobs:
           GH_REPO: ${{ github.event.repository.name }}
           GH_SHA: ${{ github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          INCLUDE_HELPFUL_LINKS: "False"
           STATUS_CHECK: "True"
         with:
           entrypoint: /bin/sh
@@ -342,7 +343,7 @@ jobs:
       - name: Run WhiteSource Policy Gate
         id: whitesource-policy-gate
         if: fromJson(env.is_push) && fromJson(env.has_whitesource_config)
-        uses: docker://ghcr.io/solacedev/maas-build-actions:latest
+        uses: docker://ghcr.io/solacedev/maas-build-actions:ws-pr-status-message
         continue-on-error: true
         env:
           WS_API_KEY: ${{ secrets.WHITESOURCE_API_KEY }}
@@ -371,7 +372,7 @@ jobs:
       - name: Run WhiteSource Vulnerability Gate
         if: fromJson(env.is_push) && fromJson(env.has_whitesource_config)
         id: whitesource-vulnerability-gate
-        uses: docker://ghcr.io/solacedev/maas-build-actions:latest
+        uses: docker://ghcr.io/solacedev/maas-build-actions:ws-pr-status-message
         continue-on-error: true
         env:
           WS_API_KEY: ${{ secrets.WHITESOURCE_API_KEY }}
