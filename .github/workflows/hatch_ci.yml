@@ -329,6 +329,7 @@ jobs:
           GH_REPO: ${{ github.event.repository.name }}
           GH_SHA: ${{ github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          INCLUDE_HELPFUL_LINKS: "False"
           STATUS_CHECK: "True"
         with:
           entrypoint: /bin/sh
