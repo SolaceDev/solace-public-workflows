@@ -7,8 +7,7 @@ The `rc-helper` GitHub Action is a reusable utility for CI/CD pipelines to autom
 ## Usage
 
 ```yaml
-- name: Run rc-helper action
-  uses: ./.github/actions/rc-helper
+  uses: SolaceDev/solace-public-workflows/.github/actions/rc-helper@main
   with:
     rc_step: <step_name>
     # ...other required inputs for the step...
@@ -74,7 +73,7 @@ The `rc-helper` GitHub Action is a reusable utility for CI/CD pipelines to autom
 
 ```yaml
 - name: Prepare Change Log
-  uses: ./.github/actions/rc-helper
+  uses: SolaceDev/solace-public-workflows/.github/actions/rc-helper@main
   with:
     rc_step: prepare_change_log_message
     slack_token: ${{ secrets.SLACK_TOKEN }}
@@ -84,8 +83,7 @@ The `rc-helper` GitHub Action is a reusable utility for CI/CD pipelines to autom
     candidate_ref: ${{ steps.gather_info.outputs.CANDIDATE_REF }}
     contributors_raw_list: ${{ steps.gather_info.outputs.CONTRIBUTORS_RAW_LIST }}
 
-- name: Send Changelog Message
-  uses: ./.github/actions/rc-helper
+  uses: SolaceDev/solace-public-workflows/.github/actions/rc-helper@main
   with:
     rc_step: post_to_channel
     slack_token: ${{ secrets.SLACK_TOKEN }}
@@ -96,8 +94,7 @@ The `rc-helper` GitHub Action is a reusable utility for CI/CD pipelines to autom
 ### Update the Header of a Slack Message in a Thread
 
 ```yaml
-- name: Final Message Update on Slack
-  uses: ./.github/actions/rc-helper
+  uses: SolaceDev/solace-public-workflows/.github/actions/rc-helper@main
   with:
     rc_step: update_message_header
     slack_token: ${{ secrets.SLACK_TOKEN }}
@@ -110,8 +107,7 @@ The `rc-helper` GitHub Action is a reusable utility for CI/CD pipelines to autom
 ### Post a Message to a Slack Thread
 
 ```yaml
-- name: Notify Slack of job result
-  uses: ./.github/actions/rc-helper
+  uses: SolaceDev/solace-public-workflows/.github/actions/rc-helper@main
   with:
     rc_step: post_to_thread
     slack_token: ${{ secrets.SLACK_TOKEN }}
@@ -123,8 +119,7 @@ The `rc-helper` GitHub Action is a reusable utility for CI/CD pipelines to autom
 ### Update a Message in a Slack Thread
 
 ```yaml
-- name: Update Slack Thread Message
-  uses: ./.github/actions/rc-helper
+  uses: SolaceDev/solace-public-workflows/.github/actions/rc-helper@main
   with:
     rc_step: update_thread_message
     slack_token: ${{ secrets.SLACK_TOKEN }}
@@ -136,8 +131,7 @@ The `rc-helper` GitHub Action is a reusable utility for CI/CD pipelines to autom
 ### Add an Item to DynamoDB
 
 ```yaml
-- name: Add item to DynamoDB
-  uses: ./.github/actions/rc-helper
+  uses: SolaceDev/solace-public-workflows/.github/actions/rc-helper@main
   with:
     rc_step: add_item_from_json_to_dynamodb_table
     ddb_item_to_be_added: '{"id": "123", "status": "done"}'
@@ -149,8 +143,7 @@ The `rc-helper` GitHub Action is a reusable utility for CI/CD pipelines to autom
 ### Check if an Item Exists in DynamoDB
 
 ```yaml
-- name: Check if item exists in DynamoDB
-  uses: ./.github/actions/rc-helper
+  uses: SolaceDev/solace-public-workflows/.github/actions/rc-helper@main
   with:
     rc_step: item_exists_in_dynamodb
     ddb_query_json: '{"id": "123"}'
