@@ -144,7 +144,7 @@ The `cicd-helper` GitHub Action is a reusable utility for CI/CD pipelines to aut
 ### Check if an Item Exists in DynamoDB
 
 ```yaml
-  uses: SolaceDev/solace-public-workflows/.github/actions/rc-helper@main
+  uses: SolaceDev/solace-public-workflows/.github/actions/cicd-helper@main
   with:
     rc_step: item_exists_in_dynamodb
     ddb_query_json: '{"id": "123"}'
