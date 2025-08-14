@@ -1,0 +1,86 @@
+name: RC Helper
+description: Reusable action for RC helper Slack notifications via Docker container.
+inputs:
+  message_header:
+    description: Slack message header (for post_to_channel)
+    required: false
+  repo_name:
+    description: GitHub repository name (e.g., owner/repo)
+    required: false
+  slack_token:
+    description: Slack API token (should be passed as a secret)
+    required: true
+  slack_channel:
+    description: Slack channel ID (e.g., G015384QZAB)
+    required: true
+  rc_step:
+    description: RC step (e.g., post_to_thread, update_message_header)
+    required: true
+  thread_ts:
+    description: Slack thread timestamp (for thread updates)
+    required: false
+  message:
+    description: Slack message content (for post_to_channel)
+    required: false
+  thread_message:
+    description: Slack thread message content (for post_to_thread)
+    required: false
+  new_message_header:
+    description: Slack message header (for update_message_header step)
+    required: false
+  change_log_header_metadata:
+    description: Change log header metadata (for update_message_header step)
+    required: false
+  previous_message:
+    description: Previous Slack message (for update_message_header step)
+    required: false
+  deployed_ref:
+    description: Deployed reference SHA or tag (for changelog message, e.g., previous deployment, base branch, or environment)
+    required: false
+  candidate_ref:
+    description: Candidate reference SHA or tag (for changelog message, e.g., new deployment, PR head, or target commit)
+    required: false
+  contributors_raw_list:
+    description: Contributors list
+    required: false
+runs:
+  using: docker
+  image: ghcr.io/solacedev/maas-build-actions:reusable_container_rc_helper
+  entrypoint: /bin/sh
+  args:
+    - -c
+    - |
+      export SLACK_TOKEN="$INPUT_SLACK_TOKEN"
+      export SLACK_CHANNEL="$INPUT_SLACK_CHANNEL"
+      export RC_STEP="$INPUT_RC_STEP"
+      export RC_PYTHON="python3"
+      export RC_HELPER_SCRIPT="/maas-build-actions/scripts/rc-helper/rc-helper.py"
+      if [ -n "$INPUT_THREAD_TS" ]; then export THREAD_TS="$INPUT_THREAD_TS"; fi
+      if [ -n "$INPUT_MESSAGE" ]; then export MESSAGE="$INPUT_MESSAGE"; fi
+      if [ -n "$INPUT_THREAD_MESSAGE" ]; then export THREAD_MESSAGE="$INPUT_THREAD_MESSAGE"; fi
+      if [ -n "$INPUT_MESSAGE_HEADER" ]; then export MESSAGE_HEADER="$INPUT_MESSAGE_HEADER"; fi
+      if [ -n "$INPUT_NEW_MESSAGE_HEADER" ]; then export NEW_MESSAGE_HEADER="$INPUT_NEW_MESSAGE_HEADER"; fi
+      if [ -n "$INPUT_CHANGE_LOG_HEADER_METADATA" ]; then export CHANGE_LOG_HEADER_METADATA="$INPUT_CHANGE_LOG_HEADER_METADATA"; fi
+      if [ -n "$INPUT_PREVIOUS_MESSAGE" ]; then export PREVIOUS_MESSAGE="$INPUT_PREVIOUS_MESSAGE"; fi
+      if [ -n "$INPUT_REPO_NAME" ]; then export REPO_NAME="$INPUT_REPO_NAME"; fi
+      if [ -n "$INPUT_DEPLOYED_REF" ]; then export DEPLOYED_REF="$INPUT_DEPLOYED_REF"; fi
+      if [ -n "$INPUT_CANDIDATE_REF" ]; then export CANDIDATE_REF="$INPUT_CANDIDATE_REF"; fi
+      if [ -n "$INPUT_CONTRIBUTORS_RAW_LIST" ]; then export CONTRIBUTORS_RAW_LIST="$INPUT_CONTRIBUTORS_RAW_LIST"; fi
+
+      echo "Debug: Inputs:"
+      echo "SLACK_TOKEN: [REDACTED]"
+      echo "SLACK_CHANNEL: $SLACK_CHANNEL"
+      echo "RC_STEP: $RC_STEP"
+      echo "THREAD_TS: $THREAD_TS"
+      echo "MESSAGE: $MESSAGE"
+      echo "THREAD_MESSAGE: $THREAD_MESSAGE"
+      echo "NEW_MESSAGE_HEADER: $NEW_MESSAGE_HEADER"
+      echo "CHANGE_LOG_HEADER_METADATA: $CHANGE_LOG_HEADER_METADATA"
+      echo "PREVIOUS_MESSAGE: $PREVIOUS_MESSAGE"
+      echo "REPO_NAME: $REPO_NAME"
+      echo "DEPLOYED_REF: $DEPLOYED_REF"
+      echo "CANDIDATE_REF: $CANDIDATE_REF"
+      echo "CONTRIBUTORS_RAW_LIST: $CONTRIBUTORS_RAW_LIST"
+
+      source /maas-build-actions/venv/bin/activate
+      $RC_PYTHON $RC_HELPER_SCRIPT
