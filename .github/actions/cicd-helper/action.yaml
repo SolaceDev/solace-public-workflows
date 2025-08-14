@@ -43,6 +43,24 @@ inputs:
   contributors_raw_list:
     description: Contributors list
     required: false
+  ddb_item_to_be_added:
+    description: JSON string of the item (for add_item_from_json_to_dynamodb_table)
+    required: false
+  ddb_table_name:
+    description: DynamoDB table name (for DynamoDB steps)
+    required: false
+  ddb_partition_key:
+    description: Partition key name (for DynamoDB steps)
+    required: false
+  ddb_sort_key:
+    description: Sort key name (for add_item_from_json_to_dynamodb_table)
+    required: false
+  ddb_query_json:
+    description: JSON string for the query (for item_exists_in_dynamodb)
+    required: false
+  ddb_exists_output:
+    description: Output variable name (default: ITEM_EXISTS) (for item_exists_in_dynamodb)
+    required: false
 runs:
   using: docker
   image: docker://ghcr.io/solacedev/maas-build-actions:reusable_container_rc_helper
@@ -66,6 +84,12 @@ runs:
       if [ -n "$INPUT_DEPLOYED_REF" ]; then export DEPLOYED_REF="$INPUT_DEPLOYED_REF"; fi
       if [ -n "$INPUT_CANDIDATE_REF" ]; then export CANDIDATE_REF="$INPUT_CANDIDATE_REF"; fi
       if [ -n "$INPUT_CONTRIBUTORS_RAW_LIST" ]; then export CONTRIBUTORS_RAW_LIST="$INPUT_CONTRIBUTORS_RAW_LIST"; fi
+      if [ -n "$INPUT_DDB_ITEM_TO_BE_ADDED" ]; then export DDB_ITEM_TO_BE_ADDED="$INPUT_DDB_ITEM_TO_BE_ADDED"; fi
+      if [ -n "$INPUT_DDB_TABLE_NAME" ]; then export DDB_TABLE_NAME="$INPUT_DDB_TABLE_NAME"; fi
+      if [ -n "$INPUT_DDB_PARTITION_KEY" ]; then export DDB_PARTITION_KEY="$INPUT_DDB_PARTITION_KEY"; fi
+      if [ -n "$INPUT_DDB_SORT_KEY" ]; then export DDB_SORT_KEY="$INPUT_DDB_SORT_KEY"; fi
+      if [ -n "$INPUT_DDB_QUERY_JSON" ]; then export DDB_QUERY_JSON="$INPUT_DDB_QUERY_JSON"; fi
+      if [ -n "$INPUT_DDB_EXISTS_OUTPUT" ]; then export DDB_EXISTS_OUTPUT="$INPUT_DDB_EXISTS_OUTPUT"; fi
 
       echo "Debug: Inputs:"
       echo "SLACK_TOKEN: [REDACTED]"
@@ -80,6 +104,12 @@ runs:
       echo "REPO_NAME: $REPO_NAME"
       echo "DEPLOYED_REF: $DEPLOYED_REF"
       echo "CANDIDATE_REF: $CANDIDATE_REF"
+      echo "DDB_ITEM_TO_BE_ADDED: $DDB_ITEM_TO_BE_ADDED"
+      echo "DDB_TABLE_NAME: $DDB_TABLE_NAME"
+      echo "DDB_PARTITION_KEY: $DDB_PARTITION_KEY"
+      echo "DDB_SORT_KEY: $DDB_SORT_KEY"
+      echo "DDB_QUERY_JSON: $DDB_QUERY_JSON"
+      echo "DDB_EXISTS_OUTPUT: $DDB_EXISTS_OUTPUT"
       echo "CONTRIBUTORS_RAW_LIST: $CONTRIBUTORS_RAW_LIST"
 
       source /maas-build-actions/venv/bin/activate
