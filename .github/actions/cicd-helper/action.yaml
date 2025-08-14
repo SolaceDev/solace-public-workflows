@@ -64,7 +64,7 @@ inputs:
 
 runs:
   using: docker
-  image: docker://ghcr.io/solacedev/maas-build-actions:reusable_container_rc_helper
+  image: docker://ghcr.io/solacedev/maas-build-actions:master
   entrypoint: /bin/sh
   args:
     - -c
