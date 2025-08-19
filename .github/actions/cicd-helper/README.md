@@ -42,6 +42,9 @@ The `cicd-helper` GitHub Action is a reusable utility for CI/CD pipelines to aut
 | `ddb_sort_key`         | Optional | Sort key name (for `add_item_from_json_to_dynamodb_table`).                                   |
 | `ddb_query_json`       | Sometimes| JSON string for the query (for `item_exists_in_dynamodb`).                                    |
 | `ddb_exists_output`    | Optional | Output variable name (default: `ITEM_EXISTS`) (for `item_exists_in_dynamodb`).                |
+| `ddb_field_path`       | Sometimes| Dot-separated path to the field (for `get_item_value_from_dynamodb`).                         |
+| `ddb_output_name`      | Optional | Output variable name (default: `FIELD_VALUE`) (for `get_item_value_from_dynamodb`).           |
+| `ddb_return_section`   | Optional | If set to `true`, returns the entire section as clean JSON (for `get_item_value_from_dynamodb`).|
 
 > **Note:** Not all inputs are required for every step. See the table below for step-specific requirements.
 
@@ -58,6 +61,7 @@ The `cicd-helper` GitHub Action is a reusable utility for CI/CD pipelines to aut
 | `update_thread_message`        | Updates a message in a Slack thread.                      | `slack_channel`, `thread_message_ts`, `new_thread_message`, `slack_token`                            |                                         |
 | `add_item_from_json_to_dynamodb_table` | Adds an item to a DynamoDB table from a JSON string. | `ddb_item_to_be_added`, `ddb_table_name`, `ddb_partition_key`, (`ddb_sort_key` optional)             |                                         |
 | `item_exists_in_dynamodb`      | Checks if an item exists in a DynamoDB table.             | `ddb_query_json`, `ddb_table_name`, `ddb_partition_key`, (`ddb_exists_output` optional)              | `ITEM_EXISTS` (or custom name)          |
+| `get_item_value_from_dynamodb` | Retrieves a specific field value or section from a DynamoDB item. | `ddb_query_json`, `ddb_table_name`, `ddb_partition_key`, (`ddb_sort_key` optional), `ddb_field_path`, (`ddb_output_name` optional), (`ddb_return_section` optional) | Field value or section as output        |
 
 ---
 
@@ -139,6 +143,54 @@ The `cicd-helper` GitHub Action is a reusable utility for CI/CD pipelines to aut
     ddb_table_name: "my-table"
     ddb_partition_key: "id"
     # ddb_sort_key: "timestamp" # Optional
+
+### Check if an Item Exists in DynamoDB (with optional sort key)
+
+```yaml
+  uses: SolaceDev/solace-public-workflows/.github/actions/cicd-helper@main
+  with:
+    rc_step: item_exists_in_dynamodb
+    ddb_query_json: '{"id": "123", "timestamp": "2024-01-01T00:00:00Z"}'
+    ddb_table_name: "my-table"
+    ddb_partition_key: "id"
+    ddb_sort_key: "timestamp" # Optional, for composite key tables
+    ddb_exists_output: ITEM_EXISTS
+```
+
+### Get a Field Value or Section from DynamoDB
+
+```yaml
+  uses: SolaceDev/solace-public-workflows/.github/actions/cicd-helper@main
+  with:
+    rc_step: get_item_value_from_dynamodb
+    ddb_query_json: '{"squad": "ai", "repository": "solace-agent-mesh-enterprise"}'
+    ddb_table_name: "solace-cloud-manifest"
+    ddb_partition_key: "squad"
+    ddb_field_path: "dev.image_tag"
+    ddb_output_name: DEV_IMAGE_TAG
+    ddb_return_section: false # or omit for single value
+```
+
+To get the entire `dev` section as JSON:
+
+```yaml
+  uses: SolaceDev/solace-public-workflows/.github/actions/cicd-helper@main
+  with:
+    rc_step: get_item_value_from_dynamodb
+    ddb_query_json: '{"squad": "ai", "repository": "solace-agent-mesh-enterprise"}'
+    ddb_table_name: "solace-cloud-manifest"
+    ddb_partition_key: "squad"
+    ddb_field_path: "dev"
+    ddb_output_name: DEV_SECTION
+    ddb_return_section: true
+```
+
+**Outputs:**
+
+- If `ddb_return_section` is `false` or omitted: the value of the field (e.g., `0.0.6-1560dda3fb`)
+- If `ddb_return_section` is `true`: the entire section as compact JSON (e.g., `{ "chart_version": "", "image_tag": "0.0.6-1560dda3fb", ... }`)
+- If no item is found: `NOT_FOUND`
+- If the field/section is not found: `FIELD_NOT_FOUND`
 ```
 
 ### Check if an Item Exists in DynamoDB
