@@ -61,6 +61,15 @@ inputs:
   ddb_exists_output:
     description: "Output variable name (default: ITEM_EXISTS) (for item_exists_in_dynamodb)"
     required: false
+  ddb_field_path:
+    description: "Dot-separated path to the field (e.g., dev.image_tag for a single value, dev for the whole section) (for get_item_value_from_dynamodb)"
+    required: false
+  ddb_output_name:
+    description: "Output variable name (default: FIELD_VALUE) (for get_item_value_from_dynamodb)"
+    required: false
+  ddb_return_section:
+    description: "If set to true, returns the entire section as clean JSON; if false or omitted, returns a single field value (for get_item_value_from_dynamodb)"
+    required: false
 
 runs:
   using: docker
@@ -91,6 +100,9 @@ runs:
       if [ -n "$INPUT_DDB_SORT_KEY" ]; then export DDB_SORT_KEY="$INPUT_DDB_SORT_KEY"; fi
       if [ -n "$INPUT_DDB_QUERY_JSON" ]; then export DDB_QUERY_JSON="$INPUT_DDB_QUERY_JSON"; fi
       if [ -n "$INPUT_DDB_EXISTS_OUTPUT" ]; then export DDB_EXISTS_OUTPUT="$INPUT_DDB_EXISTS_OUTPUT"; fi
+      if [ -n "$INPUT_DDB_FIELD_PATH" ]; then export DDB_FIELD_PATH="$INPUT_DDB_FIELD_PATH"; fi
+      if [ -n "$INPUT_DDB_OUTPUT_NAME" ]; then export DDB_OUTPUT_NAME="$INPUT_DDB_OUTPUT_NAME"; fi
+      if [ -n "$INPUT_DDB_RETURN_SECTION" ]; then export DDB_RETURN_SECTION="$INPUT_DDB_RETURN_SECTION"; fi
 
       echo "Debug: Inputs:"
       echo "RC_STEP: $RC_STEP"
@@ -112,6 +124,9 @@ runs:
       echo "DDB_QUERY_JSON: $DDB_QUERY_JSON"
       echo "DDB_EXISTS_OUTPUT: $DDB_EXISTS_OUTPUT"
       echo "CONTRIBUTORS_RAW_LIST: $CONTRIBUTORS_RAW_LIST"
+      echo "DDB_FIELD_PATH: $DDB_FIELD_PATH"
+      echo "DDB_OUTPUT_NAME: $DDB_OUTPUT_NAME"
+      echo "DDB_RETURN_SECTION: $DDB_RETURN_SECTION"
 
       source /maas-build-actions/venv/bin/activate
       $RC_PYTHON $RC_HELPER_SCRIPT
