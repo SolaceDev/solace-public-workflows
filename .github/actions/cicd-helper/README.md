@@ -28,7 +28,7 @@ The `cicd-helper` GitHub Action is a reusable utility for CI/CD pipelines to aut
 | `repo_name`            | Sometimes| GitHub repository (e.g., `org/repo`) (for `prepare_change_log_message`).                     |
 | `deployed_ref`         | Sometimes| Deployed reference SHA or tag (for `prepare_change_log_message`, e.g., previous deployment, base branch, or environment). |
 | `candidate_ref`        | Sometimes| Candidate reference SHA or tag (for `prepare_change_log_message`, e.g., new deployment, PR head, or target commit).         |
-| `contributors_raw_list`| Sometimes| Comma-separated contributor emails (for `prepare_change_log_message`).                        |
+| `contributors_raw_list`| Optional | Comma-separated contributor emails (for `prepare_change_log_message`). If omitted, contributor info will be queried via GitHub. |
 | `message`              | Sometimes| Message text (for `post_to_channel`).                                                         |
 | `thread_ts`            | Sometimes| Slack thread timestamp (for thread operations).                                               |
 | `thread_message`       | Sometimes| Message text for thread (for `post_to_thread`).                                               |
@@ -54,7 +54,7 @@ The `cicd-helper` GitHub Action is a reusable utility for CI/CD pipelines to aut
 
 | rc_step                        | Description                                               | Required Inputs                                                                                      | Outputs                                 |
 |--------------------------------|-----------------------------------------------------------|------------------------------------------------------------------------------------------------------|-----------------------------------------|
-| `prepare_change_log_message`    | Prepares a formatted changelog message for Slack. Suitable for any deployment environment (not just release candidates). | `repo_name`, `message_header`, `deployed_ref`, `candidate_ref`, `contributors_raw_list`, `slack_token` | `CHANGE_LOG_MESSAGE`                    |
+| `prepare_change_log_message`    | Prepares a formatted changelog message for Slack. Suitable for any deployment environment (not just release candidates). | `repo_name`, `message_header`, `deployed_ref`, `candidate_ref`, (`contributors_raw_list` optional), `slack_token` | `CHANGE_LOG_MESSAGE`                    |
 | `post_to_channel`              | Posts a message to a Slack channel.                       | `slack_channel`, `message`, `slack_token`                                                            | `MAIN_SLACK_THREAD_TS`, `MAIN_SLACK_MESSAGE` |
 | `update_message_header`        | Updates the header of a Slack message in a thread.        | `slack_channel`, `thread_ts`, `previous_message`, `new_message_header`, `slack_token`                |                                         |
 | `post_to_thread`               | Posts a message to a Slack thread.                        | `slack_channel`, `thread_message`, `thread_ts`, `slack_token`                                        | `THREAD_MESSAGE_TS`                     |
