@@ -22,7 +22,7 @@ The `cicd-helper` GitHub Action is a reusable utility for CI/CD pipelines to aut
 | Name                   | Required | Description                                                                                   |
 |------------------------|----------|-----------------------------------------------------------------------------------------------|
 | `rc_step`              | Yes      | The operation mode to run. See supported steps below.                                         |
-| `slack_token`          | Sometimes| Slack API token (required for Slack steps).                                                   |
+| `slack_token`          | Sometimes| Slack API token (required for Slack steps; not required for DynamoDB steps).                  |
 | `slack_channel`        | Sometimes| Slack channel ID or name (required for Slack steps).                                          |
 | `message_header`       | Sometimes| Header for changelog message (for `prepare_change_log_message`).                             |
 | `repo_name`            | Sometimes| GitHub repository (e.g., `org/repo`) (for `prepare_change_log_message`).                     |
@@ -207,6 +207,6 @@ To get the entire `dev` section as JSON:
 
 ---
 
-**Note:**  
-- For all Slack operations, `slack_token` must be provided.  
-- For DynamoDB operations, ensure AWS credentials are available in the environment (via secrets or IAM role).
+**Note:**
+- For Slack operations, `slack_token` must be provided.
+- For DynamoDB operations, `slack_token` is not required. Ensure AWS credentials are available in the environment (via secrets or IAM role).

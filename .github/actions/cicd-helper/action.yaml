@@ -12,7 +12,7 @@ inputs:
     required: false
   slack_token:
     description: Slack API token (should be passed as a secret)
-    required: true
+    required: false
   slack_channel:
     description: Slack channel ID (e.g., G015384QZAB)
     required: true
