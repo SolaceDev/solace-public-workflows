@@ -137,7 +137,7 @@ runs:
       echo "DDB_FIELD_PATH: $DDB_FIELD_PATH"
       echo "DDB_OUTPUT_NAME: $DDB_OUTPUT_NAME"
       echo "DDB_RETURN_SECTION: $DDB_RETURN_SECTION"
-  echo "AWS_REGION: $AWS_REGION"
+      echo "AWS_REGION: $AWS_REGION"
 
-    source /maas-build-actions/venv/bin/activate
-    $RC_PYTHON $RC_HELPER_SCRIPT
+      source /maas-build-actions/venv/bin/activate
+      $RC_PYTHON $RC_HELPER_SCRIPT
