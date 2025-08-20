@@ -70,6 +70,9 @@ inputs:
   ddb_return_section:
     description: "If set to true, returns the entire section as clean JSON; if false or omitted, returns a single field value (for get_item_value_from_dynamodb)"
     required: false
+  aws_region:
+    description: "AWS region to use (optional, defaults to us-east-1 if not set)"
+    required: false
 
 runs:
   using: docker
@@ -104,6 +107,13 @@ runs:
       if [ -n "$INPUT_DDB_OUTPUT_NAME" ]; then export DDB_OUTPUT_NAME="$INPUT_DDB_OUTPUT_NAME"; fi
       if [ -n "$INPUT_DDB_RETURN_SECTION" ]; then export DDB_RETURN_SECTION="$INPUT_DDB_RETURN_SECTION"; fi
 
+      # Set AWS_REGION, default to us-east-1 if not set
+      if [ -n "$INPUT_AWS_REGION" ]; then
+        export AWS_REGION="$INPUT_AWS_REGION"
+      else
+        export AWS_REGION="us-east-1"
+      fi
+
       echo "Debug: Inputs:"
       echo "RC_STEP: $RC_STEP"
       echo "SLACK_TOKEN: [REDACTED]"
@@ -127,6 +137,7 @@ runs:
       echo "DDB_FIELD_PATH: $DDB_FIELD_PATH"
       echo "DDB_OUTPUT_NAME: $DDB_OUTPUT_NAME"
       echo "DDB_RETURN_SECTION: $DDB_RETURN_SECTION"
+      echo "AWS_REGION: $AWS_REGION"
 
       source /maas-build-actions/venv/bin/activate
       $RC_PYTHON $RC_HELPER_SCRIPT

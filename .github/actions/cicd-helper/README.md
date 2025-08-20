@@ -28,11 +28,11 @@ The `cicd-helper` GitHub Action is a reusable utility for CI/CD pipelines to aut
 | `repo_name`            | Sometimes| GitHub repository (e.g., `org/repo`) (for `prepare_change_log_message`).                     |
 | `deployed_ref`         | Sometimes| Deployed reference SHA or tag (for `prepare_change_log_message`, e.g., previous deployment, base branch, or environment). |
 | `candidate_ref`        | Sometimes| Candidate reference SHA or tag (for `prepare_change_log_message`, e.g., new deployment, PR head, or target commit).         |
-| `contributors_raw_list`| Sometimes| Comma-separated contributor emails (for `prepare_change_log_message`).                        |
+| `contributors_raw_list`| Optional | Comma-separated contributor emails (for `prepare_change_log_message`). If omitted, contributor info will be queried via GitHub. |
 | `message`              | Sometimes| Message text (for `post_to_channel`).                                                         |
 | `thread_ts`            | Sometimes| Slack thread timestamp (for thread operations).                                               |
 | `thread_message`       | Sometimes| Message text for thread (for `post_to_thread`).                                               |
-| `previous_message`     | Sometimes| Previous message text (for `update_message_header`).                                          |
+| `previous_message`     | Optional | Previous message text (for `update_message_header`). If omitted, the action will deduce it from `thread_ts`. |
 | `new_message_header`   | Sometimes| New header text (for `update_message_header`).                                                |
 | `thread_message_ts`    | Sometimes| Timestamp of the message to update (for `update_thread_message`).                             |
 | `new_thread_message`   | Sometimes| New message text (for `update_thread_message`).                                               |
@@ -54,9 +54,9 @@ The `cicd-helper` GitHub Action is a reusable utility for CI/CD pipelines to aut
 
 | rc_step                        | Description                                               | Required Inputs                                                                                      | Outputs                                 |
 |--------------------------------|-----------------------------------------------------------|------------------------------------------------------------------------------------------------------|-----------------------------------------|
-| `prepare_change_log_message`    | Prepares a formatted changelog message for Slack. Suitable for any deployment environment (not just release candidates). | `repo_name`, `message_header`, `deployed_ref`, `candidate_ref`, `contributors_raw_list`, `slack_token` | `CHANGE_LOG_MESSAGE`                    |
+| `prepare_change_log_message`    | Prepares a formatted changelog message for Slack. Suitable for any deployment environment (not just release candidates). | `repo_name`, `message_header`, `deployed_ref`, `candidate_ref`, (`contributors_raw_list` optional), `slack_token` | `CHANGE_LOG_MESSAGE`                    |
 | `post_to_channel`              | Posts a message to a Slack channel.                       | `slack_channel`, `message`, `slack_token`                                                            | `MAIN_SLACK_THREAD_TS`, `MAIN_SLACK_MESSAGE` |
-| `update_message_header`        | Updates the header of a Slack message in a thread.        | `slack_channel`, `thread_ts`, `previous_message`, `new_message_header`, `slack_token`                |                                         |
+| `update_message_header`        | Updates the header of a Slack message in a thread.        | `slack_channel`, `thread_ts`, `new_message_header`, `slack_token`, (`previous_message` optional; deduced from `thread_ts` if omitted) |                                         |
 | `post_to_thread`               | Posts a message to a Slack thread.                        | `slack_channel`, `thread_message`, `thread_ts`, `slack_token`                                        | `THREAD_MESSAGE_TS`                     |
 | `update_thread_message`        | Updates a message in a Slack thread.                      | `slack_channel`, `thread_message_ts`, `new_thread_message`, `slack_token`                            |                                         |
 | `add_item_from_json_to_dynamodb_table` | Adds an item to a DynamoDB table from a JSON string. | `ddb_item_to_be_added`, `ddb_table_name`, `ddb_partition_key`, (`ddb_sort_key` optional)             |                                         |
@@ -105,8 +105,8 @@ The `cicd-helper` GitHub Action is a reusable utility for CI/CD pipelines to aut
     slack_token: ${{ secrets.SLACK_TOKEN }}
     slack_channel: ${{ env.SLACK_CHANNEL }}
     thread_ts: ${{ needs.pre-deployment-checks.outputs.MAIN_SLACK_THREAD_TS }}
-    previous_message: ${{ needs.pre-deployment-checks.outputs.MAIN_SLACK_MESSAGE }}
     new_message_header: ${{ steps.status.outputs.message_header }}
+    # previous_message: ${{ needs.pre-deployment-checks.outputs.MAIN_SLACK_MESSAGE }} # Optional, will be deduced from thread_ts if omitted
 ```
 
 ### Post a Message to a Slack Thread
@@ -143,6 +143,7 @@ The `cicd-helper` GitHub Action is a reusable utility for CI/CD pipelines to aut
     ddb_table_name: "my-table"
     ddb_partition_key: "id"
     # ddb_sort_key: "timestamp" # Optional
+```
 
 ### Check if an Item Exists in DynamoDB (with optional sort key)
 
@@ -191,7 +192,7 @@ To get the entire `dev` section as JSON:
 - If `ddb_return_section` is `true`: the entire section as compact JSON (e.g., `{ "chart_version": "", "image_tag": "0.0.6-1560dda3fb", ... }`)
 - If no item is found: `NOT_FOUND`
 - If the field/section is not found: `FIELD_NOT_FOUND`
-```
+
 
 ### Check if an Item Exists in DynamoDB
 
