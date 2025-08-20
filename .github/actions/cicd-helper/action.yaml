@@ -76,7 +76,7 @@ inputs:
 
 runs:
   using: docker
-  image: docker://ghcr.io/solacedev/maas-build-actions:changelog_support_no_reply_emails
+  image: docker://ghcr.io/solacedev/maas-build-actions:master
   entrypoint: /bin/sh
   args:
     - -c
