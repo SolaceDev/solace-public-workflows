@@ -10,7 +10,7 @@ on:
       ws_project_names:
         type: string
         required: false
-        default: "${{ github.event.repository.name }}-pr-${{ github.event.number }}"
+        default: "${{ github.event.repository.name }}-pr-${{ github.event.number }},${{ github.event.repository.name }}-ui-pr-${{ github.event.number }}"
     secrets:
       ws_api_key:
         required: true
