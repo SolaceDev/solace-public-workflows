@@ -24,11 +24,17 @@ runs:
           echo "Configuring SolaceLabs token authentication"
           git config --global url."https://x-access-token:$SOLACELABS_TOKEN@github.com/SolaceLabs/".insteadOf "https://github.com/SolaceLabs/"
           
-          # Set up npm configuration for SolaceLabs packages
+          # Set up npm configuration for SolaceLabs packages in multiple locations to ensure it's found
           echo "@SolaceLabs:registry=https://npm.pkg.github.com" > ~/.npmrc
           echo "//npm.pkg.github.com/:_authToken=$SOLACELABS_TOKEN" >> ~/.npmrc
+          
+          # Also set npm config through npm commands
           npm config set @SolaceLabs:registry https://npm.pkg.github.com
           npm config set //npm.pkg.github.com/:_authToken $SOLACELABS_TOKEN
+          
+          # Export npm configuration as environment variables
+          echo "NPM_CONFIG_@SOLACELABS:REGISTRY=https://npm.pkg.github.com" >> $GITHUB_ENV
+          echo "NPM_CONFIG_//NPM.PKG.GITHUB.COM/:_AUTHTOKEN=$SOLACELABS_TOKEN" >> $GITHUB_ENV
           
           # Export GITHUB_TOKEN for hatch/pip to use (prefer SOLACELABS_TOKEN if available)
           echo "GITHUB_TOKEN=$SOLACELABS_TOKEN" >> $GITHUB_ENV
