@@ -11,6 +11,32 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Configure Git Authentication
+      shell: bash
+      if: env.SOLACEDEV_TOKEN != '' || env.SOLACELABS_TOKEN != ''
+      run: |
+        if [ -n "$SOLACEDEV_TOKEN" ]; then
+          echo "Configuring SolaceDev token authentication"
+          git config --global url."https://x-access-token:$SOLACEDEV_TOKEN@github.com/SolaceDev/".insteadOf "https://github.com/SolaceDev/"
+        fi
+
+        if [ -n "$SOLACELABS_TOKEN" ]; then
+          echo "Configuring SolaceLabs token authentication"
+          git config --global url."https://x-access-token:$SOLACELABS_TOKEN@github.com/SolaceLabs/".insteadOf "https://github.com/SolaceLabs/"
+          
+          # Set up npm configuration for SolaceLabs packages
+          echo "@SolaceLabs:registry=https://npm.pkg.github.com" > ~/.npmrc
+          echo "//npm.pkg.github.com/:_authToken=$SOLACELABS_TOKEN" >> ~/.npmrc
+          npm config set @SolaceLabs:registry https://npm.pkg.github.com --location=global
+          npm config set //npm.pkg.github.com/:_authToken $SOLACELABS_TOKEN --location=global
+          
+          # Export GITHUB_TOKEN for hatch/pip to use (prefer SOLACELABS_TOKEN if available)
+          echo "GITHUB_TOKEN=$SOLACELABS_TOKEN" >> $GITHUB_ENV
+        elif [ -n "$GITHUB_TOKEN" ]; then
+          # If GITHUB_TOKEN is already set but no SOLACELABS_TOKEN, keep existing GITHUB_TOKEN
+          echo "Using existing GITHUB_TOKEN"
+        fi
+
     - name: Set up Hatch
       id: hatch-setup
       uses: SolaceDev/solace-public-workflows/.github/actions/hatch-setup@main
