@@ -1,0 +1,39 @@
+name: Fossa Guard
+description: Run Fossa Guard scripts packaged in the maas-build-actions Docker container.
+inputs:
+  fossa_api_key:
+    description: FOSSA API key
+    required: true
+  fossa_project_id:
+    description: FOSSA project ID
+    required: true
+  fossa_category:
+    description: Issue category, licensing or vulnerability
+    required: true
+  fossa_mode:
+    description: Mode, BLOCK is default or REPORT
+    required: false
+  block_on:
+    description: Comma-separated list of issue types to block on, e.g. policy_conflict,policy_flag
+    required: false
+
+runs:
+  using: docker
+  image: docker://ghcr.io/solacedev/maas-build-actions:fossa_guard
+  entrypoint: /bin/sh
+  args:
+    - -c
+    - |
+      export FOSSA_API_KEY="$INPUT_FOSSA_API_KEY"
+      export FOSSA_PROJECT_ID="$INPUT_FOSSA_PROJECT_ID"
+      export FOSSA_CATEGORY="$INPUT_FOSSA_CATEGORY"
+      if [ -n "$INPUT_FOSSA_MODE" ]; then export FOSSA_MODE="$INPUT_FOSSA_MODE"; fi
+      if [ -n "$INPUT_BLOCK_ON" ]; then export BLOCK_ON="$INPUT_BLOCK_ON"; fi
+      echo "Debug: Inputs:"
+      echo "FOSSA_API_KEY: [REDACTED]"
+      echo "FOSSA_PROJECT_ID: $FOSSA_PROJECT_ID"
+      echo "FOSSA_CATEGORY: $FOSSA_CATEGORY"
+      echo "FOSSA_MODE: $FOSSA_MODE"
+      echo "BLOCK_ON: $BLOCK_ON"
+      source /maas-build-actions/venv/bin/activate
+      python3 /maas-build-actions/scripts/fossa-guard/fossa_guard.py
