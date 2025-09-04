@@ -2,22 +2,52 @@ name: Fossa Guard
 description: Run Fossa Guard scripts packaged in the maas-build-actions Docker container.
 inputs:
   fossa_api_key:
-    description: FOSSA API key
+    description: "FOSSA API key"
     required: true
   fossa_project_id:
-    description: FOSSA project ID
+    description: "FOSSA project ID"
     required: true
   fossa_category:
-    description: Issue category, licensing or vulnerability
+    description: "Issue category, licensing or vulnerability"
     required: true
   fossa_mode:
-    description: Mode, BLOCK is default or REPORT
-    required: false
-  fossa_revision:
-    description: Specify a branch, tag, version, or commit SHA to filter issues for a specific revision
+    description: "Comma-separated list of actions: BLOCK, REPORT, or both (e.g. BLOCK,REPORT)"
     required: false
   block_on:
-    description: Comma-separated list of issue types to block on, e.g. policy_conflict,policy_flag
+    description: "Comma-separated list of issue types to block on. For licensing: policy_conflict,policy_flag. For vulnerability: critical,high,medium,low."
+    required: false
+  fossa_branch:
+    description: "Specify a branch name to query issues for that branch (e.g., 'main', 'develop', 'feature/xyz')"
+    required: false
+  fossa_revision:
+    description: "Specify a commit SHA to filter issues for a specific revision"
+    required: false
+  fossa_revision_scan_id:
+    description: "Specify a revision scan ID for more granular filtering (advanced usage)"
+    required: false
+  fossa_release:
+    description: "Specify a release group ID to filter issues for a release group (advanced usage)"
+    required: false
+  fossa_release_scan_id:
+    description: "Specify a release scan ID for release group filtering (advanced usage)"
+    required: false
+  slack_token:
+    description: "Slack bot token for posting messages (optional)"
+    required: false
+  slack_channel:
+    description: "Slack channel ID to post to (optional)"
+    required: false
+  slack_thread_ts:
+    description: "Slack thread timestamp to reply to an existing thread (optional)"
+    required: false
+  github_repository:
+    description: "GitHub repository name for links (optional)"
+    required: false
+  github_run_id:
+    description: "GitHub Actions run ID for build links (optional)"
+    required: false
+  github_server_url:
+    description: "GitHub server URL (default: https://github.com) (optional)"
     required: false
 
 runs:
@@ -32,13 +62,33 @@ runs:
       export FOSSA_CATEGORY="$INPUT_FOSSA_CATEGORY"
       if [ -n "$INPUT_FOSSA_MODE" ]; then export FOSSA_MODE="$INPUT_FOSSA_MODE"; fi
       if [ -n "$INPUT_BLOCK_ON" ]; then export BLOCK_ON="$INPUT_BLOCK_ON"; fi
+      if [ -n "$INPUT_FOSSA_BRANCH" ]; then export FOSSA_BRANCH="$INPUT_FOSSA_BRANCH"; fi
       if [ -n "$INPUT_FOSSA_REVISION" ]; then export FOSSA_REVISION="$INPUT_FOSSA_REVISION"; fi
+      if [ -n "$INPUT_FOSSA_REVISION_SCAN_ID" ]; then export FOSSA_REVISION_SCAN_ID="$INPUT_FOSSA_REVISION_SCAN_ID"; fi
+      if [ -n "$INPUT_FOSSA_RELEASE" ]; then export FOSSA_RELEASE="$INPUT_FOSSA_RELEASE"; fi
+      if [ -n "$INPUT_FOSSA_RELEASE_SCAN_ID" ]; then export FOSSA_RELEASE_SCAN_ID="$INPUT_FOSSA_RELEASE_SCAN_ID"; fi
+      if [ -n "$INPUT_SLACK_TOKEN" ]; then export SLACK_TOKEN="$INPUT_SLACK_TOKEN"; fi
+      if [ -n "$INPUT_SLACK_CHANNEL" ]; then export SLACK_CHANNEL="$INPUT_SLACK_CHANNEL"; fi
+      if [ -n "$INPUT_SLACK_THREAD_TS" ]; then export SLACK_THREAD_TS="$INPUT_SLACK_THREAD_TS"; fi
+      if [ -n "$INPUT_GITHUB_REPOSITORY" ]; then export GITHUB_REPOSITORY="$INPUT_GITHUB_REPOSITORY"; fi
+      if [ -n "$INPUT_GITHUB_RUN_ID" ]; then export GITHUB_RUN_ID="$INPUT_GITHUB_RUN_ID"; fi
+      if [ -n "$INPUT_GITHUB_SERVER_URL" ]; then export GITHUB_SERVER_URL="$INPUT_GITHUB_SERVER_URL"; fi
       echo "Debug: Inputs:"
       echo "FOSSA_API_KEY: [REDACTED]"
       echo "FOSSA_PROJECT_ID: $FOSSA_PROJECT_ID"
       echo "FOSSA_CATEGORY: $FOSSA_CATEGORY"
       echo "FOSSA_MODE: $FOSSA_MODE"
       echo "BLOCK_ON: $BLOCK_ON"
+      echo "FOSSA_BRANCH: $FOSSA_BRANCH"
       echo "FOSSA_REVISION: $FOSSA_REVISION"
+      echo "FOSSA_REVISION_SCAN_ID: $FOSSA_REVISION_SCAN_ID"
+      echo "FOSSA_RELEASE: $FOSSA_RELEASE"
+      echo "FOSSA_RELEASE_SCAN_ID: $FOSSA_RELEASE_SCAN_ID"
+      echo "SLACK_TOKEN: [REDACTED]"
+      echo "SLACK_CHANNEL: $SLACK_CHANNEL"
+      echo "SLACK_THREAD_TS: $SLACK_THREAD_TS"
+      echo "GITHUB_REPOSITORY: $GITHUB_REPOSITORY"
+      echo "GITHUB_RUN_ID: $GITHUB_RUN_ID"
+      echo "GITHUB_SERVER_URL: $GITHUB_SERVER_URL"
       source /maas-build-actions/venv/bin/activate
       python3 /maas-build-actions/scripts/fossa-guard/fossa_guard.py

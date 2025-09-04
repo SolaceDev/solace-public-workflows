@@ -20,14 +20,24 @@ The `fossa-guard` GitHub Action integrates with the FOSSA API to fetch and proce
 
 ## Inputs
 
-| Name              | Required | Description                                                                 |
-|-------------------|----------|-----------------------------------------------------------------------------|
-| `fossa_api_key`   | Yes      | API key for FOSSA.                                                          |
-| `fossa_project_id`| Yes      | Project ID in FOSSA. Can be specified in `.fossa.yml`. If not, use the format `custom+48578/SolaceDev_solace-agent-mesh-enterprise` and drop the `custom+48578/` prefix. |
-| `fossa_category`  | Yes      | Issue category: `licensing` or `vulnerability`.                             |
-| `fossa_mode`      | No       | Mode: `BLOCK` (default, fails build on violations) or `REPORT` (report only).|
-| `block_on`        | No       | Comma-separated list of issue types to block on (e.g., `policy_conflict,policy_flag`). Default: `policy_conflict`.|
-| `fossa_revision`  | No       | Specify a branch, tag, version, or commit SHA to filter issues for a specific revision. |
+| Name                  | Required | Description                                                                 |
+|-----------------------|----------|-----------------------------------------------------------------------------|
+| `fossa_api_key`       | Yes      | API key for FOSSA.                                                          |
+| `fossa_project_id`    | Yes      | Project ID in FOSSA. Can be specified in `.fossa.yml`. If not, use the format `custom+48578/SolaceDev_solace-agent-mesh-enterprise` and drop the `custom+48578/` prefix. |
+| `fossa_category`      | Yes      | Issue category: `licensing` or `vulnerability`.                             |
+| `fossa_mode`          | No       | Comma-separated list of actions: `BLOCK`, `REPORT`, or both (e.g., `BLOCK,REPORT`). Default: `BLOCK`.|
+| `block_on`            | No       | Comma-separated list of issue types to block on. For licensing: `policy_conflict,policy_flag`. For vulnerability: `critical,high,medium,low`. Default: `policy_conflict`.|
+| `fossa_branch`        | No       | Specify a branch name to query issues for that branch (e.g., 'main', 'develop', 'feature/xyz'). |
+| `fossa_revision`      | No       | Specify a commit SHA to filter issues for a specific revision. Can be used alone or with `fossa_branch` for better context. |
+| `fossa_revision_scan_id` | No    | Specify a revision scan ID for more granular filtering (advanced usage).     |
+| `fossa_release`       | No       | Specify a release group ID to filter issues for a release group (advanced usage). |
+| `fossa_release_scan_id` | No    | Specify a release scan ID for release group filtering (advanced usage).      |
+| `slack_token`         | No       | Slack bot token for posting messages (optional).                             |
+| `slack_channel`       | No       | Slack channel ID to post to (optional).                                      |
+| `slack_thread_ts`     | No       | Slack thread timestamp to reply to an existing thread (optional).            |
+| `github_repository`   | No       | GitHub repository name for links (optional).                                 |
+| `github_run_id`       | No       | GitHub Actions run ID for build links (optional).                            |
+| `github_server_url`   | No       | GitHub server URL (default: https://github.com) (optional).                  |
 
 ### Issue Types Explained
 - **policy_conflict**: There is a known explicit policy violation (FOSSA terminology). This means the license or dependency is denied in your FOSSA policy and should block the build.
@@ -43,7 +53,8 @@ The `fossa-guard` GitHub Action integrates with the FOSSA API to fetch and proce
 | Mode   | Description                                                                                   |
 |--------|-----------------------------------------------------------------------------------------------|
 | BLOCK  | Fails the build if violations matching `block_on` are found. Prints a Markdown/HTML summary.  |
-| REPORT | Prints a Markdown/HTML summary. Intended for reporting only (e.g., Slack integration).        |
+| REPORT | Generates and sends Slack reports (requires `slack_token` and `slack_channel`). Prints a Markdown/HTML summary. Intended for reporting only. Exit code 1 if Slack reporting fails and REPORT is the only action. |
+| BLOCK,REPORT | Combines both actions - blocks on violations AND sends Slack reports. Exit code 2 if blocking violations found (Slack failure won't affect exit code). Exit code 0 if no blocking violations. |
 
 ---
 
@@ -94,4 +105,7 @@ jobs:
 - The action prints a Markdown summary to the GitHub Actions log.
 - If the `GITHUB_STEP_SUMMARY` environment variable is set, the summary is also written to the step summary for rich UI display.
 - In BLOCK mode, the script exits with code 2 if blocking violations are found, causing the GitHub Action to fail.
+- Advanced parameters (`fossa_branch`, `fossa_revision`, `fossa_revision_scan_id`, `fossa_release`, `fossa_release_scan_id`) allow targeting issues for a specific branch, tag, commit, or release group. If unset, the script defaults to the latest scan for the project.
+- Slack integration parameters (`slack_token`, `slack_channel`, `slack_thread_ts`) allow posting formatted reports to Slack channels or threads.
+- GitHub context parameters (`github_repository`, `github_run_id`, `github_server_url`) allow linking reports to specific repositories and builds.
 - For more details, see the script source and comments.
