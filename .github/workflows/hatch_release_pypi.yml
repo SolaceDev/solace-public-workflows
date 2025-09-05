@@ -51,6 +51,11 @@ on:
         required: false
         default: false
         description: "Run SonarQube Hotspot Check"
+      custom_ref:
+        type: string
+        required: false
+        default: "main"
+        description: "Custom git ref to checkout and release from"
     outputs:
       new_version:
         description: "The new version that was released"
@@ -118,6 +123,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.custom_ref }}
           fetch-depth: 0
           ssh-key: ${{ secrets.COMMIT_KEY }}
 
