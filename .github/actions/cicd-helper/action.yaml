@@ -82,7 +82,7 @@ inputs:
 
 runs:
   using: docker
-  image: docker://ghcr.io/solacedev/maas-build-actions:master
+  image: docker://ghcr.io/solacedev/maas-build-actions:cicd_helper
   entrypoint: /bin/sh
   args:
     - -c
