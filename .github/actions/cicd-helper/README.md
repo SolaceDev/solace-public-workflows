@@ -131,7 +131,7 @@ The `cicd-helper` GitHub Action is a reusable utility for CI/CD pipelines to aut
     slack_token: ${{ secrets.SLACK_TOKEN }}
     slack_channel: ${{ env.SLACK_CHANNEL }}
     thread_message_ts: ${{ steps.some_step.outputs.THREAD_MESSAGE_TS }}
-    new_thread_message: "Updated message text"
+    new_thread_message: "Updated message text."
 ```
 
 ### Add an Item to DynamoDB
