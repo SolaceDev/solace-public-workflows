@@ -34,6 +34,12 @@ inputs:
   previous_message:
     description: Previous Slack message (for update_message_header step)
     required: false
+  thread_message_ts:
+    description: thread reply timestamp
+    required: false
+  new_thread_message:
+    description: new message that needs to be updates in thread reply
+    required: false
   deployed_ref:
     description: Deployed reference SHA or tag (for changelog message, e.g., previous deployment, base branch, or environment)
     required: false
@@ -106,6 +112,10 @@ runs:
       if [ -n "$INPUT_DDB_FIELD_PATH" ]; then export DDB_FIELD_PATH="$INPUT_DDB_FIELD_PATH"; fi
       if [ -n "$INPUT_DDB_OUTPUT_NAME" ]; then export DDB_OUTPUT_NAME="$INPUT_DDB_OUTPUT_NAME"; fi
       if [ -n "$INPUT_DDB_RETURN_SECTION" ]; then export DDB_RETURN_SECTION="$INPUT_DDB_RETURN_SECTION"; fi
+      if [ -n "$INPUT_THREAD_MESSAGE_TS" ]; then export THREAD_MESSAGE_TS="$INPUT_THREAD_MESSAGE_TS"; fi
+      if [ -n "$INPUT_NEW_THREAD_MESSAGE" ]; then export NEW_THREAD_MESSAGE="$INPUT_NEW_THREAD_MESSAGE"; fi
+
+
 
       # Set AWS_REGION, default to us-east-1 if not set
       if [ -n "$INPUT_AWS_REGION" ]; then
@@ -138,6 +148,10 @@ runs:
       echo "DDB_OUTPUT_NAME: $DDB_OUTPUT_NAME"
       echo "DDB_RETURN_SECTION: $DDB_RETURN_SECTION"
       echo "AWS_REGION: $AWS_REGION"
+      echo "THREAD_MESSAGE_TS: $THREAD_MESSAGE_TS"
+      echo "NEW_THREAD_MESSAGE: $NEW_THREAD_MESSAGE"
+
 
       source /maas-build-actions/venv/bin/activate
       $RC_PYTHON $RC_HELPER_SCRIPT
+

@@ -35,7 +35,8 @@ The `cicd-helper` GitHub Action is a reusable utility for CI/CD pipelines to aut
 | `previous_message`     | Optional | Previous message text (for `update_message_header`). If omitted, the action will deduce it from `thread_ts`. |
 | `new_message_header`   | Sometimes| New header text (for `update_message_header`).                                                |
 | `thread_message_ts`    | Sometimes| Timestamp of the message to update (for `update_thread_message`).                             |
-| `new_thread_message`   | Sometimes| New message text (for `update_thread_message`).                                               |
+| `new_thread_message`   | Sometimes| New message text to replace an existing thread reply (for `update_thread_message`).          |
+| `thread_message_ts`    | Sometimes| Timestamp of the message to update in thread (for `update_thread_message`).                  |
 | `ddb_item_to_be_added` | Sometimes| JSON string of the item (for `add_item_from_json_to_dynamodb_table`).                        |
 | `ddb_table_name`       | Sometimes| DynamoDB table name (for DynamoDB steps).                                                     |
 | `ddb_partition_key`    | Sometimes| Partition key name (for DynamoDB steps).                                                      |
