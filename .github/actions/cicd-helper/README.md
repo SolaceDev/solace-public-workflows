@@ -130,15 +130,8 @@ The `cicd-helper` GitHub Action is a reusable utility for CI/CD pipelines to aut
     rc_step: update_thread_message
     slack_token: ${{ secrets.SLACK_TOKEN }}
     slack_channel: ${{ env.SLACK_CHANNEL }}
-    thread_message_ts: ${{ steps.send_test_start_message.outputs.THREAD_MESSAGE_TS }}
-    new_thread_message: >-
-      ${{
-        format('{0} {1} has completed tests with status `{2}`',
-          steps.run_tests.outcome == 'success' && ':white_check_mark:' || ':red_light:',
-          steps.test_run_label.outputs.TEST_RUN_LABEL,
-          steps.run_tests.outcome
-        )
-      }}
+    thread_message_ts: ${{ steps.some_step.outputs.THREAD_MESSAGE_TS }}
+    new_thread_message: "Updated message text"
 ```
 
 ### Add an Item to DynamoDB
