@@ -83,6 +83,12 @@ concurrency:
   # Only run once for latest commit per ref and cancel other (previous) runs.
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+env:
+  not_fork_pr: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+  is_pr: ${{ github.event_name == 'pull_request' }}
+  is_push: ${{ github.event_name == 'push' && github.ref_name == github.event.repository.default_branch }}
+  has_whitesource_config: ${{ inputs.whitesource_product_name != '' && inputs.whitesource_project_name != '' }}
+  ws_project_name: ${{ github.event_name == 'pull_request' && inputs.whitesource_project_name != '' || format('{0}-pr-{1}', inputs.whitesource_project_name, github.event.pull_request.number) }}
 jobs:
   build:
     name: Lint, Test, and Build
@@ -98,23 +104,6 @@ jobs:
         with:
           repository: SolaceDev/solace-public-workflows
           path: workflows-repo
-
-      - name: Setup Conditional Steps
-        id: conditional-steps
-        shell: bash
-        run: |
-          # Set environment variables for conditional steps
-          echo "is_push=${{ github.event_name == 'push' && github.ref_name == github.event.repository.default_branch }}" >> $GITHUB_ENV
-          echo "is_pr=${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}" >> $GITHUB_ENV
-          echo "has_whitesource_config=${{ inputs.whitesource_product_name != '' && inputs.whitesource_project_name != '' }}" >> $GITHUB_ENV
-          WS_PROJECT_NAME="${{ inputs.whitesource_project_name }}"
-
-          # Set dynamic PR WhiteSource project name based on event type
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            WS_PROJECT_NAME="${{ inputs.whitesource_project_name }}-pr-${{ github.event.pull_request.number }}"
-          fi
-
-          echo "ws_project_name=${WS_PROJECT_NAME}" >> $GITHUB_ENV
 
       - name: Setup Node.js
         if: inputs.npm_package_path != ''
@@ -188,6 +177,7 @@ jobs:
         with:
           check_name: Unit Tests on default python version
           report_paths: junit-default.xml
+          include_passed: true
 
       - name: Status Check - Unit Tests on Python ${{ inputs.min-python-version }}
         uses: mikepenz/action-junit-report@v5
@@ -218,6 +208,7 @@ jobs:
         shell: bash
 
       - name: SonarQube Scan
+        if: fromJson(env.not_fork_pr)
         uses: sonarsource/sonarqube-scan-action@v2.2.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
@@ -232,7 +223,7 @@ jobs:
             -Dsonar.python.ruff.reportPaths=lint.json
 
       - name: SonarQube Quality Gate check
-        if: fromJson(env.is_pr)
+        if: fromJson(env.is_pr) && fromJson(env.not_fork_pr)
         id: sonarqube-quality-gate-check
         uses: sonarsource/sonarqube-quality-gate-action@master
         env:
@@ -257,13 +248,13 @@ jobs:
         shell: bash
 
       - name: Install Virtualenv for Whitesource Scan
-        if: fromJson(env.has_whitesource_config)
+        if: fromJson(env.has_whitesource_config) && fromJson(env.not_fork_pr)
         run: |
           python3 -m pip install --upgrade pip
           python3 -m pip install virtualenv
 
       - name: Generate Clean Requirements for WhiteSource
-        if: fromJson(env.has_whitesource_config)
+        if: fromJson(env.has_whitesource_config) && fromJson(env.not_fork_pr)
         id: generate-requirements
         uses: ./workflows-repo/.github/actions/generate-clean-requirements
         with:
@@ -273,7 +264,7 @@ jobs:
           output-dir: .
 
       - name: List Generated Requirements Files
-        if: fromJson(env.has_whitesource_config)
+        if: fromJson(env.has_whitesource_config) && fromJson(env.not_fork_pr)
         shell: bash
         run: |
           echo "📋 Generated requirements files:"
@@ -291,7 +282,7 @@ jobs:
           done
 
       - name: Show WhiteSource Configuration
-        if: fromJson(env.has_whitesource_config) && inputs.whitesource_config_file != ''
+        if: fromJson(env.has_whitesource_config) && inputs.whitesource_config_file != '' && fromJson(env.not_fork_pr)
         shell: bash
         run: |
           echo "🔧 WhiteSource Configuration File:"
@@ -303,7 +294,7 @@ jobs:
           fi
 
       - name: Run Whitesource Scan
-        if: fromJson(env.has_whitesource_config)
+        if: fromJson(env.has_whitesource_config) && fromJson(env.not_fork_pr)
         uses: ./workflows-repo/.github/actions/whitesource-scan
         with:
           whitesource_product_name: ${{ inputs.whitesource_product_name }}
@@ -313,7 +304,7 @@ jobs:
 
       - name: Run WhiteSource PR Checker (Policy Violations)
         id: whitesource-pr-policy-violation-checker
-        if: fromJson(env.is_pr) && fromJson(env.has_whitesource_config)
+        if: fromJson(env.not_fork_pr) && fromJson(env.is_pr) && fromJson(env.has_whitesource_config)
         uses: docker://ghcr.io/solacedev/maas-build-actions:latest
         env:
           WS_API_KEY: ${{ secrets.WHITESOURCE_API_KEY }}
@@ -342,7 +333,7 @@ jobs:
 
       - name: Run WhiteSource Policy Gate
         id: whitesource-policy-gate
-        if: fromJson(env.is_push) && fromJson(env.has_whitesource_config)
+        if: fromJson(env.is_push) && fromJson(env.has_whitesource_config) && fromJson(env.not_fork_pr)
         uses: docker://ghcr.io/solacedev/maas-build-actions:latest
         continue-on-error: true
         env:
@@ -370,7 +361,7 @@ jobs:
             "
 
       - name: Run WhiteSource Vulnerability Gate
-        if: fromJson(env.is_push) && fromJson(env.has_whitesource_config)
+        if: fromJson(env.is_push) && fromJson(env.has_whitesource_config) && fromJson(env.not_fork_pr)
         id: whitesource-vulnerability-gate
         uses: docker://ghcr.io/solacedev/maas-build-actions:latest
         continue-on-error: true
