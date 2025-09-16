@@ -225,7 +225,7 @@ jobs:
 
       - name: SonarQube Scan
         if: fromJson(env.not_fork_pr)
-        uses: sonarsource/sonarqube-scan-action@v2.2.0
+        uses: sonarsource/sonarqube-scan-action@v5.3.1
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
