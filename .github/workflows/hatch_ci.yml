@@ -87,8 +87,6 @@ env:
   not_fork_pr: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
   is_pr: ${{ github.event_name == 'pull_request' }}
   is_push: ${{ github.event_name == 'push' && github.ref_name == github.event.repository.default_branch }}
-  has_whitesource_config: ${{ inputs.whitesource_product_name != '' && inputs.whitesource_project_name != '' }}
-  ws_project_name: ${{ github.event_name == 'pull_request' && inputs.whitesource_project_name != '' || format('{0}-pr-{1}', inputs.whitesource_project_name, github.event.pull_request.number) }}
 jobs:
   build:
     name: Lint, Test, and Build
@@ -105,6 +103,24 @@ jobs:
           repository: SolaceDev/solace-public-workflows
           path: workflows-repo
 
+      - name: Setup Conditional Steps
+        id: conditional-steps
+        shell: bash
+        run: |
+          # Set environment variables for conditional steps
+          echo "has_whitesource_config=${{ inputs.whitesource_product_name != '' && inputs.whitesource_project_name != '' }}" >> $GITHUB_ENV
+          WS_PROJECT_NAME="${{ inputs.whitesource_project_name }}"
+
+          if [ "${{ inputs.whitesource_project_name }}" = "" ]; then
+            WS_PROJECT_NAME="${{ github.event.repository.name }}"
+          fi
+
+          # Set dynamic PR WhiteSource project name based on event type
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            WS_PROJECT_NAME="${WS_PROJECT_NAME}-pr-${{ github.event.pull_request.number }}"
+          fi
+
+          echo "ws_project_name=${WS_PROJECT_NAME}" >> $GITHUB_ENV
       - name: Setup Node.js
         if: inputs.npm_package_path != ''
         uses: actions/setup-node@v4
