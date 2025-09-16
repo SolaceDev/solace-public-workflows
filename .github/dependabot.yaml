@@ -1,13 +1,6 @@
 # Set update schedule for GitHub Actions
 version: 2
 
-registries:
-  github:
-    type: git
-    url: https://github.com
-    username: x-access-token
-    password: ${{ secrets.GH_PAT }}
-
 updates:
   # Scan for updates under ./github/workflows
   - package-ecosystem: "github-actions"
