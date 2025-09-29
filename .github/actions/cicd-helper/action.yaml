@@ -82,7 +82,7 @@ inputs:
 
 runs:
   using: docker
-  image: docker://ghcr.io/solacedev/maas-build-actions:master
+  image: docker://ghcr.io/solacedev/maas-build-actions:pretify_change_log
   entrypoint: /bin/sh
   args:
     - -c
@@ -154,4 +154,3 @@ runs:
 
       source /maas-build-actions/venv/bin/activate
       $RC_PYTHON $RC_HELPER_SCRIPT
-
