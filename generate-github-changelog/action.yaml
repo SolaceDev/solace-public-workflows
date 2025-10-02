@@ -24,7 +24,7 @@ outputs:
 
 runs:
   using: "docker"
-  image: docker://ghcr.io/solacedev/generate-github-release-notes:gen-git-changelog
+  image: docker://ghcr.io/solacedev/generate-github-release-notes:gen-git-changelog-6b14e81a84
   args:
     - ${{ inputs.from-ref }}
     - ${{ inputs.to-ref }}
