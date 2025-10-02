@@ -1,0 +1,31 @@
+name: "Generate GitHub Release Notes"
+description: "Generate formatted release notes from git commits with Jira issue tracking integration and conventional commit format"
+author: "Solace"
+
+inputs:
+  from-ref:
+    description: "Starting git reference (tag, commit, branch). If empty, generates for all commits"
+    required: false
+    default: "main"
+  to-ref:
+    description: "Ending git reference (tag, commit, branch). If empty, uses HEAD"
+    required: false
+    default: "HEAD"
+  output-file:
+    description: "Output file path for release notes"
+    required: false
+    default: "RELEASE_NOTES.md"
+
+outputs:
+  release-notes-path:
+    description: "Path to the generated release notes file"
+  total-commits:
+    description: "Total number of commits processed"
+
+runs:
+  using: "docker"
+  image: ghcr.io/solacedev/generate-github-release-notes:gen-git-changelog
+  args:
+    - ${{ inputs.from-ref }}
+    - ${{ inputs.to-ref }}
+    - ${{ inputs.output-file }}
