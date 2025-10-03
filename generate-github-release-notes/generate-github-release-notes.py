@@ -272,56 +272,75 @@ def process_commits(commits: list[dict], config: dict) -> dict:
     return type_sections
 
 
-def format_commit_line(commit: dict, config: dict) -> str:
-    """Format a single commit line for release notes"""
-    # Get repository info from environment or use defaults
+def _get_repo_url() -> str:
+    """Get repository URL from environment variables"""
     github_repo = getenv("GITHUB_REPOSITORY", "")
     if github_repo:
-        repo_url = f"https://github.com/{github_repo}"
-    else:
-        # Fallback for local testing
-        org_name = getenv("GITHUB_REPOSITORY_OWNER", "example")
-        repo_name = getenv("REPO_NAME", "repo")
-        repo_url = f"https://github.com/{org_name}/{repo_name}"
+        return f"https://github.com/{github_repo}"
 
-    # Format commit hash and URL if available
+    # Fallback for local testing
+    org_name = getenv("GITHUB_REPOSITORY_OWNER", "example")
+    repo_name = getenv("REPO_NAME", "repo")
+    return f"https://github.com/{org_name}/{repo_name}"
+
+
+def _format_commit_hash(commit: dict, repo_url: str) -> str:
+    """Format commit hash portion of the line"""
     if commit["full_hash"]:
         commit_url = f"{repo_url}/commit/{commit['full_hash']}"
-        line = f"* [`{commit['hash']}`]({commit_url}) {commit['subject']}"
-    else:
-        # No commit hash available from GitHub API
-        line = f"* {commit['subject']}"
+        return f"* [`{commit['hash']}`]({commit_url}) {commit['subject']}"
+    return f"* {commit['subject']}"
 
-    # Add PR reference if present
+
+def _add_pr_reference(line: str, commit: dict, repo_url: str) -> str:
+    """Add PR reference to the line if present"""
     if commit["pr_number"]:
         pr_url = f"{repo_url}/pull/{commit['pr_number']}"
-        line += f" ([#{commit['pr_number']}]({pr_url}))"
+        return line + f" ([#{commit['pr_number']}]({pr_url}))"
+    return line
 
-    # Add author information (just the name, no GitHub link)
-    line += f" ({commit['author']})"
 
-    # Add issue references only if both issuePrefixes and issueUrlFormat are configured
-    if (
+def _should_add_issue_links(commit: dict, config: dict) -> bool:
+    """Check if issue links should be added"""
+    return (
         commit["issue_numbers"]
         and "issuePrefixes" in config
         and config["issuePrefixes"]
         and "issueUrlFormat" in config
         and config["issueUrlFormat"]
-    ):
-        issue_url_template = config["issueUrlFormat"]
-        issue_links = []
+    )
 
-        for issue in commit["issue_numbers"]:
-            # Extract prefix and id from issue format (e.g., DATAGO-123 -> prefix="DATAGO-", id="123")
-            for prefix in config["issuePrefixes"]:
-                if issue.startswith(prefix):
-                    issue_id = issue.replace(prefix, "")
-                    url = issue_url_template.replace("{{prefix}}", prefix).replace(
-                        "{{id}}", issue_id
-                    )
-                    issue_links.append(f"[{issue}]({url})")
-                    break
 
+def _build_issue_links(commit: dict, config: dict) -> list[str]:
+    """Build issue links for the commit"""
+    issue_url_template = config["issueUrlFormat"]
+    issue_links = []
+
+    for issue in commit["issue_numbers"]:
+        for prefix in config["issuePrefixes"]:
+            if issue.startswith(prefix):
+                issue_id = issue.replace(prefix, "")
+                url = issue_url_template.replace("{{prefix}}", prefix).replace(
+                    "{{id}}", issue_id
+                )
+                issue_links.append(f"[{issue}]({url})")
+                break
+
+    return issue_links
+
+
+def format_commit_line(commit: dict, config: dict) -> str:
+    """Format a single commit line for release notes"""
+    repo_url = _get_repo_url()
+    line = _format_commit_hash(commit, repo_url)
+    line = _add_pr_reference(line, commit, repo_url)
+
+    # Add author information
+    line += f" ({commit['author']})"
+
+    # Add issue references if configured
+    if _should_add_issue_links(commit, config):
+        issue_links = _build_issue_links(commit, config)
         if issue_links:
             line += f" ({', '.join(issue_links)})"
 
