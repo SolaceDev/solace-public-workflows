@@ -4,12 +4,9 @@ import argparse
 import json
 import re
 import sys
-import ssl
 from os import getenv
 from pathlib import Path
-import urllib.request
-import urllib.parse
-import urllib.error
+from github import Github
 
 
 def load_version_config() -> dict:
@@ -36,6 +33,7 @@ def load_version_config() -> dict:
                 {"type": "perf", "section": "Performance"},
                 {"type": "test", "section": "Tests"},
             ]
+            # No default issuePrefixes or issueUrlFormat for security
         }
 
     try:
@@ -58,97 +56,86 @@ def load_version_config() -> dict:
         sys.exit(1)
 
 
-def get_github_release_notes(from_tag: str, to_tag: str) -> str:
-    """Get release notes from GitHub API"""
-    # Get repository info from environment
-    github_repo = getenv("GITHUB_REPOSITORY")
+def get_commits_between_refs(from_ref: str, to_ref: str) -> list[dict[str, str]]:
+    """Get commits between two git references using PyGithub GraphQL API"""
     github_token = getenv("GITHUB_TOKEN")
-
-    if not github_repo:
-        print("Error: GITHUB_REPOSITORY environment variable not set")
-        sys.exit(1)
+    github_repo = getenv("GITHUB_REPOSITORY")
 
     if not github_token:
         print("Error: GITHUB_TOKEN environment variable not set")
         sys.exit(1)
 
-    owner, repo = github_repo.split("/")
+    if not github_repo:
+        print("Error: GITHUB_REPOSITORY environment variable not set")
+        sys.exit(1)
 
-    # Prepare API request
-    url = f"https://api.github.com/repos/{owner}/{repo}/releases/generate-notes"
-
-    data = {
-        "tag_name": to_tag,
-    }
-
-    if from_tag:
-        data["previous_tag_name"] = from_tag
-
-    # Make API request
     try:
-        req = urllib.request.Request(
-            url,
-            data=json.dumps(data).encode("utf-8"),
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {github_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
-                "Content-Type": "application/json",
-            },
-            method="POST",
+        g = Github(github_token)
+        repo = g.get_repo(github_repo)
+
+        # Get commit range
+        if from_ref:
+            # Get commits between two refs
+            comparison = repo.compare(from_ref, to_ref)
+            commits_data = comparison.commits
+        else:
+            # Get all commits up to to_ref
+            commits_data = repo.get_commits(sha=to_ref)
+
+        commits = []
+        print(
+            f"Processing {commits_data.totalCount if hasattr(commits_data, 'totalCount') else 'unknown number of'} commits..."
         )
 
-        # Create SSL context with proper certificate verification and secure TLS version
-        ssl_context = ssl.create_default_context()
-        ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2
-        with urllib.request.urlopen(req, context=ssl_context) as response:
-            result = json.loads(response.read().decode("utf-8"))
-            return result.get("body", "")
+        for commit in commits_data:
+            # Get associated PRs for this commit using GraphQL
+            pr_number = None
+            try:
+                # Use GraphQL to find PRs associated with this commit
+                query = f"""
+                {{
+                  repository(owner: "{repo.owner.login}", name: "{repo.name}") {{
+                    object(oid: "{commit.sha}") {{
+                      ... on Commit {{
+                        associatedPullRequests(first: 1) {{
+                          nodes {{
+                            number
+                          }}
+                        }}
+                      }}
+                    }}
+                  }}
+                }}
+                """
 
-    except urllib.error.HTTPError as e:
-        error_body = e.read().decode("utf-8")
-        print(f"Error: GitHub API request failed with status {e.code}")
-        print(f"Response: {error_body}")
-        sys.exit(1)
-    except Exception as e:
-        print(f"Error: Failed to get release notes from GitHub API: {e}")
-        sys.exit(1)
-
-
-def parse_github_release_notes(release_notes_body: str) -> list[dict[str, str]]:
-    """Parse GitHub release notes body and extract commit information"""
-    commits = []
-
-    # Split by lines and process each line
-    lines = release_notes_body.split("\n")
-
-    for line in lines:
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-
-        # Parse GitHub release notes format: * commit_title by @author in PR_URL
-        match = re.match(
-            r"^\*\s+(.+?)\s+by\s+@([^\s]+)\s+in\s+https://github\.com/[^/]+/[^/]+/pull/(\d+)(?:\s|$)",
-            line,
-        )
-
-        if match:
-            subject = match.group(1).strip()
-            author = match.group(2).strip()
-            pr_number = match.group(3).strip()
+                result = g._Github__requester.graphql_query(query)
+                if result and "data" in result:
+                    pr_nodes = result["data"]["repository"]["object"][
+                        "associatedPullRequests"
+                    ]["nodes"]
+                    if pr_nodes:
+                        pr_number = str(pr_nodes[0]["number"])
+            except Exception:
+                # If GraphQL fails, continue without PR number
+                pass
 
             commits.append(
                 {
-                    "subject": subject,
-                    "author": author,
+                    "hash": commit.sha[:7],
+                    "full_hash": commit.sha,
+                    "subject": commit.commit.message.split("\n")[0],  # First line only
+                    "author": commit.commit.author.name
+                    if commit.commit.author
+                    else "Unknown",
                     "pr_number": pr_number,
-                    "hash": "",  # GitHub API doesn't provide commit hash in release notes
-                    "full_hash": "",
                 }
             )
 
-    return commits
+        return commits
+
+    except Exception as e:
+        print(f"Error: Failed to get commits using PyGithub: {e}")
+        sys.exit(1)
 
 
 def parse_commit_message(
@@ -260,8 +247,8 @@ def process_commits(commits: list[dict], config: dict) -> dict:
         # Add processed commit to appropriate type
         type_sections[commit_type]["commits"].append(
             {
-                "hash": commit["hash"][:7] if commit["hash"] else "",
-                "full_hash": commit["hash"] if commit["hash"] else "",
+                "hash": commit["hash"],
+                "full_hash": commit["full_hash"],
                 "subject": clean_subj,
                 "pr_number": pr_number or commit.get("pr_number"),
                 "issue_numbers": issue_numbers,
@@ -400,21 +387,15 @@ def write_and_output_results(
 
 def generate_release_notes(from_tag: str, to_tag: str, output_file: str) -> None:
     """Generate release notes between two tags"""
-    print(f"Generating release notes from {from_tag} to {to_tag}...")
+    print(f"Generating release notes from {from_tag or 'beginning'} to {to_tag}...")
 
-    # Load configuration and get GitHub release notes
+    # Load configuration and get commits
     config = load_version_config()
-    github_release_notes = get_github_release_notes(from_tag, to_tag)
-
-    if not github_release_notes:
-        print("No release notes generated by GitHub API.")
-        return
-
-    # Parse GitHub release notes to extract commit information
-    commits = parse_github_release_notes(github_release_notes)
+    commits = get_commits_between_refs(from_tag, to_tag)
 
     if not commits:
-        print("No commits found in GitHub release notes.")
+        print("No commits found between the specified references.")
+        write_and_output_results("No commits found in this release.\n", output_file, 0)
         return
 
     # Process commits and generate content
@@ -425,7 +406,7 @@ def generate_release_notes(from_tag: str, to_tag: str, output_file: str) -> None
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Generate release notes between two git tags"
+        description="Generate release notes between two git tags using PyGithub GraphQL"
     )
     parser.add_argument("from_tag", help="Starting tag (e.g., v1.2.15)")
     parser.add_argument("to_tag", help="Ending tag (e.g., v1.2.16)")
