@@ -56,8 +56,8 @@ def load_version_config() -> dict:
         sys.exit(1)
 
 
-def get_commits_between_refs(from_ref: str, to_ref: str) -> list[dict[str, str]]:
-    """Get commits between two git references using PyGithub GraphQL API"""
+def _validate_environment() -> tuple[str, str]:
+    """Validate required environment variables"""
     github_token = getenv("GITHUB_TOKEN")
     github_repo = getenv("GITHUB_REPOSITORY")
 
@@ -69,18 +69,67 @@ def get_commits_between_refs(from_ref: str, to_ref: str) -> list[dict[str, str]]
         print("Error: GITHUB_REPOSITORY environment variable not set")
         sys.exit(1)
 
+    return github_token, github_repo
+
+
+def _get_commits_data(repo, from_ref: str, to_ref: str):
+    """Get commits data from repository"""
+    if from_ref:
+        comparison = repo.compare(from_ref, to_ref)
+        return comparison.commits
+    return repo.get_commits(sha=to_ref)
+
+
+def _get_pr_number_for_commit(github_client, repo, commit_sha: str) -> str | None:
+    """Get PR number associated with a commit using GraphQL"""
+    try:
+        query = f"""
+        {{
+          repository(owner: "{repo.owner.login}", name: "{repo.name}") {{
+            object(oid: "{commit_sha}") {{
+              ... on Commit {{
+                associatedPullRequests(first: 1) {{
+                  nodes {{
+                    number
+                  }}
+                }}
+              }}
+            }}
+          }}
+        }}
+        """
+
+        result = github_client._Github__requester.graphql_query(query)
+        if result and "data" in result:
+            pr_nodes = result["data"]["repository"]["object"]["associatedPullRequests"][
+                "nodes"
+            ]
+            if pr_nodes:
+                return str(pr_nodes[0]["number"])
+    except Exception:
+        pass
+    return None
+
+
+def _build_commit_dict(commit, pr_number: str | None) -> dict[str, str]:
+    """Build commit dictionary from commit object"""
+    return {
+        "hash": commit.sha[:7],
+        "full_hash": commit.sha,
+        "subject": commit.commit.message.split("\n")[0],
+        "author": commit.commit.author.name if commit.commit.author else "Unknown",
+        "pr_number": pr_number,
+    }
+
+
+def get_commits_between_refs(from_ref: str, to_ref: str) -> list[dict[str, str]]:
+    """Get commits between two git references using PyGithub GraphQL API"""
+    github_token, github_repo = _validate_environment()
+
     try:
         g = Github(github_token)
         repo = g.get_repo(github_repo)
-
-        # Get commit range
-        if from_ref:
-            # Get commits between two refs
-            comparison = repo.compare(from_ref, to_ref)
-            commits_data = comparison.commits
-        else:
-            # Get all commits up to to_ref
-            commits_data = repo.get_commits(sha=to_ref)
+        commits_data = _get_commits_data(repo, from_ref, to_ref)
 
         commits = []
         print(
@@ -88,48 +137,8 @@ def get_commits_between_refs(from_ref: str, to_ref: str) -> list[dict[str, str]]
         )
 
         for commit in commits_data:
-            # Get associated PRs for this commit using GraphQL
-            pr_number = None
-            try:
-                # Use GraphQL to find PRs associated with this commit
-                query = f"""
-                {{
-                  repository(owner: "{repo.owner.login}", name: "{repo.name}") {{
-                    object(oid: "{commit.sha}") {{
-                      ... on Commit {{
-                        associatedPullRequests(first: 1) {{
-                          nodes {{
-                            number
-                          }}
-                        }}
-                      }}
-                    }}
-                  }}
-                }}
-                """
-
-                result = g._Github__requester.graphql_query(query)
-                if result and "data" in result:
-                    pr_nodes = result["data"]["repository"]["object"][
-                        "associatedPullRequests"
-                    ]["nodes"]
-                    if pr_nodes:
-                        pr_number = str(pr_nodes[0]["number"])
-            except Exception:
-                # If GraphQL fails, continue without PR number
-                pass
-
-            commits.append(
-                {
-                    "hash": commit.sha[:7],
-                    "full_hash": commit.sha,
-                    "subject": commit.commit.message.split("\n")[0],  # First line only
-                    "author": commit.commit.author.name
-                    if commit.commit.author
-                    else "Unknown",
-                    "pr_number": pr_number,
-                }
-            )
+            pr_number = _get_pr_number_for_commit(g, repo, commit.sha)
+            commits.append(_build_commit_dict(commit, pr_number))
 
         return commits
 
@@ -164,7 +173,7 @@ def extract_issue_numbers(text: str, config: dict) -> list[str]:
     all_issues = []
 
     for prefix in config["issuePrefixes"]:
-        # Create pattern for this prefix (e.g., "DATAGO-" -> "DATAGO-\d+")
+        # Create pattern for this prefix (e.g., "ISSUE-" -> "ISSUE-\d+")
         prefix_pattern = re.escape(prefix) + r"\d+"
         pattern = re.compile(prefix_pattern)
         matches = pattern.findall(text)

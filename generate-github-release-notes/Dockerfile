@@ -1,7 +1,13 @@
-FROM python:3.13-slim
+FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim
 
-RUN pip install --no-cache-dir PyGithub
+# Copy dependency files
+COPY pyproject.toml uv.lock ./
 
-COPY generate-github-release-notes.py /usr/local/bin/generate-github-release-notes.py
+# Install dependencies
+RUN uv sync --frozen --no-dev
 
-ENTRYPOINT ["python3", "/usr/local/bin/generate-github-release-notes.py"]
+# Copy application
+COPY generate-github-release-notes.py ./
+
+# Use uv to run the application
+ENTRYPOINT ["uv", "run", "python3", "generate-github-release-notes.py"]
