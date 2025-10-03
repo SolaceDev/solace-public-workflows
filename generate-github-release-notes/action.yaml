@@ -15,6 +15,9 @@ inputs:
     description: "Output file path for release notes"
     required: false
     default: "RELEASE_NOTES.md"
+  github-token:
+    description: "GitHub token for API access"
+    required: true
 
 outputs:
   release-notes-path:
@@ -24,7 +27,9 @@ outputs:
 
 runs:
   using: "docker"
-  image: docker://ghcr.io/solacedev/generate-github-release-notes:gen-git-changelog-6b14e81a84
+  image: "Dockerfile"
+  env:
+    GITHUB_TOKEN: ${{ inputs.github-token }}
   args:
     - ${{ inputs.from-ref }}
     - ${{ inputs.to-ref }}
