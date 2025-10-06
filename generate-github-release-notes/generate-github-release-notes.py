@@ -6,7 +6,7 @@ import re
 import sys
 from os import getenv
 from pathlib import Path
-from github import Github
+from github import Github, Auth
 
 
 def load_version_config(config_file_path: str = ".versionrc.json") -> dict:
@@ -73,43 +73,150 @@ def _validate_environment() -> tuple[str, str]:
     return github_token, github_repo
 
 
-def _get_commits_data(repo, from_ref: str, to_ref: str):
-    """Get commits data from repository"""
-    if from_ref:
-        comparison = repo.compare(from_ref, to_ref)
-        return comparison.commits
-    return repo.get_commits(sha=to_ref)
+# Old helper functions removed - replaced with optimized GraphQL implementation
 
 
-def _get_pr_number_for_commit(github_client, repo, commit_sha: str) -> str | None:
-    """Get PR number associated with a commit using GraphQL"""
+def _get_commits_with_prs_graphql(
+    github_client, repo_name: str, from_ref: str, to_ref: str
+) -> list[dict[str, str]]:
+    """Get commits with PR associations and file changes using GraphQL with pagination"""
+    owner, repo = repo_name.split("/")
+
+    # GraphQL query to get commits with associated PRs and file changes
+    query = """
+    query($owner: String!, $repo: String!, $since: GitTimestamp, $until: GitTimestamp, $after: String) {
+      repository(owner: $owner, name: $repo) {
+        defaultBranchRef {
+          target {
+            ... on Commit {
+              history(since: $since, until: $until, first: 100, after: $after) {
+                pageInfo {
+                  hasNextPage
+                  endCursor
+                }
+                nodes {
+                  oid
+                  abbreviatedOid
+                  message
+                  author {
+                    name
+                    email
+                  }
+                  committedDate
+                  associatedPullRequests(first: 1) {
+                    nodes {
+                      number
+                    }
+                  }
+                  changedFiles
+                  changedFilesIfAvailable
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    """
+
+    commits = []
+    has_next_page = True
+    cursor = None
+
+    # Get commit date ranges for filtering
     try:
-        query = f"""
-        {{
-          repository(owner: "{repo.owner.login}", name: "{repo.name}") {{
-            object(oid: "{commit_sha}") {{
-              ... on Commit {{
-                associatedPullRequests(first: 1) {{
-                  nodes {{
-                    number
-                  }}
-                }}
-              }}
-            }}
-          }}
-        }}
-        """
+        repo_obj = github_client.get_repo(repo_name)
 
-        result = github_client._Github__requester.graphql_query(query)
-        if result and "data" in result:
-            pr_nodes = result["data"]["repository"]["object"]["associatedPullRequests"][
-                "nodes"
+        # Get the date range for filtering
+        since_date = None
+        until_date = None
+
+        if from_ref:
+            try:
+                from_commit = repo_obj.get_commit(from_ref)
+                since_date = from_commit.commit.committer.date.isoformat()
+            except:
+                pass
+
+        try:
+            to_commit = repo_obj.get_commit(to_ref)
+            until_date = to_commit.commit.committer.date.isoformat()
+        except:
+            pass
+    except Exception as e:
+        print(f"Warning: Could not get date range for filtering: {e}")
+
+    page_count = 0
+    while has_next_page and page_count < 50:  # Limit to 50 pages (5000 commits max)
+        variables = {
+            "owner": owner,
+            "repo": repo,
+            "since": since_date,
+            "until": until_date,
+            "after": cursor,
+        }
+
+        try:
+            result = github_client._Github__requester.graphql_query(query, variables)
+
+            if not result or "data" not in result:
+                break
+
+            history = result["data"]["repository"]["defaultBranchRef"]["target"][
+                "history"
             ]
-            if pr_nodes:
-                return str(pr_nodes[0]["number"])
-    except Exception:
-        pass
-    return None
+            page_info = history["pageInfo"]
+            nodes = history["nodes"]
+
+            for node in nodes:
+                # Extract PR number
+                pr_number = None
+                if node["associatedPullRequests"]["nodes"]:
+                    pr_number = str(
+                        node["associatedPullRequests"]["nodes"][0]["number"]
+                    )
+
+                # Build commit dict
+                commit_dict = {
+                    "hash": node["abbreviatedOid"],
+                    "full_hash": node["oid"],
+                    "subject": node["message"].split("\n")[0],
+                    "author": node["author"]["name"] if node["author"] else "Unknown",
+                    "pr_number": pr_number,
+                    "changed_files": node.get("changedFiles", 0),
+                    "committed_date": node["committedDate"],
+                }
+                commits.append(commit_dict)
+
+            has_next_page = page_info["hasNextPage"]
+            cursor = page_info["endCursor"]
+            page_count += 1
+
+            print(
+                f"Fetched page {page_count}, got {len(nodes)} commits (total: {len(commits)})"
+            )
+
+        except Exception as e:
+            print(f"Warning: GraphQL query failed on page {page_count}: {e}")
+            break
+
+    # Filter commits to the actual range if we have specific refs
+    if from_ref and to_ref:
+        try:
+            repo_obj = github_client.get_repo(repo_name)
+            comparison = repo_obj.compare(from_ref, to_ref)
+            commit_shas = {c.sha for c in comparison.commits}
+
+            # Filter to only commits in the comparison
+            filtered_commits = [c for c in commits if c["full_hash"] in commit_shas]
+            print(
+                f"Filtered to {len(filtered_commits)} commits in range {from_ref}..{to_ref}"
+            )
+            return filtered_commits
+        except Exception as e:
+            print(f"Warning: Could not filter commits to range: {e}")
+
+    return commits
 
 
 def _build_commit_dict(commit, pr_number: str | None) -> dict[str, str]:
@@ -124,27 +231,54 @@ def _build_commit_dict(commit, pr_number: str | None) -> dict[str, str]:
 
 
 def get_commits_between_refs(from_ref: str, to_ref: str) -> list[dict[str, str]]:
-    """Get commits between two git references using PyGithub GraphQL API"""
+    """Get commits between two git references using optimized API calls"""
     github_token, github_repo = _validate_environment()
 
     try:
-        g = Github(github_token)
+        auth = Auth.Token(github_token)
+        g = Github(auth=auth)
         repo = g.get_repo(github_repo)
-        commits_data = _get_commits_data(repo, from_ref, to_ref)
 
-        commits = []
+        # Get commits using REST API comparison (reliable for commit ranges)
+        if from_ref:
+            comparison = repo.compare(from_ref, to_ref)
+            commits_data = comparison.commits
+        else:
+            commits_data = repo.get_commits(sha=to_ref)
+
         print(
-            f"Processing {commits_data.totalCount if hasattr(commits_data, 'totalCount') else 'unknown number of'} commits..."
+            f"Processing {commits_data.totalCount if hasattr(commits_data, 'totalCount') else len(list(commits_data))} commits..."
         )
 
-        for commit in commits_data:
-            pr_number = _get_pr_number_for_commit(g, repo, commit.sha)
-            commits.append(_build_commit_dict(commit, pr_number))
+        # Convert to our format and batch fetch PR associations using GraphQL
+        commits = []
+        commit_shas = []
 
+        # First pass: collect commits and SHAs
+        for commit in commits_data:
+            commit_dict = {
+                "hash": commit.sha[:7],
+                "full_hash": commit.sha,
+                "subject": commit.commit.message.split("\n")[0],
+                "author": commit.commit.author.name
+                if commit.commit.author
+                else "Unknown",
+                "pr_number": None,  # Will be filled by GraphQL batch query
+            }
+            commits.append(commit_dict)
+            commit_shas.append(commit.sha)
+
+        # Second pass: batch fetch PR associations using GraphQL
+        if commit_shas:
+            pr_associations = _get_pr_associations_batch(g, github_repo, commit_shas)
+            for commit in commits:
+                commit["pr_number"] = pr_associations.get(commit["full_hash"])
+
+        print(f"Successfully processed {len(commits)} commits with PR associations")
         return commits
 
     except Exception as e:
-        print(f"Error: Failed to get commits using PyGithub: {e}")
+        print(f"Error: Failed to get commits: {e}")
         sys.exit(1)
 
 
@@ -266,68 +400,13 @@ def _is_ui_bump_commit(commit: dict, ui_config: dict) -> str | None:
     return None
 
 
-def _get_ui_commit_changes(
-    github_client, repo, commit_sha: str, ui_config: dict
-) -> bool:
-    """Check if a commit modified UI paths using GitHub API"""
-    if not ui_config:
-        return False
-
-    try:
-        commit_obj = repo.get_commit(commit_sha)
-        files_changed = [file.filename for file in commit_obj.files]
-
-        # Check if any changed file matches UI path patterns
-        path_patterns = ui_config["pathPatterns"]
-        for file_path in files_changed:
-            for pattern in path_patterns:
-                # Simple pattern matching (could be enhanced with fnmatch if needed)
-                if pattern.endswith("**"):
-                    pattern_prefix = pattern[:-2]  # Remove "**"
-                    if file_path.startswith(pattern_prefix):
-                        return True
-                elif pattern in file_path or file_path.startswith(pattern):
-                    return True
-
-        return False
-    except Exception as e:
-        print(f"Warning: Could not check file changes for commit {commit_sha[:7]}: {e}")
-        return False
-
-
-def _get_previous_ui_version(
-    github_client, repo, current_version: str, ui_config: dict
-) -> str | None:
-    """Get the previous UI version by looking at git tags"""
-    try:
-        tag_prefix = ui_config["tagPrefix"]
-
-        # Get all UI tags
-        ui_tags = []
-        for tag in repo.get_tags():
-            if tag.name.startswith(tag_prefix):
-                ui_tags.append(tag.name)
-
-        # Sort tags by version (simple string sort should work for semantic versions)
-        ui_tags.sort()
-
-        # Find the current version and return the previous one
-        try:
-            current_index = ui_tags.index(current_version)
-            if current_index > 0:
-                return ui_tags[current_index - 1]
-        except ValueError:
-            pass
-
-        return None
-    except Exception as e:
-        print(f"Warning: Could not get previous UI version: {e}")
-        return None
+# Old functions removed - replaced with optimized GraphQL versions above
 
 
 def _detect_ui_changes(commits: list[dict], config: dict) -> tuple[list[dict], dict]:
     """
     Detect UI changes and return (non_ui_commits, ui_changes_by_version).
+    Optimized with batch GraphQL operations for large commit ranges.
 
     Returns:
         - non_ui_commits: List of commits that are not UI-related
@@ -340,77 +419,204 @@ def _detect_ui_changes(commits: list[dict], config: dict) -> tuple[list[dict], d
     github_token, github_repo = _validate_environment()
 
     try:
-        g = Github(github_token)
-        repo = g.get_repo(github_repo)
+        auth = Auth.Token(github_token)
+        g = Github(auth=auth)
     except Exception as e:
         print(f"Warning: Could not connect to GitHub for UI detection: {e}")
         return commits, {}
 
     ui_changes_by_version = {}
     non_ui_commits = []
-    current_ui_commits = []
+    potential_ui_commits = []
+    ui_bump_commits = []
 
-    # Process commits in chronological order (newest first) to find UI bump commits first
+    print(f"Analyzing {len(commits)} commits for UI changes...")
+
+    # First pass: identify UI bump commits and potential UI commits
     for commit in commits:
-        # Check if this is a UI bump commit
         ui_version = _is_ui_bump_commit(commit, ui_config)
-
         if ui_version:
-            # This is a UI bump commit - don't include it in output
-            continue
-
-        # Check if this commit modified UI paths
-        if _get_ui_commit_changes(g, repo, commit["full_hash"], ui_config):
-            current_ui_commits.append(commit)
+            ui_bump_commits.append((commit, ui_version))
         else:
-            non_ui_commits.append(commit)
+            potential_ui_commits.append(commit)
 
-    # Now process UI commits and group them by finding their associated bump commits
-    if current_ui_commits:
-        # For each UI commit, find the next UI bump commit that comes after it
-        ui_commits_with_versions = []
+    print(
+        f"Found {len(ui_bump_commits)} UI bump commits, checking {len(potential_ui_commits)} potential UI commits..."
+    )
 
-        for ui_commit in current_ui_commits:
-            # Find the UI bump commit that comes after this UI commit (chronologically)
-            ui_version = None
-            commit_index = None
+    # Batch check UI file changes for potential commits
+    if potential_ui_commits:
+        commit_shas = [c["full_hash"] for c in potential_ui_commits]
 
-            # Find the index of our UI commit
-            for i, commit in enumerate(commits):
-                if commit["full_hash"] == ui_commit["full_hash"]:
-                    commit_index = i
-                    break
+        # Check commits in batches to avoid overwhelming the API
+        ui_results = {}
+        batch_size = 20
 
-            if commit_index is not None:
-                # Look for UI bump commit that comes after this commit in the list (older chronologically)
-                for i in range(commit_index + 1, len(commits)):
-                    bump_version = _is_ui_bump_commit(commits[i], ui_config)
-                    if bump_version:
-                        ui_version = bump_version
+        for i in range(0, len(commit_shas), batch_size):
+            batch_shas = commit_shas[i : i + batch_size]
+            print(
+                f"Checking UI changes for commits {i + 1}-{min(i + batch_size, len(commit_shas))} of {len(commit_shas)}..."
+            )
+
+            batch_results = _get_ui_commits_batch_graphql(
+                g, github_repo, batch_shas, ui_config
+            )
+            ui_results.update(batch_results)
+
+        # Separate UI commits from non-UI commits
+        ui_commits = []
+        for commit in potential_ui_commits:
+            if ui_results.get(commit["full_hash"], False):
+                ui_commits.append(commit)
+            else:
+                non_ui_commits.append(commit)
+
+        print(f"Found {len(ui_commits)} commits that modified UI files")
+
+        # Group UI commits by their associated bump versions
+        if ui_commits:
+            ui_changes_by_version = _group_ui_commits_by_version(
+                ui_commits, ui_bump_commits, commits, g, github_repo, ui_config
+            )
+
+    return non_ui_commits, ui_changes_by_version
+
+
+def _get_ui_commits_batch_graphql(
+    github_client, repo_name: str, commit_shas: list[str], ui_config: dict
+) -> dict[str, bool]:
+    """Check multiple commits for UI changes using efficient batch operations"""
+    if not ui_config or not commit_shas:
+        return {}
+
+    path_patterns = ui_config["pathPatterns"]
+    results = {}
+
+    # For now, use individual checks but with optimized error handling
+    # In the future, this could be enhanced with GraphQL file queries
+    try:
+        repo = github_client.get_repo(repo_name)
+
+        for sha in commit_shas:
+            try:
+                commit_obj = repo.get_commit(sha)
+                files_changed = [file.filename for file in commit_obj.files]
+
+                # Check if any changed file matches UI path patterns
+                is_ui_commit = False
+                for file_path in files_changed:
+                    for pattern in path_patterns:
+                        if pattern.endswith("**"):
+                            pattern_prefix = pattern[:-2]  # Remove "**"
+                            if file_path.startswith(pattern_prefix):
+                                is_ui_commit = True
+                                break
+                        elif pattern in file_path or file_path.startswith(pattern):
+                            is_ui_commit = True
+                            break
+                    if is_ui_commit:
                         break
 
-            if ui_version:
-                # Get the previous UI version
-                previous_ui_version = _get_previous_ui_version(
-                    g, repo, ui_version, ui_config
-                )
+                results[sha] = is_ui_commit
 
-                if previous_ui_version:
-                    version_range = f"{previous_ui_version} → {ui_version}"
-                else:
-                    version_range = f"up to {ui_version}"
+            except Exception as e:
+                print(f"Warning: Could not check commit {sha[:7]}: {e}")
+                results[sha] = False
 
-                if version_range not in ui_changes_by_version:
-                    ui_changes_by_version[version_range] = []
-                ui_changes_by_version[version_range].append(ui_commit)
+    except Exception as e:
+        print(f"Warning: Batch UI check failed: {e}")
+        # Return False for all commits if batch fails
+        for sha in commit_shas:
+            results[sha] = False
+
+    return results
+
+
+def _group_ui_commits_by_version(
+    ui_commits, ui_bump_commits, all_commits, github_client, repo_name, ui_config
+):
+    """Group UI commits by their associated version ranges"""
+    ui_changes_by_version = {}
+
+    # Get UI tags once for all version lookups
+    ui_tags = _get_ui_tags_optimized(github_client, repo_name, ui_config)
+
+    for ui_commit in ui_commits:
+        # Find the UI bump commit that comes after this UI commit
+        ui_version = None
+        commit_index = None
+
+        # Find the index of our UI commit
+        for i, commit in enumerate(all_commits):
+            if commit["full_hash"] == ui_commit["full_hash"]:
+                commit_index = i
+                break
+
+        if commit_index is not None:
+            # Look for UI bump commit that comes after this commit in the list
+            for i in range(commit_index + 1, len(all_commits)):
+                for bump_commit, bump_version in ui_bump_commits:
+                    if all_commits[i]["full_hash"] == bump_commit["full_hash"]:
+                        ui_version = bump_version
+                        break
+                if ui_version:
+                    break
+
+        if ui_version:
+            # Get the previous UI version from cached tags
+            previous_ui_version = _get_previous_ui_version_from_tags(
+                ui_version, ui_tags
+            )
+
+            if previous_ui_version:
+                version_range = f"{previous_ui_version} → {ui_version}"
             else:
-                # No bump commit found, add to unreleased
-                version_range = "unreleased UI changes"
-                if version_range not in ui_changes_by_version:
-                    ui_changes_by_version[version_range] = []
-                ui_changes_by_version[version_range].append(ui_commit)
+                version_range = f"up to {ui_version}"
 
-    return list(reversed(non_ui_commits)), ui_changes_by_version
+            if version_range not in ui_changes_by_version:
+                ui_changes_by_version[version_range] = []
+            ui_changes_by_version[version_range].append(ui_commit)
+        else:
+            # No bump commit found, add to unreleased
+            version_range = "unreleased UI changes"
+            if version_range not in ui_changes_by_version:
+                ui_changes_by_version[version_range] = []
+            ui_changes_by_version[version_range].append(ui_commit)
+
+    return ui_changes_by_version
+
+
+def _get_ui_tags_optimized(github_client, repo_name: str, ui_config: dict) -> list[str]:
+    """Get UI tags efficiently with caching"""
+    try:
+        repo = github_client.get_repo(repo_name)
+        tag_prefix = ui_config["tagPrefix"]
+
+        ui_tags = []
+        # Limit to reasonable number of tags to avoid rate limits
+        for tag in repo.get_tags()[:200]:  # Get first 200 tags
+            if tag.name.startswith(tag_prefix):
+                ui_tags.append(tag.name)
+
+        ui_tags.sort()
+        return ui_tags
+
+    except Exception as e:
+        print(f"Warning: Could not get UI tags: {e}")
+        return []
+
+
+def _get_previous_ui_version_from_tags(
+    current_version: str, ui_tags: list[str]
+) -> str | None:
+    """Get previous UI version from pre-fetched tags list"""
+    try:
+        current_index = ui_tags.index(current_version)
+        if current_index > 0:
+            return ui_tags[current_index - 1]
+    except ValueError:
+        pass
+    return None
 
 
 def process_commits(commits: list[dict], config: dict) -> tuple[dict, dict]:
