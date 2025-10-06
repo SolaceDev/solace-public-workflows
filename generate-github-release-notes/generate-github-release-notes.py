@@ -6,13 +6,15 @@ import re
 import sys
 from os import getenv
 from pathlib import Path
-from github import Github, Auth
 from gql import Client, gql
 from gql.transport.requests import RequestsHTTPTransport
 
+# Constants
+DEFAULT_VERSION_CONFIG_FILE = ".versionrc.json"
 
-def load_version_config(config_file_path: str = ".versionrc.json") -> dict:
-    """Load configuration from specified config file or default .versionrc.json"""
+
+def load_version_config(config_file_path: str = DEFAULT_VERSION_CONFIG_FILE) -> dict:
+    """Load configuration from specified config file or default configuration file"""
     # Try GitHub Actions workspace first, then current directory
     workspace_path = Path(f"/github/workspace/{config_file_path}")
     local_path = Path(config_file_path)
@@ -87,6 +89,47 @@ def _create_graphql_client(github_token: str) -> Client:
 
 
 # Old helper functions removed - replaced with optimized GraphQL implementation
+
+
+def _validate_graphql_response(result: dict, from_ref: str, to_ref: str) -> dict | None:
+    """Validate GraphQL response and return commits data or None if invalid"""
+    if not result or "repository" not in result:
+        print("No repository data in GraphQL result")
+        return None
+
+    repo_data = result["repository"]
+    if not repo_data or not repo_data.get("baseTagRef"):
+        print(f"Error: Could not find base ref '{from_ref}' in repository")
+        return None
+
+    compare_data = repo_data["baseTagRef"]["compare"]
+    if not compare_data:
+        print(f"Error: Could not compare {from_ref} with {to_ref}")
+        return None
+
+    return compare_data["commits"]
+
+
+def _extract_commit_from_node(node: dict) -> dict:
+    """Extract commit data from GraphQL node"""
+    # Extract PR number
+    pr_number = None
+    if node["associatedPullRequests"]["nodes"]:
+        pr_number = str(node["associatedPullRequests"]["nodes"][0]["number"])
+
+    # Build commit dict
+    return {
+        "hash": node["abbreviatedOid"],
+        "full_hash": node["oid"],
+        "subject": node["messageHeadline"],
+        "author": node["author"]["name"] if node["author"] else "Unknown",
+        "pr_number": pr_number,
+        "changed_files": node.get("changedFilesIfAvailable", 0),
+        "committed_date": node["committedDate"],
+        "authored_date": node["authoredDate"],
+        "additions": node.get("additions", 0),
+        "deletions": node.get("deletions", 0),
+    }
 
 
 def _get_commits_with_prs_graphql(
@@ -164,21 +207,10 @@ def _get_commits_with_prs_graphql(
             print(f"Executing GraphQL query (page {page_count + 1})...")
             result = graphql_client.execute(query, variable_values=variables)
 
-            if not result or "repository" not in result:
-                print("No repository data in GraphQL result")
+            commits_data = _validate_graphql_response(result, from_ref, to_ref)
+            if not commits_data:
                 break
 
-            repo_data = result["repository"]
-            if not repo_data or not repo_data.get("baseTagRef"):
-                print(f"Error: Could not find base ref '{from_ref}' in repository")
-                break
-
-            compare_data = repo_data["baseTagRef"]["compare"]
-            if not compare_data:
-                print(f"Error: Could not compare {from_ref} with {to_ref}")
-                break
-
-            commits_data = compare_data["commits"]
             page_info = commits_data["pageInfo"]
             nodes = commits_data["nodes"]
 
@@ -187,27 +219,9 @@ def _get_commits_with_prs_graphql(
                 f"Total commits in comparison: {commits_data.get('totalCount', 'unknown')}"
             )
 
+            # Process all nodes in this page
             for node in nodes:
-                # Extract PR number
-                pr_number = None
-                if node["associatedPullRequests"]["nodes"]:
-                    pr_number = str(
-                        node["associatedPullRequests"]["nodes"][0]["number"]
-                    )
-
-                # Build commit dict
-                commit_dict = {
-                    "hash": node["abbreviatedOid"],
-                    "full_hash": node["oid"],
-                    "subject": node["messageHeadline"],
-                    "author": node["author"]["name"] if node["author"] else "Unknown",
-                    "pr_number": pr_number,
-                    "changed_files": node.get("changedFilesIfAvailable", 0),
-                    "committed_date": node["committedDate"],
-                    "authored_date": node["authoredDate"],
-                    "additions": node.get("additions", 0),
-                    "deletions": node.get("deletions", 0),
-                }
+                commit_dict = _extract_commit_from_node(node)
                 commits.append(commit_dict)
 
             has_next_page = page_info["hasNextPage"]
@@ -381,6 +395,48 @@ def _is_ui_bump_commit(commit: dict, ui_config: dict) -> str | None:
 # Old functions removed - replaced with optimized GraphQL versions above
 
 
+def _process_ui_bump_commit(
+    i: int,
+    commits: list[dict],
+    ui_config: dict,
+    ui_commits: list[dict],
+    ui_versions: list[str],
+) -> None:
+    """Process a UI bump commit and identify the preceding UI change commit"""
+    commit = commits[i]
+    ui_version = _is_ui_bump_commit(commit, ui_config)
+
+    if not ui_version:
+        return
+
+    ui_versions.append(ui_version)
+    print(f"Found UI bump commit: {ui_version}")
+
+    # The previous commit (if exists) is the UI change commit
+    if i > 0:
+        ui_change_commit = commits[i - 1]
+        # Only add if it's not already a UI commit and not a bump commit
+        if ui_change_commit not in ui_commits and not _is_ui_bump_commit(
+            ui_change_commit, ui_config
+        ):
+            ui_commits.append(ui_change_commit)
+            print(
+                f"  -> UI change commit: {ui_change_commit['hash']} {ui_change_commit['subject'][:50]}..."
+            )
+
+
+def _create_version_range(ui_versions: list[str]) -> str:
+    """Create version range string from UI versions"""
+    ui_versions.sort()
+    oldest_version = ui_versions[0]
+    newest_version = ui_versions[-1]
+
+    if oldest_version != newest_version:
+        return f"{oldest_version} → {newest_version}"
+    else:
+        return f"up to {newest_version}"
+
+
 def _detect_ui_changes(commits: list[dict], config: dict) -> tuple[list[dict], dict]:
     """
     Detect UI changes and return (non_ui_commits, ui_changes_by_version).
@@ -402,42 +458,16 @@ def _detect_ui_changes(commits: list[dict], config: dict) -> tuple[list[dict], d
 
     # Process commits in order to find UI bump commits and their preceding changes
     for i, commit in enumerate(commits):
-        ui_version = _is_ui_bump_commit(commit, ui_config)
-
-        if ui_version:
-            # This is a UI bump commit - skip it and collect the version
-            ui_versions.append(ui_version)
-            print(f"Found UI bump commit: {ui_version}")
-
-            # The previous commit (if exists) is the UI change commit
-            if i > 0:
-                ui_change_commit = commits[i - 1]
-                # Only add if it's not already a UI commit and not a bump commit
-                if ui_change_commit not in ui_commits and not _is_ui_bump_commit(
-                    ui_change_commit, ui_config
-                ):
-                    ui_commits.append(ui_change_commit)
-                    print(
-                        f"  -> UI change commit: {ui_change_commit['hash']} {ui_change_commit['subject'][:50]}..."
-                    )
-        else:
+        if _is_ui_bump_commit(commit, ui_config):
+            _process_ui_bump_commit(i, commits, ui_config, ui_commits, ui_versions)
+        elif commit not in ui_commits:
             # Regular commit - add to non-UI unless it's already identified as UI
-            if commit not in ui_commits:
-                non_ui_commits.append(commit)
+            non_ui_commits.append(commit)
 
     # Group all UI changes under a single version range
     ui_changes_by_version = {}
     if ui_commits and ui_versions:
-        # Sort versions to get oldest and newest
-        ui_versions.sort()
-        oldest_version = ui_versions[0]
-        newest_version = ui_versions[-1]
-
-        if oldest_version != newest_version:
-            version_range = f"{oldest_version} → {newest_version}"
-        else:
-            version_range = f"up to {newest_version}"
-
+        version_range = _create_version_range(ui_versions)
         ui_changes_by_version[version_range] = ui_commits
         print(f"Grouped {len(ui_commits)} UI commits under range: {version_range}")
 
@@ -447,88 +477,71 @@ def _detect_ui_changes(commits: list[dict], config: dict) -> tuple[list[dict], d
 # Removed unnecessary helper functions - simplified UI detection logic
 
 
-def process_commits(commits: list[dict], config: dict) -> tuple[dict, dict]:
-    """Process commits and organize them by type, separating UI changes if configured"""
-    # Detect UI changes first
-    non_ui_commits, ui_changes_by_version = _detect_ui_changes(commits, config)
-
-    # Create type mapping from config
+def _create_empty_type_sections(config: dict) -> dict:
+    """Create empty type sections from config"""
     type_sections = {}
     for type_config in config["types"]:
         type_sections[type_config["type"]] = {
             "section": type_config["section"],
             "commits": [],
         }
+    return type_sections
+
+
+def _process_single_commit(commit: dict, config: dict) -> dict | None:
+    """Process a single commit and return processed commit dict or None if should be skipped"""
+    # Skip release commits
+    if "[ci skip]" in commit["subject"]:
+        return None
+
+    # Parse commit message
+    commit_type, scope, subject, pr_number = parse_commit_message(commit["subject"])
+
+    if not commit_type:
+        return None
+
+    # Extract issue numbers and clean subject
+    search_text = f"{scope or ''} {subject}"
+    issue_numbers = extract_issue_numbers(search_text, config)
+    clean_subj = clean_subject(subject, config)
+
+    return {
+        "type": commit_type,
+        "hash": commit["hash"],
+        "full_hash": commit["full_hash"],
+        "subject": clean_subj,
+        "pr_number": pr_number or commit.get("pr_number"),
+        "issue_numbers": issue_numbers,
+        "author": commit["author"],
+    }
+
+
+def _add_commits_to_sections(
+    commits: list[dict], config: dict, type_sections: dict
+) -> None:
+    """Add processed commits to their respective type sections"""
+    for commit in commits:
+        processed_commit = _process_single_commit(commit, config)
+        if processed_commit and processed_commit["type"] in type_sections:
+            # Remove 'type' key before adding to section
+            commit_type = processed_commit.pop("type")
+            type_sections[commit_type]["commits"].append(processed_commit)
+
+
+def process_commits(commits: list[dict], config: dict) -> tuple[dict, dict]:
+    """Process commits and organize them by type, separating UI changes if configured"""
+    # Detect UI changes first
+    non_ui_commits, ui_changes_by_version = _detect_ui_changes(commits, config)
 
     # Process non-UI commits
-    for commit in non_ui_commits:
-        # Skip release commits
-        if "[ci skip]" in commit["subject"]:
-            continue
+    type_sections = _create_empty_type_sections(config)
+    _add_commits_to_sections(non_ui_commits, config, type_sections)
 
-        # Parse commit message
-        commit_type, scope, subject, pr_number = parse_commit_message(commit["subject"])
-
-        if not commit_type or commit_type not in type_sections:
-            continue
-
-        # Extract issue numbers and clean subject
-        search_text = f"{scope or ''} {subject}"
-        issue_numbers = extract_issue_numbers(search_text, config)
-        clean_subj = clean_subject(subject, config)
-
-        # Add processed commit to appropriate type
-        type_sections[commit_type]["commits"].append(
-            {
-                "hash": commit["hash"],
-                "full_hash": commit["full_hash"],
-                "subject": clean_subj,
-                "pr_number": pr_number or commit.get("pr_number"),
-                "issue_numbers": issue_numbers,
-                "author": commit["author"],
-            }
-        )
-
-    # Process UI commits by version (now simplified to single version range)
+    # Process UI commits by version
     ui_sections = {}
     for version_range, ui_commits in ui_changes_by_version.items():
-        ui_type_sections = {}
-        for type_config in config["types"]:
-            ui_type_sections[type_config["type"]] = {
-                "section": type_config["section"],
-                "commits": [],
-            }
-
-        for commit in ui_commits:
-            # Skip release commits
-            if "[ci skip]" in commit["subject"]:
-                continue
-
-            # Parse commit message
-            commit_type, scope, subject, pr_number = parse_commit_message(
-                commit["subject"]
-            )
-
-            if not commit_type or commit_type not in ui_type_sections:
-                continue
-
-            # Extract issue numbers and clean subject
-            search_text = f"{scope or ''} {subject}"
-            issue_numbers = extract_issue_numbers(search_text, config)
-            clean_subj = clean_subject(subject, config)
-
-            # Add processed commit to appropriate type
-            ui_type_sections[commit_type]["commits"].append(
-                {
-                    "hash": commit["hash"],
-                    "full_hash": commit["full_hash"],
-                    "subject": clean_subj,
-                    "pr_number": pr_number or commit.get("pr_number"),
-                    "issue_numbers": issue_numbers,
-                    "author": commit["author"],
-                }
-            )
-
+        ui_type_sections = _create_empty_type_sections(config)
+        _add_commits_to_sections(ui_commits, config, ui_type_sections)
         ui_sections[version_range] = ui_type_sections
 
     return type_sections, ui_sections
@@ -690,7 +703,10 @@ def write_and_output_results(
 
 
 def generate_release_notes(
-    from_tag: str, to_tag: str, output_file: str, config_file: str = ".versionrc.json"
+    from_tag: str,
+    to_tag: str,
+    output_file: str,
+    config_file: str = DEFAULT_VERSION_CONFIG_FILE,
 ) -> None:
     """Generate release notes between two tags"""
     print(f"Generating release notes from {from_tag or 'beginning'} to {to_tag}...")
@@ -725,8 +741,8 @@ def main():
     parser.add_argument(
         "config_file",
         nargs="?",
-        default=".versionrc.json",
-        help="Configuration file path (default: .versionrc.json)",
+        default=DEFAULT_VERSION_CONFIG_FILE,
+        help=f"Configuration file path (default: {DEFAULT_VERSION_CONFIG_FILE})",
     )
 
     args = parser.parse_args()
