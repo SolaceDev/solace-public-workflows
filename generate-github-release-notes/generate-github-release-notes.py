@@ -622,61 +622,76 @@ def format_commit_line(commit: dict, config: dict) -> str:
     return line
 
 
-def generate_content(type_sections: dict, ui_sections: dict, config: dict) -> str:
-    """Generate the release notes content from processed commits"""
-    release_notes = ""
+def _generate_section_for_type(
+    type_data: dict, config: dict, header_prefix: str = "##"
+) -> str:
+    """Generate a section for a specific commit type"""
+    if not type_data["commits"]:
+        return ""
+
+    section = f"{header_prefix} {type_data['section']}\n\n"
+    for commit in type_data["commits"]:
+        commit_line = format_commit_line(commit, config)
+        section += commit_line + "\n"
+    section += "\n"
+    return section
+
+
+def _generate_main_sections(type_sections: dict, config: dict) -> tuple[str, bool]:
+    """Generate main commit sections and return (content, has_commits)"""
+    content = ""
     has_commits = False
 
-    # Output main commits by type (in order defined in config)
     for type_config in config["types"]:
         commit_type = type_config["type"]
-        if commit_type not in type_sections:
-            continue
+        if commit_type in type_sections:
+            type_data = type_sections[commit_type]
+            section = _generate_section_for_type(type_data, config)
+            if section:
+                has_commits = True
+                content += section
 
-        type_data = type_sections[commit_type]
-        if not type_data["commits"]:
-            continue
+    return content, has_commits
 
-        has_commits = True
-        release_notes += f"## {type_data['section']}\n\n"
 
-        for commit in type_data["commits"]:
-            commit_line = format_commit_line(commit, config)
-            release_notes += commit_line + "\n"
+def _generate_ui_sections(ui_sections: dict, config: dict) -> tuple[str, bool]:
+    """Generate UI commit sections and return (content, has_commits)"""
+    content = ""
+    has_commits = False
 
-        release_notes += "\n"
-
-    # Output UI changes sections
     for version_range, ui_type_sections in ui_sections.items():
-        ui_has_commits = False
         ui_content = ""
+        ui_has_commits = False
 
-        # Check if there are any UI commits
         for type_config in config["types"]:
             commit_type = type_config["type"]
-            if commit_type not in ui_type_sections:
-                continue
-
-            type_data = ui_type_sections[commit_type]
-            if not type_data["commits"]:
-                continue
-
-            ui_has_commits = True
-            ui_content += f"### {type_data['section']}\n\n"
-
-            for commit in type_data["commits"]:
-                commit_line = format_commit_line(commit, config)
-                ui_content += commit_line + "\n"
-
-            ui_content += "\n"
+            if commit_type in ui_type_sections:
+                type_data = ui_type_sections[commit_type]
+                section = _generate_section_for_type(type_data, config, "###")
+                if section:
+                    ui_has_commits = True
+                    ui_content += section
 
         if ui_has_commits:
             has_commits = True
-            release_notes += f"## UI Changes {version_range}\n\n"
-            release_notes += ui_content
+            content += f"## UI Changes {version_range}\n\n{ui_content}"
 
-    if not has_commits:
-        release_notes += "No commits found in this release.\n"
+    return content, has_commits
+
+
+def generate_content(type_sections: dict, ui_sections: dict, config: dict) -> str:
+    """Generate the release notes content from processed commits"""
+    # Generate main sections
+    main_content, main_has_commits = _generate_main_sections(type_sections, config)
+
+    # Generate UI sections
+    ui_content, ui_has_commits = _generate_ui_sections(ui_sections, config)
+
+    # Combine content
+    release_notes = main_content + ui_content
+
+    if not (main_has_commits or ui_has_commits):
+        release_notes = "No commits found in this release.\n"
 
     return release_notes
 
