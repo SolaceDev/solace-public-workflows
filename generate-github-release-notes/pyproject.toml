@@ -4,6 +4,5 @@ version = "1.0.0"
 description = "Generate formatted release notes from GitHub commits"
 requires-python = ">=3.11"
 dependencies = [
-    "PyGithub>=2.1.1",
     "gql[requests]>=3.4.0",
 ]

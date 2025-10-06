@@ -12,18 +12,6 @@
     { "type": "perf", "section": "Performance" },
     { "type": "test", "section": "Tests" }
   ],
-  "issuePrefixes": [
-    "DATAGO-",
-    "MRE-",
-    "DATAGOOPS-",
-    "EBP-",
-    "COE-",
-    "SOL-",
-    "AI-",
-    "DOC-",
-    "CICDSOL-"
-  ],
-  "issueUrlFormat": "https://sol-jira.atlassian.net/browse/{{prefix}}{{id}}",
   "uiChanges": {
     "enabled": true,
     "tagPrefix": "ui-v",
