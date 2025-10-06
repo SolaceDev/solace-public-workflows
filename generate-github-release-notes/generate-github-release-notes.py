@@ -7,6 +7,8 @@ import sys
 from os import getenv
 from pathlib import Path
 from github import Github, Auth
+from gql import Client, gql
+from gql.transport.requests import RequestsHTTPTransport
 
 
 def load_version_config(config_file_path: str = ".versionrc.json") -> dict:
@@ -73,43 +75,68 @@ def _validate_environment() -> tuple[str, str]:
     return github_token, github_repo
 
 
+def _create_graphql_client(github_token: str) -> Client:
+    """Create a GraphQL client for GitHub API"""
+    transport = RequestsHTTPTransport(
+        url="https://api.github.com/graphql",
+        headers={"Authorization": f"Bearer {github_token}"},
+        verify=True,
+        retries=3,
+    )
+    return Client(transport=transport)
+
+
 # Old helper functions removed - replaced with optimized GraphQL implementation
 
 
 def _get_commits_with_prs_graphql(
-    github_client, repo_name: str, from_ref: str, to_ref: str
+    graphql_client: Client, repo_name: str, from_ref: str, to_ref: str
 ) -> list[dict[str, str]]:
-    """Get commits with PR associations and file changes using GraphQL with pagination"""
+    """Get commits between refs using GraphQL compare API with pagination"""
     owner, repo = repo_name.split("/")
 
-    # GraphQL query to get commits with associated PRs and file changes
-    query = """
-    query($owner: String!, $repo: String!, $since: GitTimestamp, $until: GitTimestamp, $after: String) {
+    print(f"Fetching commits between {from_ref} and {to_ref} using GraphQL compare...")
+
+    # GraphQL query using compare API (like your example)
+    query = gql("""
+    query($owner: String!, $repo: String!, $baseRef: String!, $headRef: String!, $after: String) {
       repository(owner: $owner, name: $repo) {
-        defaultBranchRef {
-          target {
-            ... on Commit {
-              history(since: $since, until: $until, first: 100, after: $after) {
-                pageInfo {
-                  hasNextPage
-                  endCursor
+        nameWithOwner
+        baseTagRef: ref(qualifiedName: $baseRef) {
+          name
+          compare(headRef: $headRef) {
+            status
+            aheadBy
+            behindBy
+            commits(first: 100, after: $after) {
+              pageInfo {
+                hasNextPage
+                endCursor
+              }
+              totalCount
+              nodes {
+                oid
+                abbreviatedOid
+                messageHeadline
+                messageBody
+                author {
+                  name
+                  email
+                  user {
+                    login
+                  }
                 }
-                nodes {
-                  oid
-                  abbreviatedOid
-                  message
-                  author {
-                    name
-                    email
+                authoredDate
+                committedDate
+                additions
+                deletions
+                changedFilesIfAvailable
+                associatedPullRequests(first: 1) {
+                  nodes {
+                    number
+                    title
+                    url
                   }
-                  committedDate
-                  associatedPullRequests(first: 1) {
-                    nodes {
-                      number
-                    }
-                  }
-                  changedFiles
-                  changedFilesIfAvailable
                 }
               }
             }
@@ -117,56 +144,48 @@ def _get_commits_with_prs_graphql(
         }
       }
     }
-    """
+    """)
 
     commits = []
     has_next_page = True
     cursor = None
-
-    # Get commit date ranges for filtering
-    try:
-        repo_obj = github_client.get_repo(repo_name)
-
-        # Get the date range for filtering
-        since_date = None
-        until_date = None
-
-        if from_ref:
-            try:
-                from_commit = repo_obj.get_commit(from_ref)
-                since_date = from_commit.commit.committer.date.isoformat()
-            except:
-                pass
-
-        try:
-            to_commit = repo_obj.get_commit(to_ref)
-            until_date = to_commit.commit.committer.date.isoformat()
-        except:
-            pass
-    except Exception as e:
-        print(f"Warning: Could not get date range for filtering: {e}")
-
     page_count = 0
+
     while has_next_page and page_count < 50:  # Limit to 50 pages (5000 commits max)
         variables = {
             "owner": owner,
             "repo": repo,
-            "since": since_date,
-            "until": until_date,
+            "baseRef": from_ref,
+            "headRef": to_ref,
             "after": cursor,
         }
 
         try:
-            result = github_client._Github__requester.graphql_query(query, variables)
+            print(f"Executing GraphQL query (page {page_count + 1})...")
+            result = graphql_client.execute(query, variable_values=variables)
 
-            if not result or "data" not in result:
+            if not result or "repository" not in result:
+                print("No repository data in GraphQL result")
                 break
 
-            history = result["data"]["repository"]["defaultBranchRef"]["target"][
-                "history"
-            ]
-            page_info = history["pageInfo"]
-            nodes = history["nodes"]
+            repo_data = result["repository"]
+            if not repo_data or not repo_data.get("baseTagRef"):
+                print(f"Error: Could not find base ref '{from_ref}' in repository")
+                break
+
+            compare_data = repo_data["baseTagRef"]["compare"]
+            if not compare_data:
+                print(f"Error: Could not compare {from_ref} with {to_ref}")
+                break
+
+            commits_data = compare_data["commits"]
+            page_info = commits_data["pageInfo"]
+            nodes = commits_data["nodes"]
+
+            print(f"Found {len(nodes)} commits on page {page_count + 1}")
+            print(
+                f"Total commits in comparison: {commits_data.get('totalCount', 'unknown')}"
+            )
 
             for node in nodes:
                 # Extract PR number
@@ -180,11 +199,14 @@ def _get_commits_with_prs_graphql(
                 commit_dict = {
                     "hash": node["abbreviatedOid"],
                     "full_hash": node["oid"],
-                    "subject": node["message"].split("\n")[0],
+                    "subject": node["messageHeadline"],
                     "author": node["author"]["name"] if node["author"] else "Unknown",
                     "pr_number": pr_number,
-                    "changed_files": node.get("changedFiles", 0),
+                    "changed_files": node.get("changedFilesIfAvailable", 0),
                     "committed_date": node["committedDate"],
+                    "authored_date": node["authoredDate"],
+                    "additions": node.get("additions", 0),
+                    "deletions": node.get("deletions", 0),
                 }
                 commits.append(commit_dict)
 
@@ -192,30 +214,14 @@ def _get_commits_with_prs_graphql(
             cursor = page_info["endCursor"]
             page_count += 1
 
-            print(
-                f"Fetched page {page_count}, got {len(nodes)} commits (total: {len(commits)})"
-            )
-
         except Exception as e:
-            print(f"Warning: GraphQL query failed on page {page_count}: {e}")
+            print(f"GraphQL query failed on page {page_count + 1}: {e}")
+            import traceback
+
+            traceback.print_exc()
             break
 
-    # Filter commits to the actual range if we have specific refs
-    if from_ref and to_ref:
-        try:
-            repo_obj = github_client.get_repo(repo_name)
-            comparison = repo_obj.compare(from_ref, to_ref)
-            commit_shas = {c.sha for c in comparison.commits}
-
-            # Filter to only commits in the comparison
-            filtered_commits = [c for c in commits if c["full_hash"] in commit_shas]
-            print(
-                f"Filtered to {len(filtered_commits)} commits in range {from_ref}..{to_ref}"
-            )
-            return filtered_commits
-        except Exception as e:
-            print(f"Warning: Could not filter commits to range: {e}")
-
+    print(f"Successfully fetched {len(commits)} commits using GraphQL compare")
     return commits
 
 
@@ -231,54 +237,26 @@ def _build_commit_dict(commit, pr_number: str | None) -> dict[str, str]:
 
 
 def get_commits_between_refs(from_ref: str, to_ref: str) -> list[dict[str, str]]:
-    """Get commits between two git references using optimized API calls"""
+    """Get commits between two git references using efficient GraphQL queries"""
     github_token, github_repo = _validate_environment()
 
     try:
-        auth = Auth.Token(github_token)
-        g = Github(auth=auth)
-        repo = g.get_repo(github_repo)
+        # Create GraphQL client for GitHub API
+        graphql_client = _create_graphql_client(github_token)
 
-        # Get commits using REST API comparison (reliable for commit ranges)
-        if from_ref:
-            comparison = repo.compare(from_ref, to_ref)
-            commits_data = comparison.commits
-        else:
-            commits_data = repo.get_commits(sha=to_ref)
-
-        print(
-            f"Processing {commits_data.totalCount if hasattr(commits_data, 'totalCount') else len(list(commits_data))} commits..."
+        # Use GraphQL to get commits with associated PRs in a single query
+        commits = _get_commits_with_prs_graphql(
+            graphql_client, github_repo, from_ref, to_ref
         )
 
-        # Convert to our format and batch fetch PR associations using GraphQL
-        commits = []
-        commit_shas = []
-
-        # First pass: collect commits and SHAs
-        for commit in commits_data:
-            commit_dict = {
-                "hash": commit.sha[:7],
-                "full_hash": commit.sha,
-                "subject": commit.commit.message.split("\n")[0],
-                "author": commit.commit.author.name
-                if commit.commit.author
-                else "Unknown",
-                "pr_number": None,  # Will be filled by GraphQL batch query
-            }
-            commits.append(commit_dict)
-            commit_shas.append(commit.sha)
-
-        # Second pass: batch fetch PR associations using GraphQL
-        if commit_shas:
-            pr_associations = _get_pr_associations_batch(g, github_repo, commit_shas)
-            for commit in commits:
-                commit["pr_number"] = pr_associations.get(commit["full_hash"])
-
-        print(f"Successfully processed {len(commits)} commits with PR associations")
+        print(f"Processing {len(commits)} commits...")
         return commits
 
     except Exception as e:
-        print(f"Error: Failed to get commits: {e}")
+        print(f"Error: Failed to get commits using GraphQL: {e}")
+        import traceback
+
+        traceback.print_exc()
         sys.exit(1)
 
 
@@ -712,9 +690,9 @@ def _get_repo_url() -> str:
     if github_repo:
         return f"https://github.com/{github_repo}"
 
-    # Fallback for local testing
-    org_name = getenv("GITHUB_REPOSITORY_OWNER", "example")
-    repo_name = getenv("REPO_NAME", "repo")
+        # Fallback for local testing
+        org_name = getenv("GITHUB_REPOSITORY_OWNER", "example")
+        repo_name = getenv("REPO_NAME", "repo")
     return f"https://github.com/{org_name}/{repo_name}"
 
 
