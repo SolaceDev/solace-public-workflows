@@ -97,7 +97,7 @@ def _get_commits_with_prs_graphql(
 
     print(f"Fetching commits between {from_ref} and {to_ref} using GraphQL compare...")
 
-    # GraphQL query using compare API (like your example)
+    # GraphQL query using compare API
     query = gql("""
     query($owner: String!, $repo: String!, $baseRef: String!, $headRef: String!, $after: String) {
       repository(owner: $owner, name: $repo) {
@@ -384,217 +384,67 @@ def _is_ui_bump_commit(commit: dict, ui_config: dict) -> str | None:
 def _detect_ui_changes(commits: list[dict], config: dict) -> tuple[list[dict], dict]:
     """
     Detect UI changes and return (non_ui_commits, ui_changes_by_version).
-    Optimized with batch GraphQL operations for large commit ranges.
+    Efficient logic: UI change commits are simply the commits before UI bump commits.
 
     Returns:
         - non_ui_commits: List of commits that are not UI-related
-        - ui_changes_by_version: Dict mapping version ranges to UI commits
+        - ui_changes_by_version: Dict with single entry for all UI changes
     """
     if not _is_ui_changes_enabled(config):
         return commits, {}
 
     ui_config = _get_ui_config(config)
-    github_token, github_repo = _validate_environment()
-
-    try:
-        auth = Auth.Token(github_token)
-        g = Github(auth=auth)
-    except Exception as e:
-        print(f"Warning: Could not connect to GitHub for UI detection: {e}")
-        return commits, {}
-
-    ui_changes_by_version = {}
     non_ui_commits = []
-    potential_ui_commits = []
-    ui_bump_commits = []
+    ui_commits = []
+    ui_versions = []
 
     print(f"Analyzing {len(commits)} commits for UI changes...")
 
-    # First pass: identify UI bump commits and potential UI commits
-    for commit in commits:
+    # Process commits in order to find UI bump commits and their preceding changes
+    for i, commit in enumerate(commits):
         ui_version = _is_ui_bump_commit(commit, ui_config)
+
         if ui_version:
-            ui_bump_commits.append((commit, ui_version))
+            # This is a UI bump commit - skip it and collect the version
+            ui_versions.append(ui_version)
+            print(f"Found UI bump commit: {ui_version}")
+
+            # The previous commit (if exists) is the UI change commit
+            if i > 0:
+                ui_change_commit = commits[i - 1]
+                # Only add if it's not already a UI commit and not a bump commit
+                if ui_change_commit not in ui_commits and not _is_ui_bump_commit(
+                    ui_change_commit, ui_config
+                ):
+                    ui_commits.append(ui_change_commit)
+                    print(
+                        f"  -> UI change commit: {ui_change_commit['hash']} {ui_change_commit['subject'][:50]}..."
+                    )
         else:
-            potential_ui_commits.append(commit)
-
-    print(
-        f"Found {len(ui_bump_commits)} UI bump commits, checking {len(potential_ui_commits)} potential UI commits..."
-    )
-
-    # Batch check UI file changes for potential commits
-    if potential_ui_commits:
-        commit_shas = [c["full_hash"] for c in potential_ui_commits]
-
-        # Check commits in batches to avoid overwhelming the API
-        ui_results = {}
-        batch_size = 20
-
-        for i in range(0, len(commit_shas), batch_size):
-            batch_shas = commit_shas[i : i + batch_size]
-            print(
-                f"Checking UI changes for commits {i + 1}-{min(i + batch_size, len(commit_shas))} of {len(commit_shas)}..."
-            )
-
-            batch_results = _get_ui_commits_batch_graphql(
-                g, github_repo, batch_shas, ui_config
-            )
-            ui_results.update(batch_results)
-
-        # Separate UI commits from non-UI commits
-        ui_commits = []
-        for commit in potential_ui_commits:
-            if ui_results.get(commit["full_hash"], False):
-                ui_commits.append(commit)
-            else:
+            # Regular commit - add to non-UI unless it's already identified as UI
+            if commit not in ui_commits:
                 non_ui_commits.append(commit)
 
-        print(f"Found {len(ui_commits)} commits that modified UI files")
+    # Group all UI changes under a single version range
+    ui_changes_by_version = {}
+    if ui_commits and ui_versions:
+        # Sort versions to get oldest and newest
+        ui_versions.sort()
+        oldest_version = ui_versions[0]
+        newest_version = ui_versions[-1]
 
-        # Group UI commits by their associated bump versions
-        if ui_commits:
-            ui_changes_by_version = _group_ui_commits_by_version(
-                ui_commits, ui_bump_commits, commits, g, github_repo, ui_config
-            )
+        if oldest_version != newest_version:
+            version_range = f"{oldest_version} → {newest_version}"
+        else:
+            version_range = f"up to {newest_version}"
+
+        ui_changes_by_version[version_range] = ui_commits
+        print(f"Grouped {len(ui_commits)} UI commits under range: {version_range}")
 
     return non_ui_commits, ui_changes_by_version
 
 
-def _get_ui_commits_batch_graphql(
-    github_client, repo_name: str, commit_shas: list[str], ui_config: dict
-) -> dict[str, bool]:
-    """Check multiple commits for UI changes using efficient batch operations"""
-    if not ui_config or not commit_shas:
-        return {}
-
-    path_patterns = ui_config["pathPatterns"]
-    results = {}
-
-    # For now, use individual checks but with optimized error handling
-    # In the future, this could be enhanced with GraphQL file queries
-    try:
-        repo = github_client.get_repo(repo_name)
-
-        for sha in commit_shas:
-            try:
-                commit_obj = repo.get_commit(sha)
-                files_changed = [file.filename for file in commit_obj.files]
-
-                # Check if any changed file matches UI path patterns
-                is_ui_commit = False
-                for file_path in files_changed:
-                    for pattern in path_patterns:
-                        if pattern.endswith("**"):
-                            pattern_prefix = pattern[:-2]  # Remove "**"
-                            if file_path.startswith(pattern_prefix):
-                                is_ui_commit = True
-                                break
-                        elif pattern in file_path or file_path.startswith(pattern):
-                            is_ui_commit = True
-                            break
-                    if is_ui_commit:
-                        break
-
-                results[sha] = is_ui_commit
-
-            except Exception as e:
-                print(f"Warning: Could not check commit {sha[:7]}: {e}")
-                results[sha] = False
-
-    except Exception as e:
-        print(f"Warning: Batch UI check failed: {e}")
-        # Return False for all commits if batch fails
-        for sha in commit_shas:
-            results[sha] = False
-
-    return results
-
-
-def _group_ui_commits_by_version(
-    ui_commits, ui_bump_commits, all_commits, github_client, repo_name, ui_config
-):
-    """Group UI commits by their associated version ranges"""
-    ui_changes_by_version = {}
-
-    # Get UI tags once for all version lookups
-    ui_tags = _get_ui_tags_optimized(github_client, repo_name, ui_config)
-
-    for ui_commit in ui_commits:
-        # Find the UI bump commit that comes after this UI commit
-        ui_version = None
-        commit_index = None
-
-        # Find the index of our UI commit
-        for i, commit in enumerate(all_commits):
-            if commit["full_hash"] == ui_commit["full_hash"]:
-                commit_index = i
-                break
-
-        if commit_index is not None:
-            # Look for UI bump commit that comes after this commit in the list
-            for i in range(commit_index + 1, len(all_commits)):
-                for bump_commit, bump_version in ui_bump_commits:
-                    if all_commits[i]["full_hash"] == bump_commit["full_hash"]:
-                        ui_version = bump_version
-                        break
-                if ui_version:
-                    break
-
-        if ui_version:
-            # Get the previous UI version from cached tags
-            previous_ui_version = _get_previous_ui_version_from_tags(
-                ui_version, ui_tags
-            )
-
-            if previous_ui_version:
-                version_range = f"{previous_ui_version} → {ui_version}"
-            else:
-                version_range = f"up to {ui_version}"
-
-            if version_range not in ui_changes_by_version:
-                ui_changes_by_version[version_range] = []
-            ui_changes_by_version[version_range].append(ui_commit)
-        else:
-            # No bump commit found, add to unreleased
-            version_range = "unreleased UI changes"
-            if version_range not in ui_changes_by_version:
-                ui_changes_by_version[version_range] = []
-            ui_changes_by_version[version_range].append(ui_commit)
-
-    return ui_changes_by_version
-
-
-def _get_ui_tags_optimized(github_client, repo_name: str, ui_config: dict) -> list[str]:
-    """Get UI tags efficiently with caching"""
-    try:
-        repo = github_client.get_repo(repo_name)
-        tag_prefix = ui_config["tagPrefix"]
-
-        ui_tags = []
-        # Limit to reasonable number of tags to avoid rate limits
-        for tag in repo.get_tags()[:200]:  # Get first 200 tags
-            if tag.name.startswith(tag_prefix):
-                ui_tags.append(tag.name)
-
-        ui_tags.sort()
-        return ui_tags
-
-    except Exception as e:
-        print(f"Warning: Could not get UI tags: {e}")
-        return []
-
-
-def _get_previous_ui_version_from_tags(
-    current_version: str, ui_tags: list[str]
-) -> str | None:
-    """Get previous UI version from pre-fetched tags list"""
-    try:
-        current_index = ui_tags.index(current_version)
-        if current_index > 0:
-            return ui_tags[current_index - 1]
-    except ValueError:
-        pass
-    return None
+# Removed unnecessary helper functions - simplified UI detection logic
 
 
 def process_commits(commits: list[dict], config: dict) -> tuple[dict, dict]:
@@ -639,7 +489,7 @@ def process_commits(commits: list[dict], config: dict) -> tuple[dict, dict]:
             }
         )
 
-    # Process UI commits by version
+    # Process UI commits by version (now simplified to single version range)
     ui_sections = {}
     for version_range, ui_commits in ui_changes_by_version.items():
         ui_type_sections = {}
