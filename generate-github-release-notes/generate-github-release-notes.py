@@ -9,16 +9,16 @@ from pathlib import Path
 from github import Github
 
 
-def load_version_config() -> dict:
-    """Load configuration from .versionrc.json"""
+def load_version_config(config_file_path: str = ".versionrc.json") -> dict:
+    """Load configuration from specified config file or default .versionrc.json"""
     # Try GitHub Actions workspace first, then current directory
-    workspace_path = Path("/github/workspace/.versionrc.json")
-    local_path = Path(".versionrc.json")
+    workspace_path = Path(f"/github/workspace/{config_file_path}")
+    local_path = Path(config_file_path)
 
     config_path = workspace_path if workspace_path.exists() else local_path
 
     if not config_path.exists():
-        print("Warning: .versionrc.json not found, using default configuration")
+        print(f"Warning: {config_file_path} not found, using default configuration")
         return {
             "types": [
                 {"type": "feat", "section": "Features"},
@@ -34,6 +34,7 @@ def load_version_config() -> dict:
                 {"type": "test", "section": "Tests"},
             ]
             # No default issuePrefixes or issueUrlFormat for security
+            # No default uiChanges configuration
         }
 
     try:
@@ -52,7 +53,7 @@ def load_version_config() -> dict:
 
         return config
     except (json.JSONDecodeError, OSError) as e:
-        print(f"Error reading .versionrc.json: {e}")
+        print(f"Error reading {config_file_path}: {e}")
         sys.exit(1)
 
 
@@ -226,8 +227,139 @@ def clean_subject(subject: str, config: dict) -> str:
     return clean_subj
 
 
-def process_commits(commits: list[dict], config: dict) -> dict:
-    """Process commits and organize them by type"""
+def _is_ui_changes_enabled(config: dict) -> bool:
+    """Check if UI changes detection is enabled"""
+    return "uiChanges" in config and config["uiChanges"].get("enabled", False)
+
+
+def _get_ui_config(config: dict) -> dict:
+    """Get UI configuration with defaults"""
+    if not _is_ui_changes_enabled(config):
+        return {}
+
+    ui_config = config["uiChanges"]
+    return {
+        "tagPrefix": ui_config.get("tagPrefix", "ui-v"),
+        "pathPatterns": ui_config.get("pathPatterns", ["client/webui/frontend/**"]),
+        "bumpCommitPattern": ui_config.get(
+            "bumpCommitPattern", r"bump version to ui-v.*\[skip ci\]"
+        ),
+    }
+
+
+def _is_ui_bump_commit(commit: dict, ui_config: dict) -> str | None:
+    """Check if commit is a UI bump commit and return the version if so"""
+    if not ui_config:
+        return None
+
+    pattern = ui_config["bumpCommitPattern"]
+    if re.search(pattern, commit["subject"], re.IGNORECASE):
+        # Extract version from commit subject (e.g., "bump version to ui-v0.9.1 [skip ci]")
+        tag_prefix = ui_config["tagPrefix"]
+        version_match = re.search(
+            f"{re.escape(tag_prefix)}([0-9]+\\.[0-9]+\\.[0-9]+[^\\s]*)",
+            commit["subject"],
+        )
+        if version_match:
+            return f"{tag_prefix}{version_match.group(1)}"
+
+    return None
+
+
+def _get_ui_commit_changes(
+    github_client, repo, commit_sha: str, ui_config: dict
+) -> bool:
+    """Check if a commit modified UI paths using GitHub API"""
+    if not ui_config:
+        return False
+
+    try:
+        commit_obj = repo.get_commit(commit_sha)
+        files_changed = [file.filename for file in commit_obj.files]
+
+        # Check if any changed file matches UI path patterns
+        path_patterns = ui_config["pathPatterns"]
+        for file_path in files_changed:
+            for pattern in path_patterns:
+                # Simple pattern matching (could be enhanced with fnmatch if needed)
+                if pattern.endswith("**"):
+                    pattern_prefix = pattern[:-2]  # Remove "**"
+                    if file_path.startswith(pattern_prefix):
+                        return True
+                elif pattern in file_path or file_path.startswith(pattern):
+                    return True
+
+        return False
+    except Exception as e:
+        print(f"Warning: Could not check file changes for commit {commit_sha[:7]}: {e}")
+        return False
+
+
+def _detect_ui_changes(commits: list[dict], config: dict) -> tuple[list[dict], dict]:
+    """
+    Detect UI changes and return (non_ui_commits, ui_changes_by_version).
+
+    Returns:
+        - non_ui_commits: List of commits that are not UI-related
+        - ui_changes_by_version: Dict mapping version ranges to UI commits
+    """
+    if not _is_ui_changes_enabled(config):
+        return commits, {}
+
+    ui_config = _get_ui_config(config)
+    github_token, github_repo = _validate_environment()
+
+    try:
+        g = Github(github_token)
+        repo = g.get_repo(github_repo)
+    except Exception as e:
+        print(f"Warning: Could not connect to GitHub for UI detection: {e}")
+        return commits, {}
+
+    ui_changes_by_version = {}
+    non_ui_commits = []
+    current_ui_commits = []
+    previous_ui_version = None
+
+    # Process commits in reverse order (oldest first) to track UI version progression
+    for commit in reversed(commits):
+        # Check if this is a UI bump commit
+        ui_version = _is_ui_bump_commit(commit, ui_config)
+
+        if ui_version:
+            # This is a UI bump commit - group the accumulated UI commits
+            if current_ui_commits and previous_ui_version:
+                version_range = f"{previous_ui_version} → {ui_version}"
+                ui_changes_by_version[version_range] = list(
+                    reversed(current_ui_commits)
+                )
+
+            # Reset for next version
+            current_ui_commits = []
+            previous_ui_version = ui_version
+            # Don't include the bump commit itself in the output
+            continue
+
+        # Check if this commit modified UI paths
+        if _get_ui_commit_changes(g, repo, commit["full_hash"], ui_config):
+            current_ui_commits.append(commit)
+        else:
+            non_ui_commits.append(commit)
+
+    # Handle any remaining UI commits (if there's no bump commit after them)
+    if current_ui_commits and previous_ui_version:
+        # If we have UI commits but no final bump, show them as "since version"
+        version_range = f"since {previous_ui_version}"
+        ui_changes_by_version[version_range] = list(reversed(current_ui_commits))
+
+    return list(reversed(non_ui_commits)), ui_changes_by_version
+
+
+def process_commits(commits: list[dict], config: dict) -> tuple[dict, dict]:
+    """Process commits and organize them by type, separating UI changes if configured"""
+    # Detect UI changes first
+    non_ui_commits, ui_changes_by_version = _detect_ui_changes(commits, config)
+
     # Create type mapping from config
     type_sections = {}
     for type_config in config["types"]:
@@ -236,8 +368,8 @@ def process_commits(commits: list[dict], config: dict) -> dict:
             "commits": [],
         }
 
-    # Process each commit
-    for commit in commits:
+    # Process non-UI commits
+    for commit in non_ui_commits:
         # Skip release commits
         if "[ci skip]" in commit["subject"]:
             continue
@@ -265,7 +397,49 @@ def process_commits(commits: list[dict], config: dict) -> dict:
             }
         )
 
-    return type_sections
+    # Process UI commits by version
+    ui_sections = {}
+    for version_range, ui_commits in ui_changes_by_version.items():
+        ui_type_sections = {}
+        for type_config in config["types"]:
+            ui_type_sections[type_config["type"]] = {
+                "section": type_config["section"],
+                "commits": [],
+            }
+
+        for commit in ui_commits:
+            # Skip release commits
+            if "[ci skip]" in commit["subject"]:
+                continue
+
+            # Parse commit message
+            commit_type, scope, subject, pr_number = parse_commit_message(
+                commit["subject"]
+            )
+
+            if not commit_type or commit_type not in ui_type_sections:
+                continue
+
+            # Extract issue numbers and clean subject
+            search_text = f"{scope or ''} {subject}"
+            issue_numbers = extract_issue_numbers(search_text, config)
+            clean_subj = clean_subject(subject, config)
+
+            # Add processed commit to appropriate type
+            ui_type_sections[commit_type]["commits"].append(
+                {
+                    "hash": commit["hash"],
+                    "full_hash": commit["full_hash"],
+                    "subject": clean_subj,
+                    "pr_number": pr_number or commit.get("pr_number"),
+                    "issue_numbers": issue_numbers,
+                    "author": commit["author"],
+                }
+            )
+
+        ui_sections[version_range] = ui_type_sections
+
+    return type_sections, ui_sections
 
 
 def _get_repo_url() -> str:
@@ -343,12 +517,12 @@ def format_commit_line(commit: dict, config: dict) -> str:
     return line
 
 
-def generate_content(type_sections: dict, config: dict) -> str:
+def generate_content(type_sections: dict, ui_sections: dict, config: dict) -> str:
     """Generate the release notes content from processed commits"""
     release_notes = ""
     has_commits = False
 
-    # Output commits by type (in order defined in config)
+    # Output main commits by type (in order defined in config)
     for type_config in config["types"]:
         commit_type = type_config["type"]
         if commit_type not in type_sections:
@@ -366,6 +540,35 @@ def generate_content(type_sections: dict, config: dict) -> str:
             release_notes += commit_line + "\n"
 
         release_notes += "\n"
+
+    # Output UI changes sections
+    for version_range, ui_type_sections in ui_sections.items():
+        ui_has_commits = False
+        ui_content = ""
+
+        # Check if there are any UI commits
+        for type_config in config["types"]:
+            commit_type = type_config["type"]
+            if commit_type not in ui_type_sections:
+                continue
+
+            type_data = ui_type_sections[commit_type]
+            if not type_data["commits"]:
+                continue
+
+            ui_has_commits = True
+            ui_content += f"### {type_data['section']}\n\n"
+
+            for commit in type_data["commits"]:
+                commit_line = format_commit_line(commit, config)
+                ui_content += commit_line + "\n"
+
+            ui_content += "\n"
+
+        if ui_has_commits:
+            has_commits = True
+            release_notes += f"## UI Changes {version_range}\n\n"
+            release_notes += ui_content
 
     if not has_commits:
         release_notes += "No commits found in this release.\n"
@@ -394,12 +597,14 @@ def write_and_output_results(
         sys.exit(1)
 
 
-def generate_release_notes(from_tag: str, to_tag: str, output_file: str) -> None:
+def generate_release_notes(
+    from_tag: str, to_tag: str, output_file: str, config_file: str = ".versionrc.json"
+) -> None:
     """Generate release notes between two tags"""
     print(f"Generating release notes from {from_tag or 'beginning'} to {to_tag}...")
 
     # Load configuration and get commits
-    config = load_version_config()
+    config = load_version_config(config_file)
     commits = get_commits_between_refs(from_tag, to_tag)
 
     if not commits:
@@ -408,8 +613,8 @@ def generate_release_notes(from_tag: str, to_tag: str, output_file: str) -> None
         return
 
     # Process commits and generate content
-    type_sections = process_commits(commits, config)
-    release_notes = generate_content(type_sections, config)
+    type_sections, ui_sections = process_commits(commits, config)
+    release_notes = generate_content(type_sections, ui_sections, config)
     write_and_output_results(release_notes, output_file, len(commits))
 
 
@@ -425,10 +630,18 @@ def main():
         default="RELEASE_NOTES.md",
         help="Output file (default: RELEASE_NOTES.md)",
     )
+    parser.add_argument(
+        "config_file",
+        nargs="?",
+        default=".versionrc.json",
+        help="Configuration file path (default: .versionrc.json)",
+    )
 
     args = parser.parse_args()
 
-    generate_release_notes(args.from_tag, args.to_tag, args.output_file)
+    generate_release_notes(
+        args.from_tag, args.to_tag, args.output_file, args.config_file
+    )
 
 
 if __name__ == "__main__":

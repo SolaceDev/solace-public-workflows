@@ -8,6 +8,7 @@ A Docker-based GitHub Action that generates formatted release notes using GitHub
 - 🎯 **Issue Tracking**: Conditionally extracts and links issue references (only when configured)
 - 📝 **Clean Formatting**: Removes issue prefixes from commit messages for clean output
 - 🏷️ **Type Categorization**: Groups commits by type (Features, Bug Fixes, etc.)
+- 🎨 **UI Changes Detection**: Automatically detects and groups UI-related commits with version ranges
 - ⚙️ **Configurable**: Supports custom configuration via `.versionrc.json`
 - 🔗 **Repository Agnostic**: Works with any GitHub repository
 - 🐳 **Docker-based**: Consistent execution environment across platforms
@@ -52,6 +53,19 @@ A Docker-based GitHub Action that generates formatted release notes using GitHub
     github-token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
+### Using Custom Configuration File
+
+```yaml
+- name: Generate Release Notes with Custom Config
+  uses: SolaceDev/maas-build-actions/generate-github-release-notes@main
+  with:
+    from-ref: "v1.0.0"
+    to-ref: "v1.1.0"
+    output-file: "RELEASE_NOTES.md"
+    config-file: ".github/release-config.json"
+    github-token: ${{ secrets.GITHUB_TOKEN }}
+```
+
 ## Inputs
 
 | Input          | Description                                                                       | Required | Default            |
@@ -59,6 +73,7 @@ A Docker-based GitHub Action that generates formatted release notes using GitHub
 | `from-ref`     | Starting git reference (tag, commit, branch). If empty, generates for all commits | No       | `main`             |
 | `to-ref`       | Ending git reference (tag, commit, branch)                                        | No       | `HEAD`             |
 | `output-file`  | Output file path for release notes                                                | No       | `RELEASE_NOTES.md` |
+| `config-file`  | Path to configuration file                                                        | No       | `.versionrc.json`  |
 | `github-token` | GitHub token for API access                                                       | Yes      | -                  |
 
 ## Outputs
@@ -70,7 +85,7 @@ A Docker-based GitHub Action that generates formatted release notes using GitHub
 
 ## Configuration
 
-The action supports configuration via a `.versionrc.json` file in your repository root.
+The action supports configuration via a `.versionrc.json` file in your repository root, or you can specify a custom configuration file path using the `config-file` input parameter.
 
 ### Security Note
 
@@ -108,9 +123,50 @@ The action supports configuration via a `.versionrc.json` file in your repositor
     "DOC-",
     "CICDSOL-"
   ],
-  "issueUrlFormat": "https://sol-jira.atlassian.net/browse/{{prefix}}{{id}}"
+  "issueUrlFormat": "https://sol-jira.atlassian.net/browse/{{prefix}}{{id}}",
+  "uiChanges": {
+    "enabled": true,
+    "tagPrefix": "ui-v",
+    "pathPatterns": ["client/webui/frontend/**"],
+    "bumpCommitPattern": "bump version to ui-v.*\\[skip ci\\]"
+  }
 }
 ```
+
+### UI Changes Detection
+
+The action can automatically detect and group UI-related commits separately from main repository changes. This is useful for repositories that have separate UI versioning (e.g., `ui-v1.0.0` tags).
+
+#### Configuration Options
+
+| Option              | Description                                     | Default                                 | Required |
+| ------------------- | ----------------------------------------------- | --------------------------------------- | -------- |
+| `enabled`           | Enable UI changes detection                     | `false`                                 | No       |
+| `tagPrefix`         | Prefix for UI version tags                      | `"ui-v"`                                | No       |
+| `pathPatterns`      | Array of path patterns that indicate UI changes | `["client/webui/frontend/**"]`          | No       |
+| `bumpCommitPattern` | Regex pattern to match UI version bump commits  | `"bump version to ui-v.*\\[skip ci\\]"` | No       |
+
+#### How It Works
+
+1. **Detects UI bump commits**: Finds commits that match the `bumpCommitPattern`
+2. **Extracts version ranges**: Parses version changes from bump commits (e.g., `ui-v0.9.0` → `ui-v0.9.1`)
+3. **Groups preceding commits**: Identifies commits that modified `pathPatterns` before each bump
+4. **Categorizes by type**: Groups UI commits by their conventional commit type
+5. **Excludes bump commits**: Removes the actual bump commits from the output
+
+#### Example Workflow
+
+Given these commits in chronological order:
+
+1. `fix: auto add files after precommit hook run (#352)` (modifies `client/webui/frontend/`)
+2. `ci: bump version to ui-v0.9.1 [skip ci]` (UI bump commit)
+3. `feat: add new backend feature` (main repo change)
+
+The output will be:
+
+- **Main sections**: Contains the backend feature
+- **UI Changes ui-v0.9.0 → ui-v0.9.1**: Contains the UI fix, categorized under "Bug Fixes"
+- **Excluded**: The bump commit itself is not shown
 
 ## Supported Commit Formats
 
@@ -138,6 +194,8 @@ feat(DATAGO-123): DATAGO-456: add new feature
 
 ## Example Output
 
+### Standard Output
+
 ```markdown
 ## Features
 
@@ -150,6 +208,30 @@ feat(DATAGO-123): DATAGO-456: add new feature
 ## Chores
 
 - [`ghi9012`](https://github.com/org/repo/commit/ghi9012) Update dependencies ([#67](https://github.com/org/repo/pull/67))
+```
+
+### With UI Changes Detection
+
+When `uiChanges` is enabled, UI-related commits are grouped separately:
+
+```markdown
+## Features
+
+- [`abc1234`](https://github.com/org/repo/commit/abc1234) Add user authentication ([#45](https://github.com/org/repo/pull/45))
+
+## Bug Fixes
+
+- [`def5678`](https://github.com/org/repo/commit/def5678) Fix login issue ([MRE-456](https://jira.com/browse/MRE-456))
+
+## UI Changes ui-v0.9.0 → ui-v0.9.1
+
+### Bug Fixes
+
+- [`be94294`](https://github.com/org/repo/commit/be94294) auto add files after precommit hook run ([#352](https://github.com/org/repo/pull/352)) (Raman Gupta)
+
+### Features
+
+- [`xyz9876`](https://github.com/org/repo/commit/xyz9876) add new UI component ([#353](https://github.com/org/repo/pull/353)) (Jane Doe)
 ```
 
 ## Workflow Examples
@@ -185,6 +267,7 @@ jobs:
           from-ref: ${{ steps.prev-tag.outputs.prev-tag }}
           to-ref: ${{ github.ref_name }}
           output-file: "RELEASE_NOTES.md"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create GitHub Release
         uses: actions/create-release@v1
@@ -227,6 +310,7 @@ jobs:
           from-ref: ${{ github.event.inputs.from_tag }}
           to-ref: ${{ github.event.inputs.to_tag }}
           output-file: "release-notes-${{ github.event.inputs.to_tag }}.md"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload Release Notes
         uses: actions/upload-artifact@v4

@@ -15,6 +15,10 @@ inputs:
     description: "Output file path for release notes"
     required: false
     default: "RELEASE_NOTES.md"
+  config-file:
+    description: "Path to configuration file (default: .versionrc.json)"
+    required: false
+    default: ".versionrc.json"
   github-token:
     description: "GitHub token for API access"
     required: true
@@ -34,3 +38,4 @@ runs:
     - ${{ inputs.from-ref }}
     - ${{ inputs.to-ref }}
     - ${{ inputs.output-file }}
+    - ${{ inputs.config-file }}
