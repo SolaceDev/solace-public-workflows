@@ -549,14 +549,12 @@ def process_commits(commits: list[dict], config: dict) -> tuple[dict, dict]:
 
 def _get_repo_url() -> str:
     """Get repository URL from environment variables"""
-    github_repo = getenv("GITHUB_REPOSITORY", "")
-    if github_repo:
-        return f"https://github.com/{github_repo}"
+    github_repo = getenv("GITHUB_REPOSITORY")
+    if not github_repo:
+        print("Error: GITHUB_REPOSITORY environment variable not set")
+        sys.exit(1)
 
-        # Fallback for local testing
-        org_name = getenv("GITHUB_REPOSITORY_OWNER", "example")
-        repo_name = getenv("REPO_NAME", "repo")
-    return f"https://github.com/{org_name}/{repo_name}"
+    return f"https://github.com/{github_repo}"
 
 
 def _format_commit_hash(commit: dict, repo_url: str) -> str:
