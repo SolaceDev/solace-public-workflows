@@ -295,6 +295,36 @@ def _get_ui_commit_changes(
         return False
 
 
+def _get_previous_ui_version(
+    github_client, repo, current_version: str, ui_config: dict
+) -> str | None:
+    """Get the previous UI version by looking at git tags"""
+    try:
+        tag_prefix = ui_config["tagPrefix"]
+
+        # Get all UI tags
+        ui_tags = []
+        for tag in repo.get_tags():
+            if tag.name.startswith(tag_prefix):
+                ui_tags.append(tag.name)
+
+        # Sort tags by version (simple string sort should work for semantic versions)
+        ui_tags.sort()
+
+        # Find the current version and return the previous one
+        try:
+            current_index = ui_tags.index(current_version)
+            if current_index > 0:
+                return ui_tags[current_index - 1]
+        except ValueError:
+            pass
+
+        return None
+    except Exception as e:
+        print(f"Warning: Could not get previous UI version: {e}")
+        return None
+
+
 def _detect_ui_changes(commits: list[dict], config: dict) -> tuple[list[dict], dict]:
     """
     Detect UI changes and return (non_ui_commits, ui_changes_by_version).
@@ -319,25 +349,14 @@ def _detect_ui_changes(commits: list[dict], config: dict) -> tuple[list[dict], d
     ui_changes_by_version = {}
     non_ui_commits = []
     current_ui_commits = []
-    previous_ui_version = None
 
-    # Process commits in reverse order (oldest first) to track UI version progression
-    for commit in reversed(commits):
+    # Process commits in chronological order (newest first) to find UI bump commits first
+    for commit in commits:
         # Check if this is a UI bump commit
         ui_version = _is_ui_bump_commit(commit, ui_config)
 
         if ui_version:
-            # This is a UI bump commit - group the accumulated UI commits
-            if current_ui_commits and previous_ui_version:
-                version_range = f"{previous_ui_version} → {ui_version}"
-                ui_changes_by_version[version_range] = list(
-                    reversed(current_ui_commits)
-                )
-
-            # Reset for next version
-            current_ui_commits = []
-            previous_ui_version = ui_version
-            # Don't include the bump commit itself in the output
+            # This is a UI bump commit - don't include it in output
             continue
 
         # Check if this commit modified UI paths
@@ -346,11 +365,50 @@ def _detect_ui_changes(commits: list[dict], config: dict) -> tuple[list[dict], d
         else:
             non_ui_commits.append(commit)
 
-    # Handle any remaining UI commits (if there's no bump commit after them)
-    if current_ui_commits and previous_ui_version:
-        # If we have UI commits but no final bump, show them as "since version"
-        version_range = f"since {previous_ui_version}"
-        ui_changes_by_version[version_range] = list(reversed(current_ui_commits))
+    # Now process UI commits and group them by finding their associated bump commits
+    if current_ui_commits:
+        # For each UI commit, find the next UI bump commit that comes after it
+        ui_commits_with_versions = []
+
+        for ui_commit in current_ui_commits:
+            # Find the UI bump commit that comes after this UI commit (chronologically)
+            ui_version = None
+            commit_index = None
+
+            # Find the index of our UI commit
+            for i, commit in enumerate(commits):
+                if commit["full_hash"] == ui_commit["full_hash"]:
+                    commit_index = i
+                    break
+
+            if commit_index is not None:
+                # Look for UI bump commit that comes after this commit in the list (older chronologically)
+                for i in range(commit_index + 1, len(commits)):
+                    bump_version = _is_ui_bump_commit(commits[i], ui_config)
+                    if bump_version:
+                        ui_version = bump_version
+                        break
+
+            if ui_version:
+                # Get the previous UI version
+                previous_ui_version = _get_previous_ui_version(
+                    g, repo, ui_version, ui_config
+                )
+
+                if previous_ui_version:
+                    version_range = f"{previous_ui_version} → {ui_version}"
+                else:
+                    version_range = f"up to {ui_version}"
+
+                if version_range not in ui_changes_by_version:
+                    ui_changes_by_version[version_range] = []
+                ui_changes_by_version[version_range].append(ui_commit)
+            else:
+                # No bump commit found, add to unreleased
+                version_range = "unreleased UI changes"
+                if version_range not in ui_changes_by_version:
+                    ui_changes_by_version[version_range] = []
+                ui_changes_by_version[version_range].append(ui_commit)
 
     return list(reversed(non_ui_commits)), ui_changes_by_version
 

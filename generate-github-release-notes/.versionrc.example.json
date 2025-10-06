@@ -28,6 +28,6 @@
     "enabled": true,
     "tagPrefix": "ui-v",
     "pathPatterns": ["client/webui/frontend/**"],
-    "bumpCommitPattern": "bump version to ui-v.*\\[skip ci\\]"
+    "bumpCommitPattern": ".*bump version to ui-v.*\\[skip ci\\]"
   }
 }
