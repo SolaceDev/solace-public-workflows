@@ -8,7 +8,7 @@ A Docker-based GitHub Action that generates formatted release notes using GitHub
 - 🎯 **Issue Tracking**: Conditionally extracts and links issue references (only when configured)
 - 📝 **Clean Formatting**: Removes issue prefixes from commit messages for clean output
 - 🏷️ **Type Categorization**: Groups commits by type (Features, Bug Fixes, etc.)
-- 🎨 **UI Changes Detection**: Automatically detects and groups UI-related commits with version ranges
+- 🎨 **Custom Sections**: Automatically detects and groups custom section commits (UI, API, etc.) with version ranges
 - ⚙️ **Configurable**: Supports custom configuration via `.versionrc.json`
 - 🔗 **Repository Agnostic**: Works with any GitHub repository
 - 🐳 **Docker-based**: Consistent execution environment across platforms
@@ -248,49 +248,80 @@ The action supports configuration via a `.versionrc.json` file in your repositor
     "CICDSOL-"
   ],
   "issueUrlFormat": "https://sol-jira.atlassian.net/browse/{{prefix}}{{id}}",
-  "uiChanges": {
-    "enabled": true,
-    "tagPrefix": "ui-v",
-    "pathPatterns": ["client/webui/frontend/**"],
-    "bumpCommitPattern": "bump version to ui-v.*\\[skip ci\\]"
+  "customSections": {
+    "UI Changes": {
+      "enabled": true,
+      "tagPrefix": "ui-v",
+      "pathPatterns": ["client/webui/frontend/**"],
+      "bumpCommitPattern": ".*bump version to ui-v.*\\[skip ci\\]"
+    },
+    "API Changes": {
+      "enabled": true,
+      "tagPrefix": "api-v",
+      "pathPatterns": ["src/api/**", "openapi/**"],
+      "bumpCommitPattern": ".*bump api version to api-v.*\\[skip ci\\]"
+    }
   }
 }
 ```
 
-### UI Changes Detection
+### Custom Sections Detection
 
-The action can automatically detect and group UI-related commits separately from main repository changes. This is useful for repositories that have separate UI versioning (e.g., `ui-v1.0.0` tags).
+The action can automatically detect and group custom section commits separately from main repository changes. This is useful for repositories that have separate versioning for different components (e.g., `ui-v1.0.0`, `api-v2.1.0` tags).
 
 #### Configuration Options
 
-| Option              | Description                                     | Default                                 | Required |
-| ------------------- | ----------------------------------------------- | --------------------------------------- | -------- |
-| `enabled`           | Enable UI changes detection                     | `false`                                 | No       |
-| `tagPrefix`         | Prefix for UI version tags                      | `"ui-v"`                                | No       |
-| `pathPatterns`      | Array of path patterns that indicate UI changes | `["client/webui/frontend/**"]`          | No       |
-| `bumpCommitPattern` | Regex pattern to match UI version bump commits  | `"bump version to ui-v.*\\[skip ci\\]"` | No       |
+Each custom section supports the following configuration:
+
+| Option              | Description                                  | Example                                   | Required |
+| ------------------- | -------------------------------------------- | ----------------------------------------- | -------- |
+| `enabled`           | Enable detection for this custom section     | `true`                                    | Yes      |
+| `tagPrefix`         | Prefix for version tags                      | `"ui-v"`, `"api-v"`                       | No       |
+| `pathPatterns`      | Array of path patterns that indicate changes | `["client/webui/frontend/**"]`            | No       |
+| `bumpCommitPattern` | Regex pattern to match version bump commits  | `".*bump version to ui-v.*\\[skip ci\\]"` | Yes      |
+
+#### Legacy Support
+
+The old `uiChanges` configuration is still supported for backward compatibility:
+
+```json
+{
+  "uiChanges": {
+    "enabled": true,
+    "tagPrefix": "ui-v",
+    "pathPatterns": ["client/webui/frontend/**"],
+    "bumpCommitPattern": ".*bump version to ui-v.*\\[skip ci\\]"
+  }
+}
+```
+
+This will automatically be converted to the new `customSections` format internally.
 
 #### How It Works
 
-1. **Detects UI bump commits**: Finds commits that match the `bumpCommitPattern`
+1. **Detects bump commits**: Finds commits that match each section's `bumpCommitPattern`
 2. **Extracts version ranges**: Parses version changes from bump commits (e.g., `ui-v0.9.0` → `ui-v0.9.1`)
-3. **Groups preceding commits**: Identifies commits that modified `pathPatterns` before each bump
-4. **Categorizes by type**: Groups UI commits by their conventional commit type
+3. **Groups preceding commits**: Identifies the commit immediately before each bump commit as the change commit
+4. **Categorizes by type**: Groups custom section commits by their conventional commit type
 5. **Excludes bump commits**: Removes the actual bump commits from the output
+6. **Creates separate sections**: Each custom section gets its own section in the output
 
 #### Example Workflow
 
 Given these commits in chronological order:
 
-1. `fix: auto add files after precommit hook run (#352)` (modifies `client/webui/frontend/`)
+1. `fix: auto add files after precommit hook run (#352)` (UI change)
 2. `ci: bump version to ui-v0.9.1 [skip ci]` (UI bump commit)
-3. `feat: add new backend feature` (main repo change)
+3. `feat: add new API endpoint (#353)` (API change)
+4. `ci: bump api version to api-v2.1.0 [skip ci]` (API bump commit)
+5. `feat: add new backend feature` (main repo change)
 
 The output will be:
 
 - **Main sections**: Contains the backend feature
 - **UI Changes ui-v0.9.0 → ui-v0.9.1**: Contains the UI fix, categorized under "Bug Fixes"
-- **Excluded**: The bump commit itself is not shown
+- **API Changes api-v2.0.5 → api-v2.1.0**: Contains the API feature, categorized under "Features"
+- **Excluded**: The bump commits themselves are not shown
 
 ## Supported Commit Formats
 
@@ -334,9 +365,9 @@ feat(DATAGO-123): DATAGO-456: add new feature
 - [`ghi9012`](https://github.com/org/repo/commit/ghi9012) Update dependencies ([#67](https://github.com/org/repo/pull/67))
 ```
 
-### With UI Changes Detection
+### With Custom Sections Detection
 
-When `uiChanges` is enabled, UI-related commits are grouped separately:
+When `customSections` is enabled, custom section commits are grouped separately:
 
 ```markdown
 ## Features
@@ -356,6 +387,12 @@ When `uiChanges` is enabled, UI-related commits are grouped separately:
 ### Features
 
 - [`xyz9876`](https://github.com/org/repo/commit/xyz9876) add new UI component ([#353](https://github.com/org/repo/pull/353)) (Jane Doe)
+
+## API Changes api-v2.0.5 → api-v2.1.0
+
+### Features
+
+- [`mno3456`](https://github.com/org/repo/commit/mno3456) add new API endpoint ([#354](https://github.com/org/repo/pull/354)) (John Smith)
 ```
 
 ## Workflow Examples
