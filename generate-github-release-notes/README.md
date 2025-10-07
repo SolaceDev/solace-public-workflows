@@ -21,7 +21,7 @@ A Docker-based GitHub Action that generates formatted release notes using GitHub
 
 ```yaml
 - name: Generate Release Notes
-  uses: SolaceDev/maas-build-actions/generate-github-release-notes@main
+  uses: SolaceDev/solace-public-workflows/generate-github-release-notes@main
   with:
     from-ref: "v1.0.0"
     to-ref: "v1.1.0"
@@ -33,7 +33,7 @@ A Docker-based GitHub Action that generates formatted release notes using GitHub
 
 ```yaml
 - name: Generate Release Notes
-  uses: SolaceDev/maas-build-actions/generate-github-release-notes@main
+  uses: SolaceDev/solace-public-workflows/generate-github-release-notes@main
   with:
     from-ref: "v1.0.0"
     to-ref: "HEAD"
@@ -45,7 +45,7 @@ A Docker-based GitHub Action that generates formatted release notes using GitHub
 
 ```yaml
 - name: Generate Complete Release Notes
-  uses: SolaceDev/maas-build-actions/generate-github-release-notes@main
+  uses: SolaceDev/solace-public-workflows/generate-github-release-notes@main
   with:
     from-ref: "main" # Will include all commits from main
     to-ref: "HEAD"
@@ -57,7 +57,7 @@ A Docker-based GitHub Action that generates formatted release notes using GitHub
 
 ```yaml
 - name: Generate Release Notes with Custom Config
-  uses: SolaceDev/maas-build-actions/generate-github-release-notes@main
+  uses: SolaceDev/solace-public-workflows/generate-github-release-notes@main
   with:
     from-ref: "v1.0.0"
     to-ref: "v1.1.0"
@@ -358,7 +358,7 @@ jobs:
           echo "prev-tag=$PREV_TAG" >> $GITHUB_OUTPUT
 
       - name: Generate Release Notes
-        uses: SolaceDev/maas-build-actions/generate-github-release-notes@main
+        uses: SolaceDev/solace-public-workflows/generate-github-release-notes@main
         with:
           from-ref: ${{ steps.prev-tag.outputs.prev-tag }}
           to-ref: ${{ github.ref_name }}
@@ -401,7 +401,7 @@ jobs:
           fetch-depth: 0
 
       - name: Generate Release Notes
-        uses: SolaceDev/maas-build-actions/generate-github-release-notes@main
+        uses: SolaceDev/solace-public-workflows/generate-github-release-notes@main
         with:
           from-ref: ${{ github.event.inputs.from_tag }}
           to-ref: ${{ github.event.inputs.to_tag }}
