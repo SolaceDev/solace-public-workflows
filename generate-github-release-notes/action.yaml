@@ -1,0 +1,53 @@
+name: "Generate GitHub Release Notes"
+description: "Generate formatted release notes from git commits with Jira issue tracking integration and conventional commit format"
+author: "Solace"
+
+# Required Permissions:
+# This action requires the following GitHub token permissions:
+# - contents: read (to access repository content and commits)
+# - pull-requests: read (to access pull request information)
+#
+# Example usage with permissions:
+# jobs:
+#   release-notes:
+#     permissions:
+#       contents: read
+#       pull-requests: read
+
+inputs:
+  from-ref:
+    description: "Starting git reference (tag, commit, branch). If empty, generates for all commits"
+    required: false
+    default: "main"
+  to-ref:
+    description: "Ending git reference (tag, commit, branch). If empty, uses HEAD"
+    required: false
+    default: "HEAD"
+  output-file:
+    description: "Output file path for release notes"
+    required: false
+    default: "RELEASE_NOTES.md"
+  config-file:
+    description: "Path to configuration file (default: .versionrc.json)"
+    required: false
+    default: ".versionrc.json"
+  github-token:
+    description: "GitHub token for API access (requires contents:read, pull-requests:read, metadata:read permissions)"
+    required: true
+
+outputs:
+  release-notes-path:
+    description: "Path to the generated release notes file"
+  total-commits:
+    description: "Total number of commits processed"
+
+runs:
+  using: "docker"
+  image: "Dockerfile"
+  env:
+    GITHUB_TOKEN: ${{ inputs.github-token }}
+  args:
+    - ${{ inputs.from-ref }}
+    - ${{ inputs.to-ref }}
+    - ${{ inputs.output-file }}
+    - ${{ inputs.config-file }}

@@ -1,0 +1,2 @@
+# Test dependencies for generate-github-release-notes action
+PyYAML>=6.0
