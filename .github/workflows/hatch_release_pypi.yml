@@ -104,6 +104,7 @@ permissions:
   id-token: write
   contents: write
   checks: write
+  pull-requests: read
 
 jobs:
   release:
@@ -307,3 +308,17 @@ jobs:
           makeLatest: true
           generateReleaseNotes: true
           tag: ${{ env.NEW_VERSION }}
+
+      - name: Generate Release Notes
+        id: generate_release_notes
+        continue-on-error: true
+        uses: SolaceDev/solace-public-workflows/generate-github-release-notes@main
+        with:
+          from-ref: ${{ env.CURRENT_VERSION }}
+          to-ref: ${{ env.NEW_VERSION }}
+          output-file: RELEASE_NOTES.md
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update Release Notes
+        continue-on-error: true
+        run: gh release edit ${{ env.NEW_VERSION }} --notes-file RELEASE_NOTES.md
