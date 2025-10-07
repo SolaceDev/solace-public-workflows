@@ -2,6 +2,20 @@ name: "Generate GitHub Release Notes"
 description: "Generate formatted release notes from git commits with Jira issue tracking integration and conventional commit format"
 author: "Solace"
 
+# Required Permissions:
+# This action requires the following GitHub token permissions:
+# - contents: read (to access repository content and commits)
+# - pull-requests: read (to access pull request information)
+# - metadata: read (to access basic repository information)
+#
+# Example usage with permissions:
+# jobs:
+#   release-notes:
+#     permissions:
+#       contents: read
+#       pull-requests: read
+#       metadata: read
+
 inputs:
   from-ref:
     description: "Starting git reference (tag, commit, branch). If empty, generates for all commits"
@@ -20,7 +34,7 @@ inputs:
     required: false
     default: ".versionrc.json"
   github-token:
-    description: "GitHub token for API access"
+    description: "GitHub token for API access (requires contents:read, pull-requests:read, metadata:read permissions)"
     required: true
 
 outputs:

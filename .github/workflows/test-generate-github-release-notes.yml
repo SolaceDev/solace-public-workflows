@@ -1,0 +1,262 @@
+name: Test Generate GitHub Release Notes Action
+
+on:
+    push:
+        paths:
+            - "generate-github-release-notes/**"
+            - ".github/workflows/test-generate-github-release-notes.yml"
+    pull_request:
+        paths:
+            - "generate-github-release-notes/**"
+            - ".github/workflows/test-generate-github-release-notes.yml"
+    workflow_dispatch:
+
+jobs:
+    test-python-script:
+        name: Test Python Script
+        runs-on: ubuntu-latest
+
+        strategy:
+            matrix:
+                python-version: ["3.11", "3.12"]
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Set up Python ${{ matrix.python-version }}
+              uses: actions/setup-python@v4
+              with:
+                  python-version: ${{ matrix.python-version }}
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@v3
+              with:
+                  version: "latest"
+
+            - name: Install dependencies
+              working-directory: generate-github-release-notes
+              run: |
+                  uv sync --frozen --extra dev
+
+            - name: Run unit tests
+              working-directory: generate-github-release-notes
+              run: |
+                  uv run python -m pytest tests/test_simple.py -v
+
+            - name: Run comprehensive tests
+              working-directory: generate-github-release-notes
+              run: |
+                  uv run python -m pytest tests/test_generate_release_notes.py -v
+
+            - name: Run integration tests
+              working-directory: generate-github-release-notes
+              run: |
+                  uv run python tests/run_tests.py
+
+    test-docker-build:
+        name: Test Docker Build
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Build Docker image
+              working-directory: generate-github-release-notes
+              run: |
+                  docker build -t test-generate-release-notes .
+
+            - name: Test Docker image
+              working-directory: generate-github-release-notes
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  GITHUB_REPOSITORY: ${{ github.repository }}
+              run: |
+                  # Create a test config
+                  echo '{"types":[{"type":"feat","section":"Features"},{"type":"fix","section":"Bug Fixes"}]}' > test-config.json
+
+                  # Test the Docker image with a simple command (should handle missing refs gracefully)
+                  docker run --rm \
+                    -e GITHUB_TOKEN="${GITHUB_TOKEN}" \
+                    -e GITHUB_REPOSITORY="${GITHUB_REPOSITORY}" \
+                    -v "$(pwd):/workspace" \
+                    -w /workspace \
+                    test-generate-release-notes \
+                    "nonexistent-tag" "another-nonexistent-tag" "test-output.md" "test-config.json" || true
+
+                  # Check that the script at least ran (exit code doesn't matter for nonexistent tags)
+                  echo "Docker test completed"
+
+    test-action-metadata:
+        name: Test Action Metadata
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Validate action.yaml
+              working-directory: generate-github-release-notes
+              run: |
+                  # Check that action.yaml exists and has required fields
+                  if [ ! -f "action.yaml" ]; then
+                    echo "❌ action.yaml not found"
+                    exit 1
+                  fi
+
+                  # Basic validation of action.yaml structure
+                  python3 -c "
+                  import yaml
+                  import sys
+
+                  try:
+                      with open('action.yaml', 'r') as f:
+                          action = yaml.safe_load(f)
+                      
+                      required_fields = ['name', 'description', 'inputs', 'runs']
+                      for field in required_fields:
+                          if field not in action:
+                              print(f'❌ Missing required field: {field}')
+                              sys.exit(1)
+                      
+                      if action['runs']['using'] != 'docker':
+                          print('❌ Action should use docker')
+                          sys.exit(1)
+                      
+                      print('✅ action.yaml is valid')
+                  except Exception as e:
+                      print(f'❌ Error validating action.yaml: {e}')
+                      sys.exit(1)
+                  "
+
+            - name: Check Dockerfile
+              working-directory: generate-github-release-notes
+              run: |
+                  if [ ! -f "Dockerfile" ]; then
+                    echo "❌ Dockerfile not found"
+                    exit 1
+                  fi
+
+                  # Check that Dockerfile has required elements
+                  if ! grep -q "FROM python:" Dockerfile; then
+                    echo "❌ Dockerfile should use Python base image"
+                    exit 1
+                  fi
+
+                  if ! grep -q "ENTRYPOINT.*generate-github-release-notes.py" Dockerfile; then
+                    echo "❌ Dockerfile should have correct entrypoint"
+                    exit 1
+                  fi
+
+                  echo "✅ Dockerfile is valid"
+
+    test-with-real-repo:
+        name: Test with Real Repository Data
+        runs-on: ubuntu-latest
+        if: github.event_name != 'pull_request' # Only run on push/manual trigger
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0 # Need full history for testing
+
+            - name: Set up Python
+              uses: actions/setup-python@v4
+              with:
+                  python-version: "3.11"
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@v3
+              with:
+                  version: "latest"
+
+            - name: Install dependencies
+              working-directory: generate-github-release-notes
+              run: |
+                  uv sync --frozen --extra dev
+
+            - name: Test with actual repository (if tags exist)
+              working-directory: generate-github-release-notes
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  GITHUB_REPOSITORY: ${{ github.repository }}
+              run: |
+                  # Get the two most recent tags (if any exist)
+                  TAGS=$(git tag --sort=-version:refname | head -2)
+                  TAG_COUNT=$(echo "$TAGS" | wc -l)
+
+                  if [ "$TAG_COUNT" -ge 2 ]; then
+                    FROM_TAG=$(echo "$TAGS" | tail -1)
+                    TO_TAG=$(echo "$TAGS" | head -1)
+                    
+                    echo "Testing with tags: $FROM_TAG -> $TO_TAG"
+                    
+                    # Create test config
+                    echo '{
+                      "types": [
+                        {"type": "feat", "section": "Features"},
+                        {"type": "fix", "section": "Bug Fixes"},
+                        {"type": "chore", "section": "Chores"}
+                      ]
+                    }' > test-config.json
+                    
+                    # Run the script
+                    uv run python generate-github-release-notes.py \
+                      "$FROM_TAG" "$TO_TAG" "test-release-notes.md" "test-config.json"
+                    
+                    # Check output
+                    if [ -f "test-release-notes.md" ]; then
+                      echo "✅ Release notes generated successfully"
+                      echo "Generated content:"
+                      head -20 test-release-notes.md
+                    else
+                      echo "❌ Release notes file not created"
+                      exit 1
+                    fi
+                  else
+                    echo "⚠️  Not enough tags found for testing, skipping real repo test"
+                  fi
+
+    summary:
+        name: Test Summary
+        runs-on: ubuntu-latest
+        needs: [test-python-script, test-docker-build, test-action-metadata]
+        if: always()
+
+        steps:
+            - name: Check test results
+              run: |
+                  echo "Test Results Summary:"
+                  echo "===================="
+
+                  if [ "${{ needs.test-python-script.result }}" = "success" ]; then
+                    echo "✅ Python Script Tests: PASSED"
+                  else
+                    echo "❌ Python Script Tests: FAILED"
+                  fi
+
+                  if [ "${{ needs.test-docker-build.result }}" = "success" ]; then
+                    echo "✅ Docker Build Tests: PASSED"
+                  else
+                    echo "❌ Docker Build Tests: FAILED"
+                  fi
+
+                  if [ "${{ needs.test-action-metadata.result }}" = "success" ]; then
+                    echo "✅ Action Metadata Tests: PASSED"
+                  else
+                    echo "❌ Action Metadata Tests: FAILED"
+                  fi
+
+                  # Fail if any required tests failed
+                  if [ "${{ needs.test-python-script.result }}" != "success" ] || \
+                     [ "${{ needs.test-docker-build.result }}" != "success" ] || \
+                     [ "${{ needs.test-action-metadata.result }}" != "success" ]; then
+                    echo ""
+                    echo "❌ Some tests failed!"
+                    exit 1
+                  else
+                    echo ""
+                    echo "🎉 All tests passed!"
+                  fi

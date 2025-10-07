@@ -66,6 +66,102 @@ A Docker-based GitHub Action that generates formatted release notes using GitHub
     github-token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
+## Required Permissions
+
+This action requires specific GitHub token permissions to function properly. The token must have access to:
+
+### Minimum Required Permissions
+
+For the action to work, your GitHub token needs:
+
+- **Contents**: `read` - To access repository content and commits
+- **Metadata**: `read` - To access basic repository information
+- **Pull requests**: `read` - To access pull request information linked to commits
+
+### Setting Up Permissions
+
+#### Option 1: Using Default GITHUB_TOKEN (Recommended)
+
+For most use cases, you can use the default `GITHUB_TOKEN` with enhanced permissions:
+
+```yaml
+jobs:
+  generate-release-notes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      metadata: read
+    steps:
+      - name: Generate Release Notes
+        uses: SolaceDev/solace-public-workflows/generate-github-release-notes@main
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          # ... other inputs
+```
+
+#### Option 2: Using Personal Access Token (PAT)
+
+If you need additional permissions or are using this across repositories:
+
+1. Create a Personal Access Token with these scopes:
+
+   - `repo` (Full control of private repositories) OR
+   - `public_repo` (Access public repositories) + `read:org` (if needed)
+
+2. Add the token as a repository secret (e.g., `RELEASE_NOTES_TOKEN`)
+
+3. Use it in your workflow:
+
+```yaml
+- name: Generate Release Notes
+  uses: SolaceDev/solace-public-workflows/generate-github-release-notes@main
+  with:
+    github-token: ${{ secrets.RELEASE_NOTES_TOKEN }}
+    # ... other inputs
+```
+
+#### Option 3: Using GitHub App Token
+
+For organization-wide usage, consider using a GitHub App:
+
+```yaml
+- name: Generate App Token
+  id: app-token
+  uses: actions/create-github-app-token@v1
+  with:
+    app-id: ${{ vars.APP_ID }}
+    private-key: ${{ secrets.APP_PRIVATE_KEY }}
+    repositories: ${{ github.repository }}
+
+- name: Generate Release Notes
+  uses: SolaceDev/solace-public-workflows/generate-github-release-notes@main
+  with:
+    github-token: ${{ steps.app-token.outputs.token }}
+    # ... other inputs
+```
+
+### Troubleshooting Permission Issues
+
+If you encounter errors like:
+
+```
+Resource not accessible by integration
+```
+
+This typically means:
+
+1. **Missing pull-requests permission**: The token cannot access PR information
+2. **Insufficient repository access**: The token doesn't have read access to the repository
+3. **Organization restrictions**: Your organization may have restrictions on token permissions
+
+**Solutions:**
+
+- Ensure your workflow has the `pull-requests: read` permission
+- Verify the token has access to the target repository
+- Check organization security settings for token restrictions
+- Consider using a PAT or GitHub App token with broader permissions
+
 ## Inputs
 
 | Input          | Description                                                                       | Required | Default            |
@@ -74,7 +170,7 @@ A Docker-based GitHub Action that generates formatted release notes using GitHub
 | `to-ref`       | Ending git reference (tag, commit, branch)                                        | No       | `HEAD`             |
 | `output-file`  | Output file path for release notes                                                | No       | `RELEASE_NOTES.md` |
 | `config-file`  | Path to configuration file                                                        | No       | `.versionrc.json`  |
-| `github-token` | GitHub token for API access                                                       | Yes      | -                  |
+| `github-token` | GitHub token for API access (see Required Permissions above)                      | Yes      | -                  |
 
 ## Outputs
 
