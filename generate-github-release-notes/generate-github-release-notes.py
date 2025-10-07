@@ -37,8 +37,6 @@ def load_version_config(config_file_path: str = DEFAULT_VERSION_CONFIG_FILE) -> 
                 {"type": "perf", "section": "Performance"},
                 {"type": "test", "section": "Tests"},
             ]
-            # No default issuePrefixes or issueUrlFormat for security
-            # No default uiChanges configuration
         }
 
     try:
@@ -51,9 +49,6 @@ def load_version_config(config_file_path: str = DEFAULT_VERSION_CONFIG_FILE) -> 
                 {"type": "feat", "section": "Features"},
                 {"type": "fix", "section": "Bug Fixes"},
             ]
-
-        # Don't add default issuePrefixes or issueUrlFormat for security
-        # They should only be used if explicitly configured
 
         return config
     except (json.JSONDecodeError, OSError) as e:
@@ -353,41 +348,53 @@ def clean_subject(subject: str, config: dict) -> str:
     return clean_subj
 
 
-def _is_ui_changes_enabled(config: dict) -> bool:
-    """Check if UI changes detection is enabled"""
-    return "uiChanges" in config and config["uiChanges"].get("enabled", False)
+def _get_custom_sections_config(config: dict) -> dict:
+    """Get custom sections configuration"""
+    custom_sections = {}
+
+    # Legacy support for uiChanges
+    if "uiChanges" in config and config["uiChanges"].get("enabled", False):
+        ui_config = config["uiChanges"]
+        custom_sections["UI Changes"] = {
+            "tagPrefix": ui_config.get("tagPrefix", "ui-v"),
+            "pathPatterns": ui_config.get("pathPatterns", ["client/webui/frontend/**"]),
+            "bumpCommitPattern": ui_config.get(
+                "bumpCommitPattern", r"bump version to ui-v.*\[skip ci\]"
+            ),
+        }
+
+    # New generalized customSections
+    if "customSections" in config:
+        for section_name, section_config in config["customSections"].items():
+            if section_config.get("enabled", False):
+                custom_sections[section_name] = {
+                    "tagPrefix": section_config.get("tagPrefix", ""),
+                    "pathPatterns": section_config.get("pathPatterns", []),
+                    "bumpCommitPattern": section_config.get("bumpCommitPattern", ""),
+                }
+
+    return custom_sections
 
 
-def _get_ui_config(config: dict) -> dict:
-    """Get UI configuration with defaults"""
-    if not _is_ui_changes_enabled(config):
-        return {}
-
-    ui_config = config["uiChanges"]
-    return {
-        "tagPrefix": ui_config.get("tagPrefix", "ui-v"),
-        "pathPatterns": ui_config.get("pathPatterns", ["client/webui/frontend/**"]),
-        "bumpCommitPattern": ui_config.get(
-            "bumpCommitPattern", r"bump version to ui-v.*\[skip ci\]"
-        ),
-    }
-
-
-def _is_ui_bump_commit(commit: dict, ui_config: dict) -> str | None:
-    """Check if commit is a UI bump commit and return the version if so"""
-    if not ui_config:
+def _is_custom_bump_commit(commit: dict, section_config: dict) -> str | None:
+    """Check if commit is a custom section bump commit and return the version if so"""
+    if not section_config or not section_config.get("bumpCommitPattern"):
         return None
 
-    pattern = ui_config["bumpCommitPattern"]
+    pattern = section_config["bumpCommitPattern"]
     if re.search(pattern, commit["subject"], re.IGNORECASE):
-        # Extract version from commit subject (e.g., "bump version to ui-v0.9.1 [skip ci]")
-        tag_prefix = ui_config["tagPrefix"]
-        version_match = re.search(
-            f"{re.escape(tag_prefix)}([0-9]+\\.[0-9]+\\.[0-9]+[^\\s]*)",
-            commit["subject"],
-        )
-        if version_match:
-            return f"{tag_prefix}{version_match.group(1)}"
+        # Extract version from commit subject
+        tag_prefix = section_config.get("tagPrefix", "")
+        if tag_prefix:
+            version_match = re.search(
+                f"{re.escape(tag_prefix)}([0-9]+\\.[0-9]+\\.[0-9]+[^\\s]*)",
+                commit["subject"],
+            )
+            if version_match:
+                return f"{tag_prefix}{version_match.group(1)}"
+        else:
+            # If no tag prefix, just return a generic version indicator
+            return "version"
 
     return None
 
@@ -395,41 +402,42 @@ def _is_ui_bump_commit(commit: dict, ui_config: dict) -> str | None:
 # Old functions removed - replaced with optimized GraphQL versions above
 
 
-def _process_ui_bump_commit(
+def _process_custom_bump_commit(
     i: int,
     commits: list[dict],
-    ui_config: dict,
-    ui_commits: list[dict],
-    ui_versions: list[str],
+    section_name: str,
+    section_config: dict,
+    custom_commits: list[dict],
+    custom_versions: list[str],
 ) -> None:
-    """Process a UI bump commit and identify the preceding UI change commit"""
+    """Process a custom section bump commit and identify the preceding change commit"""
     commit = commits[i]
-    ui_version = _is_ui_bump_commit(commit, ui_config)
+    version = _is_custom_bump_commit(commit, section_config)
 
-    if not ui_version:
+    if not version:
         return
 
-    ui_versions.append(ui_version)
-    print(f"Found UI bump commit: {ui_version}")
+    custom_versions.append(version)
+    print(f"Found {section_name} bump commit: {version}")
 
-    # The previous commit (if exists) is the UI change commit
+    # The previous commit (if exists) is the change commit
     if i > 0:
-        ui_change_commit = commits[i - 1]
-        # Only add if it's not already a UI commit and not a bump commit
-        if ui_change_commit not in ui_commits and not _is_ui_bump_commit(
-            ui_change_commit, ui_config
+        change_commit = commits[i - 1]
+        # Only add if it's not already a custom commit and not a bump commit
+        if change_commit not in custom_commits and not _is_custom_bump_commit(
+            change_commit, section_config
         ):
-            ui_commits.append(ui_change_commit)
+            custom_commits.append(change_commit)
             print(
-                f"  -> UI change commit: {ui_change_commit['hash']} {ui_change_commit['subject'][:50]}..."
+                f"  -> {section_name} change commit: {change_commit['hash']} {change_commit['subject'][:50]}..."
             )
 
 
-def _create_version_range(ui_versions: list[str]) -> str:
-    """Create version range string from UI versions"""
-    ui_versions.sort()
-    oldest_version = ui_versions[0]
-    newest_version = ui_versions[-1]
+def _create_version_range(versions: list[str]) -> str:
+    """Create version range string from versions"""
+    versions.sort()
+    oldest_version = versions[0]
+    newest_version = versions[-1]
 
     if oldest_version != newest_version:
         return f"{oldest_version} → {newest_version}"
@@ -437,41 +445,66 @@ def _create_version_range(ui_versions: list[str]) -> str:
         return f"up to {newest_version}"
 
 
-def _detect_ui_changes(commits: list[dict], config: dict) -> tuple[list[dict], dict]:
+def _detect_custom_changes(
+    commits: list[dict], config: dict
+) -> tuple[list[dict], dict]:
     """
-    Detect UI changes and return (non_ui_commits, ui_changes_by_version).
-    Efficient logic: UI change commits are simply the commits before UI bump commits.
+    Detect custom section changes and return (non_custom_commits, custom_changes_by_section).
+    Efficient logic: Custom change commits are simply the commits before custom bump commits.
 
     Returns:
-        - non_ui_commits: List of commits that are not UI-related
-        - ui_changes_by_version: Dict with single entry for all UI changes
+        - non_custom_commits: List of commits that are not custom section-related
+        - custom_changes_by_section: Dict with entries for each custom section
     """
-    if not _is_ui_changes_enabled(config):
+    custom_sections_config = _get_custom_sections_config(config)
+    if not custom_sections_config:
         return commits, {}
 
-    ui_config = _get_ui_config(config)
-    non_ui_commits = []
-    ui_commits = []
-    ui_versions = []
+    non_custom_commits = []
+    all_custom_commits = []
+    custom_changes_by_section = {}
 
-    print(f"Analyzing {len(commits)} commits for UI changes...")
+    print(
+        f"Analyzing {len(commits)} commits for custom sections: {list(custom_sections_config.keys())}..."
+    )
 
-    # Process commits in order to find UI bump commits and their preceding changes
-    for i, commit in enumerate(commits):
-        if _is_ui_bump_commit(commit, ui_config):
-            _process_ui_bump_commit(i, commits, ui_config, ui_commits, ui_versions)
-        elif commit not in ui_commits:
-            # Regular commit - add to non-UI unless it's already identified as UI
-            non_ui_commits.append(commit)
+    # Process each custom section
+    for section_name, section_config in custom_sections_config.items():
+        custom_commits = []
+        custom_versions = []
 
-    # Group all UI changes under a single version range
-    ui_changes_by_version = {}
-    if ui_commits and ui_versions:
-        version_range = _create_version_range(ui_versions)
-        ui_changes_by_version[version_range] = ui_commits
-        print(f"Grouped {len(ui_commits)} UI commits under range: {version_range}")
+        # Process commits in order to find custom bump commits and their preceding changes
+        for i, commit in enumerate(commits):
+            if _is_custom_bump_commit(commit, section_config):
+                _process_custom_bump_commit(
+                    i,
+                    commits,
+                    section_name,
+                    section_config,
+                    custom_commits,
+                    custom_versions,
+                )
 
-    return non_ui_commits, ui_changes_by_version
+        # Group all custom changes under a single version range for this section
+        if custom_commits and custom_versions:
+            version_range = _create_version_range(custom_versions)
+            section_title = (
+                f"{section_name} {version_range}"
+                if version_range != "version"
+                else section_name
+            )
+            custom_changes_by_section[section_title] = custom_commits
+            all_custom_commits.extend(custom_commits)
+            print(
+                f"Grouped {len(custom_commits)} {section_name} commits under range: {version_range}"
+            )
+
+    # Separate non-custom commits
+    for commit in commits:
+        if commit not in all_custom_commits:
+            non_custom_commits.append(commit)
+
+    return non_custom_commits, custom_changes_by_section
 
 
 # Removed unnecessary helper functions - simplified UI detection logic
@@ -529,22 +562,24 @@ def _add_commits_to_sections(
 
 
 def process_commits(commits: list[dict], config: dict) -> tuple[dict, dict]:
-    """Process commits and organize them by type, separating UI changes if configured"""
-    # Detect UI changes first
-    non_ui_commits, ui_changes_by_version = _detect_ui_changes(commits, config)
+    """Process commits and organize them by type, separating custom sections if configured"""
+    # Detect custom section changes first
+    non_custom_commits, custom_changes_by_section = _detect_custom_changes(
+        commits, config
+    )
 
-    # Process non-UI commits
+    # Process non-custom commits
     type_sections = _create_empty_type_sections(config)
-    _add_commits_to_sections(non_ui_commits, config, type_sections)
+    _add_commits_to_sections(non_custom_commits, config, type_sections)
 
-    # Process UI commits by version
-    ui_sections = {}
-    for version_range, ui_commits in ui_changes_by_version.items():
-        ui_type_sections = _create_empty_type_sections(config)
-        _add_commits_to_sections(ui_commits, config, ui_type_sections)
-        ui_sections[version_range] = ui_type_sections
+    # Process custom section commits by section
+    custom_sections = {}
+    for section_title, custom_commits in custom_changes_by_section.items():
+        custom_type_sections = _create_empty_type_sections(config)
+        _add_commits_to_sections(custom_commits, config, custom_type_sections)
+        custom_sections[section_title] = custom_type_sections
 
-    return type_sections, ui_sections
+    return type_sections, custom_sections
 
 
 def _get_repo_url() -> str:
@@ -652,43 +687,45 @@ def _generate_main_sections(type_sections: dict, config: dict) -> tuple[str, boo
     return content, has_commits
 
 
-def _generate_ui_sections(ui_sections: dict, config: dict) -> tuple[str, bool]:
-    """Generate UI commit sections and return (content, has_commits)"""
+def _generate_custom_sections(custom_sections: dict, config: dict) -> tuple[str, bool]:
+    """Generate custom commit sections and return (content, has_commits)"""
     content = ""
     has_commits = False
 
-    for version_range, ui_type_sections in ui_sections.items():
-        ui_content = ""
-        ui_has_commits = False
+    for section_title, custom_type_sections in custom_sections.items():
+        custom_content = ""
+        custom_has_commits = False
 
         for type_config in config["types"]:
             commit_type = type_config["type"]
-            if commit_type in ui_type_sections:
-                type_data = ui_type_sections[commit_type]
+            if commit_type in custom_type_sections:
+                type_data = custom_type_sections[commit_type]
                 section = _generate_section_for_type(type_data, config, "###")
                 if section:
-                    ui_has_commits = True
-                    ui_content += section
+                    custom_has_commits = True
+                    custom_content += section
 
-        if ui_has_commits:
+        if custom_has_commits:
             has_commits = True
-            content += f"## UI Changes {version_range}\n\n{ui_content}"
+            content += f"## {section_title}\n\n{custom_content}"
 
     return content, has_commits
 
 
-def generate_content(type_sections: dict, ui_sections: dict, config: dict) -> str:
+def generate_content(type_sections: dict, custom_sections: dict, config: dict) -> str:
     """Generate the release notes content from processed commits"""
     # Generate main sections
     main_content, main_has_commits = _generate_main_sections(type_sections, config)
 
-    # Generate UI sections
-    ui_content, ui_has_commits = _generate_ui_sections(ui_sections, config)
+    # Generate custom sections
+    custom_content, custom_has_commits = _generate_custom_sections(
+        custom_sections, config
+    )
 
     # Combine content
-    release_notes = main_content + ui_content
+    release_notes = main_content + custom_content
 
-    if not (main_has_commits or ui_has_commits):
+    if not (main_has_commits or custom_has_commits):
         release_notes = "No commits found in this release.\n"
 
     return release_notes
@@ -747,8 +784,8 @@ def generate_release_notes(
         return
 
     # Process commits and generate content
-    type_sections, ui_sections = process_commits(commits, config)
-    release_notes = generate_content(type_sections, ui_sections, config)
+    type_sections, custom_sections = process_commits(commits, config)
+    release_notes = generate_content(type_sections, custom_sections, config)
     write_and_output_results(release_notes, output_file, len(commits))
 
 

@@ -12,6 +12,20 @@
     { "type": "perf", "section": "Performance" },
     { "type": "test", "section": "Tests" }
   ],
+  "customSections": {
+    "UI Changes": {
+      "enabled": true,
+      "tagPrefix": "ui-v",
+      "pathPatterns": ["client/webui/frontend/**"],
+      "bumpCommitPattern": ".*bump version to ui-v.*\\[skip ci\\]"
+    },
+    "API Changes": {
+      "enabled": true,
+      "tagPrefix": "api-v",
+      "pathPatterns": ["src/api/**", "openapi/**"],
+      "bumpCommitPattern": ".*bump api version to api-v.*\\[skip ci\\]"
+    }
+  },
   "uiChanges": {
     "enabled": true,
     "tagPrefix": "ui-v",
