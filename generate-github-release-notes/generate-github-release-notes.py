@@ -705,6 +705,19 @@ def write_and_output_results(
         print(f"✅ GitHub Release notes generated: {output_file}")
         print(f"📝 Total commits: {total_commits}")
 
+        # Set GitHub Action outputs if running in GitHub Actions
+        github_output = getenv("GITHUB_OUTPUT")
+        if github_output:
+            try:
+                with open(github_output, "a") as f:
+                    f.write(f"release-notes-path={output_file}\n")
+                    f.write(f"total-commits={total_commits}\n")
+                print(
+                    f"✅ GitHub Action outputs set: release-notes-path={output_file}, total-commits={total_commits}"
+                )
+            except OSError as e:
+                print(f"Warning: Could not write to GITHUB_OUTPUT: {e}")
+
         # Print to console as well
         print("\n" + "=" * 80)
         print(release_notes)

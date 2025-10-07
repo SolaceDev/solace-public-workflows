@@ -174,10 +174,38 @@ This typically means:
 
 ## Outputs
 
-| Output               | Description                              |
-| -------------------- | ---------------------------------------- |
-| `release-notes-path` | Path to the generated release notes file |
-| `total-commits`      | Total number of commits processed        |
+| Output               | Description                              | Example            |
+| -------------------- | ---------------------------------------- | ------------------ |
+| `release-notes-path` | Path to the generated release notes file | `RELEASE_NOTES.md` |
+| `total-commits`      | Total number of commits processed        | `42`               |
+
+### Using Outputs
+
+You can use the action outputs in subsequent steps:
+
+```yaml
+- name: Generate Release Notes
+  id: release-notes
+  uses: SolaceDev/solace-public-workflows/generate-github-release-notes@main
+  with:
+    from-ref: "v1.0.0"
+    to-ref: "v1.1.0"
+    github-token: ${{ secrets.GITHUB_TOKEN }}
+
+- name: Use Release Notes
+  run: |
+    echo "Release notes generated at: ${{ steps.release-notes.outputs.release-notes-path }}"
+    echo "Total commits processed: ${{ steps.release-notes.outputs.total-commits }}"
+
+- name: Create GitHub Release
+  uses: actions/create-release@v1
+  with:
+    tag_name: v1.1.0
+    release_name: Release v1.1.0
+    body_path: ${{ steps.release-notes.outputs.release-notes-path }}
+  env:
+    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+```
 
 ## Configuration
 

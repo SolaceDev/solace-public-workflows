@@ -3,7 +3,6 @@
 import json
 import os
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
@@ -143,6 +142,42 @@ class TestBasicFunctionality(unittest.TestCase):
         self.assertIn("add feature", line)
         self.assertIn("Developer", line)
         self.assertIn("#42", line)
+
+    def test_github_action_outputs(self):
+        """Test GitHub Action outputs are written correctly"""
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(mode="w+", delete=False) as temp_output:
+            output_file_path = temp_output.name
+
+        with tempfile.NamedTemporaryFile(mode="w+", delete=False) as temp_github_output:
+            github_output_path = temp_github_output.name
+
+        try:
+            # Test with GITHUB_OUTPUT environment variable set
+            with patch.dict(os.environ, {"GITHUB_OUTPUT": github_output_path}):
+                generate_github_release_notes.write_and_output_results(
+                    "Test release notes content", output_file_path, 5
+                )
+
+            # Check that the output file was written
+            with open(output_file_path, "r") as f:
+                content = f.read()
+                self.assertEqual(content, "Test release notes content")
+
+            # Check that GitHub Action outputs were written
+            with open(github_output_path, "r") as f:
+                github_outputs = f.read()
+                self.assertIn(f"release-notes-path={output_file_path}", github_outputs)
+                self.assertIn("total-commits=5", github_outputs)
+
+        finally:
+            # Clean up temporary files
+            try:
+                os.unlink(output_file_path)
+                os.unlink(github_output_path)
+            except OSError:
+                pass
 
 
 if __name__ == "__main__":
