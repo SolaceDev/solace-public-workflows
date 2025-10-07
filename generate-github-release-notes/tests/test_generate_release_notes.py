@@ -193,7 +193,7 @@ class TestReleaseNotesGenerator(unittest.TestCase):
     @patch.dict(
         os.environ, {"GITHUB_TOKEN": "fake_token", "GITHUB_REPOSITORY": "test/repo"}
     )
-    @patch("generate_github_release_notes._get_commits_with_prs_graphql")
+    @patch.object(generate_github_release_notes, "_get_commits_with_prs_graphql")
     def test_get_commits_between_refs_mocked(self, mock_graphql):
         """Test getting commits between git references with mocked GraphQL"""
         # Mock GraphQL response
@@ -224,7 +224,7 @@ class TestReleaseNotesGenerator(unittest.TestCase):
     @patch.dict(
         os.environ, {"GITHUB_TOKEN": "fake_token", "GITHUB_REPOSITORY": "test/repo"}
     )
-    @patch("generate_github_release_notes.get_commits_between_refs")
+    @patch.object(generate_github_release_notes, "get_commits_between_refs")
     def test_generate_release_notes_integration(self, mock_get_commits):
         """Test the main release notes generation function"""
         # Mock commits data
@@ -315,8 +315,8 @@ class TestReleaseNotesGenerator(unittest.TestCase):
     def test_output_format_consistency(self):
         """Test that output format is consistent"""
         # Mock a single commit
-        with patch(
-            "generate_github_release_notes.get_commits_between_refs"
+        with patch.object(
+            generate_github_release_notes, "get_commits_between_refs"
         ) as mock_get_commits:
             mock_get_commits.return_value = [
                 {
@@ -520,8 +520,8 @@ class TestCommandLineInterface(unittest.TestCase):
         script_path = Path(__file__).parent.parent / "generate-github-release-notes.py"
 
         # Mock the GraphQL function to avoid actual API calls
-        with patch(
-            "generate_github_release_notes.get_commits_between_refs"
+        with patch.object(
+            generate_github_release_notes, "get_commits_between_refs"
         ) as mock_get_commits:
             mock_get_commits.return_value = []  # Empty commits list
 
