@@ -1,2 +1,3 @@
 # Test dependencies for generate-github-release-notes action
 PyYAML>=6.0
+gql>=3.4.0
