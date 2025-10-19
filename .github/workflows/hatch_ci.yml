@@ -138,7 +138,7 @@ jobs:
 
       - name: Set up Hatch
         id: hatch-setup
-        uses: ./workflows-repo/.github/actions/hatch-setup
+        uses: ./workflows-repo/.github/actions/hatch-setup-uv
         with:
           min-python-version: ${{ inputs.min-python-version }}
           max-python-version: ${{ inputs.max-python-version }}
@@ -263,11 +263,10 @@ jobs:
           ls dist/*.whl | xargs -n1 hatch run python -m twine check
         shell: bash
 
-      - name: Install Virtualenv for Whitesource Scan
+      - name: Install Virtualenv for Whitesource Scan (with UV)
         if: fromJson(env.has_whitesource_config) && fromJson(env.not_fork_pr)
         run: |
-          python3 -m pip install --upgrade pip
-          python3 -m pip install virtualenv
+          uv venv virtualenv
 
       - name: Generate Clean Requirements for WhiteSource
         if: fromJson(env.has_whitesource_config) && fromJson(env.not_fork_pr)
