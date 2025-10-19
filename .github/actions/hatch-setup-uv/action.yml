@@ -1,0 +1,165 @@
+name: hatch-install-with-uv-caching
+description: Hatch install with UV for fast dependency installation and caching.
+inputs:
+  min-python-version:
+    description: "Minimum Python version to support."
+    default: "3.10"
+  max-python-version:
+    description: "Maximum Python version to support."
+    default: "3.13"
+  build:
+    description: "Whether to run the build step."
+    default: "true"
+outputs:
+  matrix-present:
+    description: "Whether the test matrix is present."
+    value: ${{ steps.test-matrix-present.outputs.matrix-present == 'true' }}
+  hatch-python-path:
+    description: "The path to the Python interpreter."
+    value: ${{ steps.export-python-path.outputs.hatch_python_path }}
+runs:
+  using: composite
+  steps:
+    - name: Setup Hatch Environment
+      run: |
+        echo "HATCH_CACHE_DIR=${{ github.workspace }}/.hatch_cache" >> $GITHUB_ENV
+        echo "HATCH_DATA_DIR=${{ github.workspace }}/.hatch_data" >> $GITHUB_ENV
+      shell: bash
+
+    - name: Verify 'pyproject.toml' exists
+      run: test -f pyproject.toml
+      shell: bash
+
+    # Install UV first for fast package installation
+    - name: Install UV
+      uses: astral-sh/setup-uv@v5
+      with:
+        enable-cache: true
+
+    - name: Install Hatch (via UV for speed)
+      shell: bash
+      run: |
+        uv tool install hatch
+        echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+    - name: Test Matrix Present
+      id: test-matrix-present
+      shell: bash
+      run: |
+        # Verify if hatch specific test matrix is present in pyproject.toml
+        MATRIX_PRESENT=$(awk -v min="${{ inputs.min-python-version }}" -v max="${{ inputs.max-python-version }}" '
+            /\[tool\.hatch\.envs\.hatch-test\]/ { in_env=1; next }
+            in_env && /installer = "pip"/ { has_pip_installer=1; in_env=0 }
+            /\[\[tool\.hatch\.envs\.hatch-test\.matrix\]\]/ { in_matrix=1; next }
+            in_matrix && /python = \[/ {
+              if (index($0, min)) found_min=1
+              if (index($0, max)) found_max=1
+              in_matrix=0
+            }
+            END {
+              if (!has_pip_installer || !found_min || !found_max) {
+                print "false"
+                exit 0
+              }
+              print "true"
+              exit 0
+            }
+          ' pyproject.toml)
+        echo "matrix-present=$MATRIX_PRESENT" >> $GITHUB_OUTPUT
+
+    - name: Restore Hatch Directory with UV cache
+      uses: actions/cache@v4
+      id: cache
+      with:
+        path: |
+          ${{ env.HATCH_CACHE_DIR }}
+          ${{ env.HATCH_DATA_DIR }}
+          ~/.cache/uv
+        key: ${{ runner.os }}-hatch-uv-${{ hashFiles('pyproject.toml') }}-${{ hashFiles('uv.lock') }}-${{ hashFiles('requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-hatch-uv-${{ hashFiles('pyproject.toml') }}-${{ hashFiles('uv.lock') }}-
+          ${{ runner.os }}-hatch-uv-${{ hashFiles('pyproject.toml') }}-
+          ${{ runner.os }}-hatch-uv-
+
+    - name: Install Python Versions for Hatch Test Matrix
+      id: setup-python
+      if: steps.test-matrix-present.outputs.matrix-present == 'true'
+      uses: actions/setup-python@v5.5.0
+      with:
+        python-version: |
+          ${{ inputs.min-python-version }}
+          ${{ inputs.max-python-version }}
+
+    - name: Install Python Version from pyproject.toml
+      id: setup-python-default
+      if: steps.test-matrix-present.outputs.matrix-present == 'false'
+      uses: actions/setup-python@v5.5.0
+      with:
+        python-version-file: "pyproject.toml"
+
+    - name: Export Python Path For Hatch
+      shell: bash
+      id: export-python-path
+      run: |
+        if [ "${{ steps.test-matrix-present.outputs.matrix-present }}" == "true" ]; then          
+          PYTHON_PATH=${{ steps.setup-python.outputs.python-path }}
+        elif [ "${{ steps.test-matrix-present.outputs.matrix-present }}" == "false" ]; then
+          PYTHON_PATH=${{ steps.setup-python-default.outputs.python-path }}
+        fi
+        echo "HATCH_PYTHON_PATH=${PYTHON_PATH}" >> $GITHUB_ENV
+        echo "hatch_python_path=${PYTHON_PATH}" >> $GITHUB_OUTPUT
+
+    # Configure Hatch to use UV for all installations
+    - name: Configure Hatch to use UV
+      shell: bash
+      run: |
+        hatch config set dirs.env.virtual $HATCH_DATA_DIR/env/virtual
+        # Tell Hatch environments to use uv
+        export HATCH_ENV_TYPE_VIRTUAL_UV_PATH=$(which uv)
+        echo "HATCH_ENV_TYPE_VIRTUAL_UV_PATH=$HATCH_ENV_TYPE_VIRTUAL_UV_PATH" >> $GITHUB_ENV
+
+    - name: Create Hatch Environments with UV
+      shell: bash
+      if: steps.cache.outputs.cache-hit != 'true'
+      run: |
+        # Create default environment
+        hatch env create
+
+        # Create matrix environments if needed
+        if [ "${{ steps.test-matrix-present.outputs.matrix-present }}" == "true" ]; then
+          hatch env create hatch-test.py${{ inputs.min-python-version }}
+          hatch env create hatch-test.py${{ inputs.max-python-version }}
+        fi
+
+    - name: Install Core Dependencies with UV (default env)
+      shell: bash
+      if: steps.cache.outputs.cache-hit != 'true'
+      run: |
+        # Use uv for fast installation
+        hatch run uv pip install twine pytest pytest-cov
+
+    - name: Install Core Dependencies with UV (matrix envs)
+      shell: bash
+      if: steps.cache.outputs.cache-hit != 'true' && steps.test-matrix-present.outputs.matrix-present == 'true'
+      run: |
+        hatch run hatch-test.py${{ inputs.min-python-version }}:uv pip install twine pytest pytest-cov
+        hatch run hatch-test.py${{ inputs.max-python-version }}:uv pip install twine pytest pytest-cov
+
+    - name: Install Requirements.txt Dependencies (if exists) - default env
+      shell: bash
+      if: hashFiles('requirements.txt') != '' && steps.cache.outputs.cache-hit != 'true' && steps.test-matrix-present.outputs.matrix-present == 'false'
+      run: |
+        hatch run uv pip install -r requirements.txt
+
+    - name: Install Requirements.txt Dependencies (if exists) - matrix envs
+      shell: bash
+      if: hashFiles('requirements.txt') != '' && steps.cache.outputs.cache-hit != 'true' && steps.test-matrix-present.outputs.matrix-present == 'true'
+      run: |
+        hatch run hatch-test.py${{ inputs.min-python-version }}:uv pip install -r requirements.txt
+        hatch run hatch-test.py${{ inputs.max-python-version }}:uv pip install -r requirements.txt
+
+    - name: Build Hatch Package
+      shell: bash
+      if: inputs.build == 'true'
+      run: |
+        hatch build
