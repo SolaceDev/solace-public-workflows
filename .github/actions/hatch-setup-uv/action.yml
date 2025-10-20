@@ -125,10 +125,14 @@ runs:
         # Create default environment
         hatch env create
 
-        # Create matrix environments if needed
+        # Create test environments
         if [ "${{ steps.test-matrix-present.outputs.matrix-present }}" == "true" ]; then
+          # Create matrix-specific test environments
           hatch env create hatch-test.py${{ inputs.min-python-version }}
           hatch env create hatch-test.py${{ inputs.max-python-version }}
+        else
+          # Create default test environment
+          hatch env create hatch-test
         fi
 
     - name: Install Core Dependencies with UV (default env)

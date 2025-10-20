@@ -171,7 +171,7 @@ jobs:
         shell: bash
         if: steps.hatch-setup.outputs.matrix-present == 'false'
         run: |
-          hatch run pytest --junitxml=junit-default.xml
+          hatch run hatch-test:pytest --junitxml=junit-default.xml
 
       - name: Run Unit Tests on Python ${{ inputs.min-python-version }}
         continue-on-error: true
