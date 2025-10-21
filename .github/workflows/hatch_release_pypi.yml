@@ -321,4 +321,7 @@ jobs:
 
       - name: Update Release Notes
         continue-on-error: true
-        run: gh release edit ${{ env.NEW_VERSION }} --notes-file RELEASE_NOTES.md
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release edit ${{ env.NEW_VERSION }} --notes-file RELEASE_NOTES.md
