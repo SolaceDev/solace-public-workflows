@@ -76,6 +76,15 @@ inputs:
   ddb_return_section:
     description: "If set to true, returns the entire section as clean JSON; if false or omitted, returns a single field value (for get_item_value_from_dynamodb)"
     required: false
+  ddb_table_index_name:
+    description: "DynamoDB table's index name"
+    required: false
+  ddb_index_field_name:
+    description: "DynamoDB table field used for index"
+    required: false
+  ddb_index_field_value:
+    description: "DynamoDB table, value used to match index failed value"
+    required: false
   aws_region:
     description: "AWS region to use (optional, defaults to us-east-1 if not set)"
     required: false
@@ -114,6 +123,9 @@ runs:
       if [ -n "$INPUT_DDB_RETURN_SECTION" ]; then export DDB_RETURN_SECTION="$INPUT_DDB_RETURN_SECTION"; fi
       if [ -n "$INPUT_THREAD_MESSAGE_TS" ]; then export THREAD_MESSAGE_TS="$INPUT_THREAD_MESSAGE_TS"; fi
       if [ -n "$INPUT_NEW_THREAD_MESSAGE" ]; then export NEW_THREAD_MESSAGE="$INPUT_NEW_THREAD_MESSAGE"; fi
+      if [ -n "$INPUT_DDB_TABLE_INDEX_NAME" ]; then export DDB_TABLE_INDEX_NAME="$INPUT_DDB_TABLE_INDEX_NAME"; fi
+      if [ -n "$INPUT_DDB_INDEX_FIELD_NAME" ]; then export DDB_INDEX_FIELD_NAME="$INPUT_DDB_INDEX_FIELD_NAME"; fi
+      if [ -n "$INPUT_DDB_INDEX_FIELD_VALUE" ]; then export DDB_INDEX_FIELD_VALUE="$INPUT_DDB_INDEX_FIELD_VALUE"; fi
 
 
 
@@ -150,7 +162,9 @@ runs:
       echo "AWS_REGION: $AWS_REGION"
       echo "THREAD_MESSAGE_TS: $THREAD_MESSAGE_TS"
       echo "NEW_THREAD_MESSAGE: $NEW_THREAD_MESSAGE"
-
+      echo "DDB_TABLE_INDEX_NAME : $DDB_TABLE_INDEX_NAME"
+      echo "DDB_INDEX_FIELD_NAME: $DDB_INDEX_FIELD_NAME"
+      echo "DDB_INDEX_FIELD_VALUE: $DDB_INDEX_FIELD_VALUE"
 
       source /maas-build-actions/venv/bin/activate
       $RC_PYTHON $RC_HELPER_SCRIPT
