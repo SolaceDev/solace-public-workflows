@@ -91,7 +91,7 @@ inputs:
 
 runs:
   using: docker
-  image: docker://ghcr.io/solacedev/maas-build-actions:cicd_mq_test_dynamo
+  image: docker://ghcr.io/solacedev/maas-build-actions:master
   entrypoint: /bin/sh
   args:
     - -c
