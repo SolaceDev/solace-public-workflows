@@ -211,14 +211,14 @@ jobs:
 
       - name: Combine Coverage Reports
         continue-on-error: true
-        if: hashFiles('*.cov') != ''
+        if: hashFiles('*.cov', '.coverage.*') != ''
         run: |
           hatch run hatch-test.py${{ inputs.max-python-version }}:coverage combine
         shell: bash
 
       - name: Report coverage
         continue-on-error: true
-        if: hashFiles('*.cov') != ''
+        if: hashFiles('*.cov', '.coverage.*') != ''
         run: |
           hatch run hatch-test.py${{ inputs.max-python-version }}:coverage xml
         shell: bash
