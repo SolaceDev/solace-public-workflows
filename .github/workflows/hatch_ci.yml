@@ -93,12 +93,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           fetch-depth: 0
 
       - name: Checkout Workflows Repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           repository: SolaceDev/solace-public-workflows
           path: workflows-repo
@@ -123,7 +123,7 @@ jobs:
           echo "ws_project_name=${WS_PROJECT_NAME}" >> $GITHUB_ENV
       - name: Setup Node.js
         if: inputs.npm_package_path != ''
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: ${{ inputs.node_version }}
           cache: "npm"
@@ -188,7 +188,7 @@ jobs:
           hatch test --python ${{ inputs.max-python-version }}  --cover --parallel --junitxml=junit-${{ inputs.max-python-version }}.xml
 
       - name: Status Check - Unit Tests on default python version
-        uses: mikepenz/action-junit-report@v5
+        uses: mikepenz/action-junit-report@3585e9575db828022551b4231f165eb59a0e74e3 # v5.6.2
         if: steps.hatch-setup.outputs.matrix-present == 'false' && hashFiles('junit-default.xml') != ''
         with:
           check_name: Unit Tests on default python version
@@ -196,14 +196,14 @@ jobs:
           include_passed: true
 
       - name: Status Check - Unit Tests on Python ${{ inputs.min-python-version }}
-        uses: mikepenz/action-junit-report@v5
+        uses: mikepenz/action-junit-report@3585e9575db828022551b4231f165eb59a0e74e3 # v5.6.2
         if: steps.hatch-setup.outputs.matrix-present == 'true' && hashFiles('junit-${{ inputs.min-python-version }}.xml') != ''
         with:
           check_name: Unit Tests on Python ${{ inputs.min-python-version }}
           report_paths: junit-${{ inputs.min-python-version }}.xml
 
       - name: Status Check - Unit Tests on Python ${{ inputs.max-python-version }}
-        uses: mikepenz/action-junit-report@v5
+        uses: mikepenz/action-junit-report@3585e9575db828022551b4231f165eb59a0e74e3 # v5.6.2
         if: steps.hatch-setup.outputs.matrix-present == 'true' && hashFiles('junit-${{ inputs.max-python-version }}.xml') != ''
         with:
           check_name: Unit Tests on Python ${{ inputs.max-python-version }}
@@ -225,7 +225,7 @@ jobs:
 
       - name: SonarQube Scan
         if: fromJson(env.not_fork_pr)
-        uses: sonarsource/sonarqube-scan-action@v5.3.1
+        uses: sonarsource/sonarqube-scan-action@fd88b7d7ccbaefd23d8f36f73b59db7a3d246602 # v6.0.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
@@ -236,7 +236,6 @@ jobs:
             -Dsonar.sources=src/
             -Dsonar.projectKey=${{github.repository_owner}}_${{github.event.repository.name}}
             -Dsonar.python.coverage.reportPaths=coverage.xml
-            -Dsonar.python.ruff.reportPaths=lint.json
 
       - name: SonarQube Quality Gate check
         if: fromJson(env.is_pr) && fromJson(env.not_fork_pr)
