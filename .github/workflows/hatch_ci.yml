@@ -264,13 +264,13 @@ jobs:
         shell: bash
 
       - name: Install Virtualenv for Whitesource Scan
-        if: fromJson(env.has_whitesource_config) && fromJson(env.not_fork_pr)
+        if: fromJson(env.has_whitesource_config) && fromJson(env.not_fork_pr) && fromJson(env.is_push)
         run: |
           python3 -m pip install --upgrade pip
           python3 -m pip install virtualenv
 
       - name: Generate Clean Requirements for WhiteSource
-        if: fromJson(env.has_whitesource_config) && fromJson(env.not_fork_pr)
+        if: fromJson(env.has_whitesource_config) && fromJson(env.not_fork_pr) && fromJson(env.is_push)
         id: generate-requirements
         uses: ./workflows-repo/.github/actions/generate-clean-requirements
         with:
@@ -280,7 +280,7 @@ jobs:
           output-dir: .
 
       - name: List Generated Requirements Files
-        if: fromJson(env.has_whitesource_config) && fromJson(env.not_fork_pr)
+        if: fromJson(env.has_whitesource_config) && fromJson(env.not_fork_pr) && fromJson(env.is_push)
         shell: bash
         run: |
           echo "📋 Generated requirements files:"
@@ -298,7 +298,7 @@ jobs:
           done
 
       - name: Show WhiteSource Configuration
-        if: fromJson(env.has_whitesource_config) && inputs.whitesource_config_file != '' && fromJson(env.not_fork_pr)
+        if: fromJson(env.has_whitesource_config) && inputs.whitesource_config_file != '' && fromJson(env.not_fork_pr) && fromJson(env.is_push)
         shell: bash
         run: |
           echo "🔧 WhiteSource Configuration File:"
@@ -310,7 +310,7 @@ jobs:
           fi
 
       - name: Run Whitesource Scan
-        if: fromJson(env.has_whitesource_config) && fromJson(env.not_fork_pr)
+        if: fromJson(env.has_whitesource_config) && fromJson(env.not_fork_pr) && fromJson(env.is_push)
         uses: ./workflows-repo/.github/actions/whitesource-scan
         with:
           whitesource_product_name: ${{ inputs.whitesource_product_name }}
