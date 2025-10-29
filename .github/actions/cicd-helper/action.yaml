@@ -83,7 +83,7 @@ inputs:
     description: "DynamoDB table field used for index"
     required: false
   ddb_index_field_value:
-    description: "DynamoDB table, value used to match index failed value"
+    description: "DynamoDB table, value used to match index field value"
     required: false
   aws_region:
     description: "AWS region to use (optional, defaults to us-east-1 if not set)"
@@ -91,7 +91,7 @@ inputs:
 
 runs:
   using: docker
-  image: docker://ghcr.io/solacedev/maas-build-actions:master
+  image: docker://ghcr.io/solacedev/maas-build-actions:cicd_mq_test_dynamo
   entrypoint: /bin/sh
   args:
     - -c
@@ -162,7 +162,7 @@ runs:
       echo "AWS_REGION: $AWS_REGION"
       echo "THREAD_MESSAGE_TS: $THREAD_MESSAGE_TS"
       echo "NEW_THREAD_MESSAGE: $NEW_THREAD_MESSAGE"
-      echo "DDB_TABLE_INDEX_NAME : $DDB_TABLE_INDEX_NAME"
+      echo "DDB_TABLE_INDEX_NAME: $DDB_TABLE_INDEX_NAME"
       echo "DDB_INDEX_FIELD_NAME: $DDB_INDEX_FIELD_NAME"
       echo "DDB_INDEX_FIELD_VALUE: $DDB_INDEX_FIELD_VALUE"
 
