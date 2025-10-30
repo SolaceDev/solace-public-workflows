@@ -218,7 +218,7 @@ jobs:
 
       - name: Setup Node.js
         if: inputs.npm_package_path != ''
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: ${{ inputs.node_version }}
           cache: "npm"
