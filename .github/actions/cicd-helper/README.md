@@ -46,6 +46,9 @@ The `cicd-helper` GitHub Action is a reusable utility for CI/CD pipelines to aut
 | `ddb_field_path`       | Sometimes| Dot-separated path to the field (for `get_item_value_from_dynamodb`).                         |
 | `ddb_output_name`      | Optional | Output variable name (default: `FIELD_VALUE`) (for `get_item_value_from_dynamodb`).           |
 | `ddb_return_section`   | Optional | If set to `true`, returns the entire section as clean JSON (for `get_item_value_from_dynamodb`).|
+| `ddb_table_index_name` | Sometimes| DynamoDB table's index name (for `get_item_by_index`).                                        |
+| `ddb_index_field_name` | Sometimes| DynamoDB table field used for index (for `get_item_by_index`).                                |
+| `ddb_index_field_value`| Sometimes| DynamoDB table, value used to match index field value (for `get_item_by_index`).             |
 
 > **Note:** Not all inputs are required for every step. See the table below for step-specific requirements.
 
@@ -63,6 +66,7 @@ The `cicd-helper` GitHub Action is a reusable utility for CI/CD pipelines to aut
 | `add_item_from_json_to_dynamodb_table` | Adds an item to a DynamoDB table from a JSON string. | `ddb_item_to_be_added`, `ddb_table_name`, `ddb_partition_key`, (`ddb_sort_key` optional)             |                                         |
 | `item_exists_in_dynamodb`      | Checks if an item exists in a DynamoDB table.             | `ddb_query_json`, `ddb_table_name`, `ddb_partition_key`, (`ddb_exists_output` optional)              | `ITEM_EXISTS` (or custom name)          |
 | `get_item_value_from_dynamodb` | Retrieves a specific field value or section from a DynamoDB item. | `ddb_query_json`, `ddb_table_name`, `ddb_partition_key`, (`ddb_sort_key` optional), `ddb_field_path`, (`ddb_output_name` optional), (`ddb_return_section` optional) | Field value or section as output        |
+| `get_item_by_index`            | Retrieves an item from a DynamoDB table using a secondary index with optional JSON query filters. | `ddb_table_name`, `ddb_table_index_name`, `ddb_index_field_name`, `ddb_index_field_value`, `ddb_query_json`, (`ddb_output_name` optional) | Index item data as output               |
 
 ---
 
@@ -193,6 +197,36 @@ To get the entire `dev` section as JSON:
 - If `ddb_return_section` is `true`: the entire section as compact JSON (e.g., `{ "chart_version": "", "image_tag": "0.0.6-1560dda3fb", ... }`)
 - If no item is found: `NOT_FOUND`
 - If the field/section is not found: `FIELD_NOT_FOUND`
+
+
+### Get an Item by Index from DynamoDB
+
+```yaml
+- name: Fetch SHA information from ebp-build-manifest
+  id: fetch_headsha_manifest_entry
+  uses: SolaceDev/solace-public-workflows/.github/actions/cicd-helper@main
+  with:
+    rc_step: get_item_by_index
+    aws_region: ca-central-1
+    ddb_table_name: "ebp-build-manifest"
+    ddb_table_index_name: "ebp-build-manifest-sha"
+    ddb_index_field_name: "git_sha"
+    ddb_index_field_value: "${{ env.HEAD_SHA }}"
+    ddb_output_name: "mq_sha_metadata"
+    ddb_query_json: >-
+      {
+        "metadata": {
+          "merge_queue": "true"
+        }
+      }
+```
+
+**Description:**
+This step queries the `ebp-build-manifest` table using the `ebp-build-manifest-sha` index to find items where the `git_sha` field matches `${{ env.HEAD_SHA }}`. It also applies additional filters from the JSON query to only return items where `metadata.merge_queue` equals `"true"`.
+
+**Outputs:**
+- If an item is found: the complete item data as JSON
+- If no item is found: `NOT_FOUND`
 
 
 ### Check if an Item Exists in DynamoDB
