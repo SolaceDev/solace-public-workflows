@@ -79,51 +79,117 @@ permissions:
   pull-requests: write
   checks: write
   contents: write
+
 concurrency:
   # Only run once for latest commit per ref and cancel other (previous) runs.
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
-env:
-  not_fork_pr: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
-  is_pr: ${{ github.event_name == 'pull_request' }}
-  is_push: ${{ github.event_name == 'push' && github.ref_name == github.event.repository.default_branch }}
+
 jobs:
-  build:
-    name: Lint, Test, and Build
+  # ----------------------------------------------------
+  # DEPENDENCY VALIDATION JOB (runs once)
+  # ----------------------------------------------------
+  validate-dependencies:
+    name: Validate Dependencies
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           fetch-depth: 0
 
       - name: Checkout Workflows Repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           repository: SolaceDev/solace-public-workflows
           path: workflows-repo
 
-      - name: Setup Conditional Steps
-        id: conditional-steps
-        shell: bash
+      - name: Validate Dependency Conflicts
+        if: fromJson(inputs.validate_dependency_conflicts)
+        uses: ./workflows-repo/.github/actions/validate-dependency-conflicts
+        with:
+          pyproject-file: pyproject.toml
+          fail-on-conflicts: true
+          script-path: workflows-repo/.github/scripts/validate_dependencies.py
+
+  # ----------------------------------------------------
+  # PARALLEL JOB: Python Version Testing Matrix
+  # ----------------------------------------------------
+  test-python-matrix:
+    name: Test Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version:
+          - ${{ inputs.min-python-version }}
+          - ${{ inputs.max-python-version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Checkout Workflows Repository
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          repository: SolaceDev/solace-public-workflows
+          path: workflows-repo
+
+      - name: Setup Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5.5.0
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Install Hatch
+        run: uv tool install hatch
+
+      - name: Run Tests with Coverage
+        continue-on-error: true
         run: |
-          # Set environment variables for conditional steps
-          echo "has_whitesource_config=${{ inputs.whitesource_product_name != '' && inputs.whitesource_project_name != '' }}" >> $GITHUB_ENV
-          WS_PROJECT_NAME="${{ inputs.whitesource_project_name }}"
+          hatch -v test --cover --junitxml=junit-${{ matrix.python-version }}.xml --cov-report=xml
 
-          if [ "${{ inputs.whitesource_project_name }}" = "" ]; then
-            WS_PROJECT_NAME="${{ github.event.repository.name }}"
-          fi
+      - name: Upload Test Results
+        uses: mikepenz/action-junit-report@3585e9575db828022551b4231f165eb59a0e74e3 # v5.6.2
+        if: hashFiles('junit-${{ matrix.python-version }}.xml') != ''
+        with:
+          check_name: Unit Tests on Python ${{ matrix.python-version }}
+          report_paths: junit-${{ matrix.python-version }}.xml
+          include_passed: true
+      - name: Upload Coverage Data
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.python-version }}
+          path: |
+            coverage.xml
+          retention-days: 1
 
-          # Set dynamic PR WhiteSource project name based on event type
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            WS_PROJECT_NAME="${WS_PROJECT_NAME}-pr-${{ github.event.pull_request.number }}"
-          fi
+  # ----------------------------------------------------
+  # PARALLEL JOB: Build and Package Verification
+  # ----------------------------------------------------
+  build-and-verify:
+    name: Build and Verify Packages
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 0
 
-          echo "ws_project_name=${WS_PROJECT_NAME}" >> $GITHUB_ENV
+      - name: Checkout Workflows Repository
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          repository: SolaceDev/solace-public-workflows
+          path: workflows-repo
+
       - name: Setup Node.js
         if: inputs.npm_package_path != ''
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: ${{ inputs.node_version }}
           cache: "npm"
@@ -136,20 +202,23 @@ jobs:
           npm install
           npm run build
 
-      - name: Set up Hatch
-        id: hatch-setup
-        uses: ./workflows-repo/.github/actions/hatch-setup
+      - name: Setup Python for Build
+        uses: actions/setup-python@v5.5.0
         with:
-          min-python-version: ${{ inputs.min-python-version }}
-          max-python-version: ${{ inputs.max-python-version }}
+          python-version: ${{ inputs.max-python-version }}
+          cache: "pip"
+          cache-dependency-path: "pyproject.toml"
 
-      - name: Validate Dependency Conflicts
-        if: fromJson(inputs.validate_dependency_conflicts)
-        uses: ./workflows-repo/.github/actions/validate-dependency-conflicts
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
         with:
-          pyproject-file: pyproject.toml
-          fail-on-conflicts: true
-          script-path: workflows-repo/.github/scripts/validate_dependencies.py
+          enable-cache: true
+
+      - name: Install Hatch
+        run: uv tool install hatch
+
+      - name: Install twine
+        run: uv tool install twine
 
       - name: Run Lint
         continue-on-error: true
@@ -167,110 +236,106 @@ jobs:
           fi
         shell: bash
 
-      - name: Run Tests with default python version
-        shell: bash
-        if: steps.hatch-setup.outputs.matrix-present == 'false'
+      - name: Build Package
+        run: hatch -v build
+
+      - name: Verify Packages
         run: |
-          hatch run pytest --junitxml=junit-default.xml
-
-      - name: Run Unit Tests on Python ${{ inputs.min-python-version }}
-        continue-on-error: true
+          ls dist/*.tar.gz | xargs -n1 twine check
+          ls dist/*.whl | xargs -n1 twine check
         shell: bash
-        if: steps.hatch-setup.outputs.matrix-present == 'true'
-        run: |
-          hatch test --python ${{ inputs.min-python-version }}  --cover --parallel --junitxml=junit-${{ inputs.min-python-version }}.xml
 
-      - name: Run Unit Tests on Python ${{ inputs.max-python-version }}
-        continue-on-error: true
-        shell: bash
-        if: steps.hatch-setup.outputs.matrix-present == 'true'
-        run: |
-          hatch test --python ${{ inputs.max-python-version }}  --cover --parallel --junitxml=junit-${{ inputs.max-python-version }}.xml
-
-      - name: Status Check - Unit Tests on default python version
-        uses: mikepenz/action-junit-report@v5
-        if: steps.hatch-setup.outputs.matrix-present == 'false' && hashFiles('junit-default.xml') != ''
+  # ----------------------------------------------------
+  # COVERAGE AND SONARQUBE JOB (runs after tests complete)
+  # ----------------------------------------------------
+  coverage-and-sonar:
+    name: Coverage and SonarQube Analysis
+    runs-on: ubuntu-latest
+    needs: [validate-dependencies, test-python-matrix]
+    if: ${{ !github.event.repository.fork }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
-          check_name: Unit Tests on default python version
-          report_paths: junit-default.xml
-          include_passed: true
+          fetch-depth: 0
 
-      - name: Status Check - Unit Tests on Python ${{ inputs.min-python-version }}
-        uses: mikepenz/action-junit-report@v5
-        if: steps.hatch-setup.outputs.matrix-present == 'true' && hashFiles('junit-${{ inputs.min-python-version }}.xml') != ''
+      - name: Download Coverage Artifacts
+        uses: actions/download-artifact@v4
         with:
-          check_name: Unit Tests on Python ${{ inputs.min-python-version }}
-          report_paths: junit-${{ inputs.min-python-version }}.xml
-
-      - name: Status Check - Unit Tests on Python ${{ inputs.max-python-version }}
-        uses: mikepenz/action-junit-report@v5
-        if: steps.hatch-setup.outputs.matrix-present == 'true' && hashFiles('junit-${{ inputs.max-python-version }}.xml') != ''
-        with:
-          check_name: Unit Tests on Python ${{ inputs.max-python-version }}
-          report_paths: junit-${{ inputs.max-python-version }}.xml
+          pattern: coverage-${{ inputs.max-python-version }}
+          path: coverage-data-${{ inputs.max-python-version }}
 
       - name: Combine Coverage Reports
         continue-on-error: true
-        if: hashFiles('*.cov') != ''
         run: |
-          hatch run hatch-test.py${{ inputs.max-python-version }}:coverage combine
-        shell: bash
-
-      - name: Report coverage
-        continue-on-error: true
-        if: hashFiles('*.cov') != ''
-        run: |
-          hatch run hatch-test.py${{ inputs.max-python-version }}:coverage xml
+          # Find all coverage files
+          cp coverage-data-${{ inputs.max-python-version }}/coverage.xml .
         shell: bash
 
       - name: SonarQube Scan
-        if: fromJson(env.not_fork_pr)
-        uses: sonarsource/sonarqube-scan-action@v5.3.1
+        uses: sonarsource/sonarqube-scan-action@fd88b7d7ccbaefd23d8f36f73b59db7a3d246602 # v6.0.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
         with:
           args: >
-            -Dsonar.tests=tests/
-            -Dsonar.verbose=true
-            -Dsonar.sources=src/
-            -Dsonar.projectKey=${{github.repository_owner}}_${{github.event.repository.name}}
-            -Dsonar.python.coverage.reportPaths=coverage.xml
-            -Dsonar.python.ruff.reportPaths=lint.json
+            "-Dsonar.tests=tests/"
+            "-Dsonar.verbose=true"
+            "-Dsonar.sources=src/"
+            "-Dsonar.projectKey=${{github.repository_owner}}_${{github.event.repository.name}}"
+            "-Dsonar.python.coverage.reportPaths=coverage.xml"
 
       - name: SonarQube Quality Gate check
-        if: fromJson(env.is_pr) && fromJson(env.not_fork_pr)
+        if: github.event_name == 'pull_request'
         id: sonarqube-quality-gate-check
         uses: sonarsource/sonarqube-quality-gate-action@master
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
 
-      - name: Comment on PR with Test Results
-        if: fromJson(env.is_pr) && (hashFiles('junit-*.xml') != '') && (hashFiles('coverage.xml') != '')
-        continue-on-error: true
-        env:
-          MIN_PYTHON_VERSION_FILE: ${{ format('junit-{0}.xml', inputs.min-python-version) }}
-          MAX_PYTHON_VERSION_FILE: ${{ format('junit-{0}.xml', inputs.max-python-version) }}
-        uses: xportation/junit-coverage-report@main
+  # ----------------------------------------------------
+  # WHITESOURCE SCANNING JOB (runs in parallel)
+  # ----------------------------------------------------
+  whitesource-scan:
+    name: WhiteSource Security Scan
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && !github.event.repository.fork && github.ref_name == github.event.repository.default_branch
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
-          junit-path: ${{ hashFiles('junit-default.xml') != '' && 'junit-default.xml' || hashFiles(env.MIN_PYTHON_VERSION_FILE) != '' && env.MIN_PYTHON_VERSION_FILE || hashFiles(env.MAX_PYTHON_VERSION_FILE) != '' && env.MAX_PYTHON_VERSION_FILE }}
-          coverage-path: coverage.xml
+          fetch-depth: 0
 
-      - name: Verify Packages
-        run: |
-          ls dist/*.tar.gz | xargs -n1 hatch run python -m twine check
-          ls dist/*.whl | xargs -n1 hatch run python -m twine check
+      - name: Checkout Workflows Repository
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          repository: SolaceDev/solace-public-workflows
+          path: workflows-repo
+
+      - name: Setup Python for Whitesource Scan
+        uses: actions/setup-python@v5.5.0
+        with:
+          python-version: ${{ inputs.max-python-version }}
+          cache: "pip"
+          cache-dependency-path: "pyproject.toml"
+
+      - name: Setup WhiteSource Project Name
+        id: setup-ws-project
         shell: bash
+        run: |
+          WS_PROJECT_NAME="${{ inputs.whitesource_project_name }}"
+
+          if [ "${{ inputs.whitesource_project_name }}" = "" ]; then
+            WS_PROJECT_NAME="${{ github.event.repository.name }}"
+          fi
+          echo "ws_project_name=${WS_PROJECT_NAME}" >> $GITHUB_ENV
 
       - name: Install Virtualenv for Whitesource Scan
-        if: fromJson(env.has_whitesource_config) && fromJson(env.not_fork_pr) && fromJson(env.is_push)
         run: |
           python3 -m pip install --upgrade pip
           python3 -m pip install virtualenv
 
       - name: Generate Clean Requirements for WhiteSource
-        if: fromJson(env.has_whitesource_config) && fromJson(env.not_fork_pr) && fromJson(env.is_push)
         id: generate-requirements
         uses: ./workflows-repo/.github/actions/generate-clean-requirements
         with:
@@ -280,7 +345,6 @@ jobs:
           output-dir: .
 
       - name: List Generated Requirements Files
-        if: fromJson(env.has_whitesource_config) && fromJson(env.not_fork_pr) && fromJson(env.is_push)
         shell: bash
         run: |
           echo "📋 Generated requirements files:"
@@ -298,7 +362,7 @@ jobs:
           done
 
       - name: Show WhiteSource Configuration
-        if: fromJson(env.has_whitesource_config) && inputs.whitesource_config_file != '' && fromJson(env.not_fork_pr) && fromJson(env.is_push)
+        if: inputs.whitesource_config_file != ''
         shell: bash
         run: |
           echo "🔧 WhiteSource Configuration File:"
@@ -310,17 +374,36 @@ jobs:
           fi
 
       - name: Run Whitesource Scan
-        if: fromJson(env.has_whitesource_config) && fromJson(env.not_fork_pr) && fromJson(env.is_push)
         uses: ./workflows-repo/.github/actions/whitesource-scan
         with:
           whitesource_product_name: ${{ inputs.whitesource_product_name }}
-          whitesource_project_name: ${{ env.ws_project_name }}
+          whitesource_project_name: ${{ inputs.whitesource_project_name || github.event.repository.name }}
           whitesource_api_key: ${{ secrets.WHITESOURCE_API_KEY }}
           whitesource_config_file: ${{ inputs.whitesource_config_file }}
 
+  # ----------------------------------------------------
+  # WHITESOURCE POLICY AND VULNERABILITY GATES
+  # ----------------------------------------------------
+  whitesource-gates:
+    name: WhiteSource Policy and Vulnerability Gates
+    runs-on: ubuntu-latest
+    needs: [whitesource-scan]
+    if: github.event_name == 'push' && !github.event.repository.fork && github.ref_name == github.event.repository.default_branch
+    steps:
+      - name: Setup WhiteSource Project Name
+        id: setup-ws-project-gates
+        shell: bash
+        run: |
+          WS_PROJECT_NAME="${{ inputs.whitesource_project_name }}"
+
+          if [ "${{ inputs.whitesource_project_name }}" = "" ]; then
+            WS_PROJECT_NAME="${{ github.event.repository.name }}"
+          fi
+
+          echo "ws_project_name=${WS_PROJECT_NAME}" >> $GITHUB_ENV
+
       - name: Run WhiteSource Policy Gate
         id: whitesource-policy-gate
-        if: fromJson(env.is_push) && fromJson(env.has_whitesource_config) && fromJson(env.not_fork_pr)
         uses: docker://ghcr.io/solacedev/maas-build-actions:latest
         continue-on-error: true
         env:
@@ -348,7 +431,6 @@ jobs:
             "
 
       - name: Run WhiteSource Vulnerability Gate
-        if: fromJson(env.is_push) && fromJson(env.has_whitesource_config) && fromJson(env.not_fork_pr)
         id: whitesource-vulnerability-gate
         uses: docker://ghcr.io/solacedev/maas-build-actions:latest
         continue-on-error: true
@@ -366,7 +448,6 @@ jobs:
           GH_ORG: ${{ github.repository_owner }}
           GH_REPO: ${{ github.event.repository.name }}
           GITHUB_SHA: ${{ github.sha }}
-
         with:
           entrypoint: /bin/sh
           args: >
