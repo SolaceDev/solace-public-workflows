@@ -161,6 +161,26 @@ jobs:
           check_name: Unit Tests on Python ${{ matrix.python-version }}
           report_paths: junit-${{ matrix.python-version }}.xml
           include_passed: true
+
+      - name: Debug - List Coverage Files
+        run: |
+          echo "🔍 Listing all coverage files in current directory:"
+          ls -lah coverage* 2>/dev/null || echo "No coverage files found matching 'coverage*'"
+          echo ""
+          echo "📁 Current directory contents:"
+          ls -lah
+          echo ""
+          echo "📄 Looking for coverage.xml specifically:"
+          if [ -f "coverage.xml" ]; then
+            echo "✅ coverage.xml exists"
+            echo "Size: $(du -h coverage.xml | cut -f1)"
+            echo "First 10 lines:"
+            head -10 coverage.xml
+          else
+            echo "❌ coverage.xml not found"
+          fi
+        shell: bash
+
       - name: Upload Coverage Data
         uses: actions/upload-artifact@v4
         with:
