@@ -269,7 +269,7 @@ jobs:
         continue-on-error: true
         run: |
           # Find all coverage files
-          cp coverage-data-${{ inputs.max-python-version }}/coverage.xml .
+          cp coverage-data-${{ inputs.max-python-version }}/* .
         shell: bash
 
       - name: SonarQube Scan
@@ -283,7 +283,7 @@ jobs:
             "-Dsonar.verbose=true"
             "-Dsonar.sources=src/"
             "-Dsonar.projectKey=${{github.repository_owner}}_${{github.event.repository.name}}"
-            "-Dsonar.python.coverage.reportPaths=coverage.xml"
+            "-Dsonar.python.coverage.reportPaths=*.xml"
 
       - name: SonarQube Quality Gate check
         if: github.event_name == 'pull_request'
