@@ -187,12 +187,13 @@ jobs:
           fi
         shell: bash
 
-      - name: Upload Coverage Data
+      - name: Upload Coverage and Test Results
         uses: actions/upload-artifact@v4
         with:
           name: coverage-${{ matrix.python-version }}
           path: |
             coverage.xml
+            junit-${{ matrix.python-version }}.xml
           retention-days: 1
 
   # ----------------------------------------------------
@@ -297,15 +298,20 @@ jobs:
           find coverage-data-${{ inputs.max-python-version }} -type f
         shell: bash
 
-      - name: Combine Coverage Reports
+      - name: Combine Coverage and Test Reports
         continue-on-error: true
         run: |
-          # Find and copy all coverage XML files from nested artifact directories
-          find coverage-data-${{ inputs.max-python-version }} -name "*.xml" -exec cp {} . \;
+          # Find and copy all XML files (coverage and junit) from nested artifact directories
+          find coverage-data-${{ inputs.max-python-version }} -name "coverage.xml" -exec cp {} . \;
+          find coverage-data-${{ inputs.max-python-version }} -name "junit-*.xml" -exec cp {} . \;
 
-          # Verify coverage files were copied
-          echo "📊 Coverage files in current directory:"
-          ls -lah *.xml 2>/dev/null || echo "No coverage XML files found"
+          # Verify files were copied
+          echo "📊 Coverage and test files in current directory:"
+          echo "Coverage files:"
+          ls -lah coverage*.xml 2>/dev/null || echo "No coverage XML files found"
+          echo ""
+          echo "JUnit files:"
+          ls -lah junit-*.xml 2>/dev/null || echo "No JUnit XML files found"
         shell: bash
 
       - name: SonarQube Scan
@@ -319,7 +325,7 @@ jobs:
             "-Dsonar.verbose=true"
             "-Dsonar.sources=src/"
             "-Dsonar.projectKey=${{github.repository_owner}}_${{github.event.repository.name}}"
-            "-Dsonar.python.coverage.reportPaths=*.xml"
+            "-Dsonar.python.coverage.reportPaths=*coverage*.xml"
 
       - name: SonarQube Quality Gate check
         if: github.event_name == 'pull_request'
