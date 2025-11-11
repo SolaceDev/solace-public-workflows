@@ -154,6 +154,12 @@ jobs:
         run: |
           hatch -v test --cover --junitxml=junit-${{ matrix.python-version }}.xml --cov-report=xml
 
+      - name: Combine Coverage Reports
+        continue-on-error: true
+        run: |
+          hatch -e hatch-test.py${{ matrix.python-version }} run coverage xml
+        shell: bash
+
       - name: Upload Test Results
         uses: mikepenz/action-junit-report@3585e9575db828022551b4231f165eb59a0e74e3 # v5.6.2
         if: hashFiles('junit-${{ matrix.python-version }}.xml') != ''
