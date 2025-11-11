@@ -291,11 +291,21 @@ jobs:
           pattern: coverage-${{ inputs.max-python-version }}
           path: coverage-data-${{ inputs.max-python-version }}
 
+      - name: Debug - Show Downloaded Artifacts Structure
+        run: |
+          echo "📦 Downloaded artifacts structure:"
+          find coverage-data-${{ inputs.max-python-version }} -type f
+        shell: bash
+
       - name: Combine Coverage Reports
         continue-on-error: true
         run: |
-          # Find all coverage files
-          cp coverage-data-${{ inputs.max-python-version }}/* .
+          # Find and copy all coverage XML files from nested artifact directories
+          find coverage-data-${{ inputs.max-python-version }} -name "*.xml" -exec cp {} . \;
+
+          # Verify coverage files were copied
+          echo "📊 Coverage files in current directory:"
+          ls -lah *.xml 2>/dev/null || echo "No coverage XML files found"
         shell: bash
 
       - name: SonarQube Scan
