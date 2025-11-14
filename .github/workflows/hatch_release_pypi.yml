@@ -281,7 +281,6 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           git commit -a -m "[ci skip] Bump version to ${NEW_VERSION}"
-          git push
 
       - name: Get Commit Hash
         id: set_commit_hash
@@ -298,6 +297,11 @@ jobs:
         with:
           verbose: true
           password: ${{ secrets.PYPI_TOKEN }}
+
+      - name: Push version bump commit to main
+        if: ${{ env.SKIP_BUMP == '0' }}
+        run: |
+          git push
 
       - name: Create Release
         uses: ncipollo/release-action@v1
@@ -321,6 +325,7 @@ jobs:
 
       - name: Update Release Notes
         continue-on-error: true
+        if: ${{ format('{0}', steps.generate_release_notes.outputs.total-commits) != '0' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
