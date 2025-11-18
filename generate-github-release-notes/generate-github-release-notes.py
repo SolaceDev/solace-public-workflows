@@ -86,20 +86,34 @@ def _create_graphql_client(github_token: str) -> Client:
     return Client(transport=transport)
 
 
-def get_latest_release_tag(github_token: str, repo_name: str) -> str | None:
-    """Get the latest release tag from the repository using REST API
+def _parse_version(tag_name: str) -> version.Version | None:
+    """Parse semantic version from tag name, handling 'v' prefix"""
+    try:
+        # Remove 'v' prefix if present
+        version_str = tag_name[1:] if tag_name.startswith("v") else tag_name
+        return version.parse(version_str)
+    except version.InvalidVersion:
+        return None
 
-    Uses the GitHub REST API endpoint: GET /repos/{owner}/{repo}/releases/latest
-    The latest release is the most recent non-prerelease, non-draft release.
+
+def get_previous_release_tag(
+    github_token: str, repo_name: str, to_ref: str
+) -> str | None:
+    """Get the release tag that comes before to_ref in semantic version order
+
+    Fetches all releases and finds the one with the highest semantic version
+    that is less than to_ref. This works correctly even when to_ref is not
+    the latest release.
 
     Args:
         github_token: GitHub authentication token
         repo_name: Repository name in format "owner/repo"
+        to_ref: The target reference to find the previous release for
 
     Returns:
-        The tag name of the latest release, or None if no releases found
+        The tag name of the previous release, or None if no suitable release found
     """
-    url = f"https://api.github.com/repos/{repo_name}/releases/latest"
+    url = f"https://api.github.com/repos/{repo_name}/releases"
     headers = {
         "Accept": "application/vnd.github+json",
         "Authorization": f"Bearer {github_token}",
@@ -107,24 +121,59 @@ def get_latest_release_tag(github_token: str, repo_name: str) -> str | None:
     }
 
     try:
-        print(f"Attempting to fetch latest release from {repo_name}...")
-        response = requests.get(url, headers=headers, timeout=10)
+        print(
+            f"Fetching releases from {repo_name} to find previous release before {to_ref}..."
+        )
 
-        if response.status_code == 200:
-            data = response.json()
-            tag_name = data.get("tag_name")
-            if tag_name:
-                print(f"Found latest release: {tag_name}")
-                return tag_name
-        elif response.status_code == 404:
+        # Parse the target version
+        to_version = _parse_version(to_ref)
+        if not to_version:
+            print(f"Warning: Could not parse semantic version from '{to_ref}'")
+            return None
+
+        # Fetch releases (up to 100, should be enough for most repos)
+        response = requests.get(
+            url, headers=headers, params={"per_page": 100}, timeout=10
+        )
+
+        if response.status_code != 200:
+            print(f"Error fetching releases: HTTP {response.status_code}")
+            return None
+
+        releases = response.json()
+        if not releases:
             print("No releases found in repository")
             return None
-        else:
-            print(f"Error fetching latest release: HTTP {response.status_code}")
+
+        # Find all releases with valid semantic versions less than to_ref
+        valid_releases = []
+        for release in releases:
+            if release.get("draft") or release.get("prerelease"):
+                continue  # Skip drafts and prereleases
+
+            tag_name = release.get("tag_name")
+            if not tag_name:
+                continue
+
+            release_version = _parse_version(tag_name)
+            if release_version and release_version < to_version:
+                valid_releases.append((release_version, tag_name))
+
+        if not valid_releases:
+            print(f"No releases found with version < {to_ref}")
             return None
 
+        # Sort by version and get the highest one
+        valid_releases.sort(reverse=True)
+        previous_tag = valid_releases[0][1]
+        print(f"Found previous release: {previous_tag} (before {to_ref})")
+        return previous_tag
+
     except Exception as e:
-        print(f"Error fetching latest release: {e}")
+        print(f"Error fetching releases: {e}")
+        import traceback
+
+        traceback.print_exc()
         return None
 
 
@@ -327,21 +376,21 @@ def get_commits_between_refs(from_ref: str, to_ref: str) -> list[dict[str, str]]
         return commits
 
     except RefNotFoundError as e:
-        # If the from_ref (base) was not found, try using the latest release as fallback
+        # If the from_ref (base) was not found, try using the previous release as fallback
         if e.is_base_ref:
             print(
-                f"Warning: Base ref '{from_ref}' not found. Trying fallback to latest release..."
+                f"Warning: Base ref '{from_ref}' not found. Trying fallback to previous release before '{to_ref}'..."
             )
 
-            latest_tag = get_latest_release_tag(github_token, github_repo)
-            if latest_tag:
+            previous_tag = get_previous_release_tag(github_token, github_repo, to_ref)
+            if previous_tag:
                 print(
-                    f"Using latest release tag '{latest_tag}' as base ref instead of '{from_ref}'"
+                    f"Using previous release tag '{previous_tag}' as base ref instead of '{from_ref}'"
                 )
                 try:
-                    # Retry with the latest release tag
+                    # Retry with the previous release tag
                     commits = _get_commits_with_prs_graphql(
-                        graphql_client, github_repo, latest_tag, to_ref
+                        graphql_client, github_repo, previous_tag, to_ref
                     )
                     print(f"Processing {len(commits)} commits...")
                     return commits
