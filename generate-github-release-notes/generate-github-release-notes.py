@@ -6,6 +6,8 @@ import re
 import sys
 from os import getenv
 from pathlib import Path
+
+import requests
 from gql import Client, gql
 from gql.transport.requests import RequestsHTTPTransport
 
@@ -83,24 +85,80 @@ def _create_graphql_client(github_token: str) -> Client:
     return Client(transport=transport)
 
 
+def get_latest_release_tag(github_token: str, repo_name: str) -> str | None:
+    """Get the latest release tag from the repository using REST API
+
+    Uses the GitHub REST API endpoint: GET /repos/{owner}/{repo}/releases/latest
+    The latest release is the most recent non-prerelease, non-draft release.
+
+    Args:
+        github_token: GitHub authentication token
+        repo_name: Repository name in format "owner/repo"
+
+    Returns:
+        The tag name of the latest release, or None if no releases found
+    """
+    url = f"https://api.github.com/repos/{repo_name}/releases/latest"
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {github_token}",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+
+    try:
+        print(f"Attempting to fetch latest release from {repo_name}...")
+        response = requests.get(url, headers=headers, timeout=10)
+
+        if response.status_code == 200:
+            data = response.json()
+            tag_name = data.get("tag_name")
+            if tag_name:
+                print(f"Found latest release: {tag_name}")
+                return tag_name
+        elif response.status_code == 404:
+            print("No releases found in repository")
+            return None
+        else:
+            print(f"Error fetching latest release: HTTP {response.status_code}")
+            return None
+
+    except Exception as e:
+        print(f"Error fetching latest release: {e}")
+        return None
+
+
 # Old helper functions removed - replaced with optimized GraphQL implementation
 
 
+class RefNotFoundError(Exception):
+    """Raised when a git ref/tag cannot be found"""
+
+    def __init__(self, ref: str, is_base_ref: bool = True):
+        self.ref = ref
+        self.is_base_ref = is_base_ref
+        super().__init__(f"Could not find ref '{ref}'")
+
+
 def _validate_graphql_response(result: dict, from_ref: str, to_ref: str) -> dict | None:
-    """Validate GraphQL response and return commits data or None if invalid"""
+    """Validate GraphQL response and return commits data or raise exception if invalid
+
+    Raises:
+        RefNotFoundError: If tags/refs cannot be found (may be recoverable)
+        SystemExit: If repository data is completely invalid
+    """
     if not result or "repository" not in result:
-        print("No repository data in GraphQL result")
-        return None
+        print("Error: No repository data in GraphQL result")
+        sys.exit(1)
 
     repo_data = result["repository"]
     if not repo_data or not repo_data.get("baseTagRef"):
-        print(f"Error: Could not find base ref '{from_ref}' in repository")
-        return None
+        # Base ref (from_ref) not found - this might be recoverable
+        raise RefNotFoundError(from_ref, is_base_ref=True)
 
     compare_data = repo_data["baseTagRef"]["compare"]
     if not compare_data:
-        print(f"Error: Could not compare {from_ref} with {to_ref}")
-        return None
+        # Could be either ref, but likely the to_ref
+        raise RefNotFoundError(to_ref, is_base_ref=False)
 
     return compare_data["commits"]
 
@@ -202,9 +260,8 @@ def _get_commits_with_prs_graphql(
             print(f"Executing GraphQL query (page {page_count + 1})...")
             result = graphql_client.execute(query, variable_values=variables)
 
+            # This will raise RefNotFoundError if tags/refs are invalid
             commits_data = _validate_graphql_response(result, from_ref, to_ref)
-            if not commits_data:
-                break
 
             page_info = commits_data["pageInfo"]
             nodes = commits_data["nodes"]
@@ -223,12 +280,15 @@ def _get_commits_with_prs_graphql(
             cursor = page_info["endCursor"]
             page_count += 1
 
+        except RefNotFoundError:
+            # Re-raise to be handled by caller
+            raise
         except Exception as e:
-            print(f"GraphQL query failed on page {page_count + 1}: {e}")
+            print(f"Error: GraphQL query failed on page {page_count + 1}: {e}")
             import traceback
 
             traceback.print_exc()
-            break
+            sys.exit(1)
 
     print(f"Successfully fetched {len(commits)} commits using GraphQL compare")
     return commits
@@ -246,7 +306,11 @@ def _build_commit_dict(commit, pr_number: str | None) -> dict[str, str]:
 
 
 def get_commits_between_refs(from_ref: str, to_ref: str) -> list[dict[str, str]]:
-    """Get commits between two git references using efficient GraphQL queries"""
+    """Get commits between two git references using efficient GraphQL queries
+
+    If from_ref is not found but to_ref is valid, attempts to use the latest release
+    tag as a fallback for from_ref.
+    """
     github_token, github_repo = _validate_environment()
 
     try:
@@ -260,6 +324,40 @@ def get_commits_between_refs(from_ref: str, to_ref: str) -> list[dict[str, str]]
 
         print(f"Processing {len(commits)} commits...")
         return commits
+
+    except RefNotFoundError as e:
+        # If the from_ref (base) was not found, try using the latest release as fallback
+        if e.is_base_ref:
+            print(
+                f"Warning: Base ref '{from_ref}' not found. Trying fallback to latest release..."
+            )
+
+            latest_tag = get_latest_release_tag(github_token, github_repo)
+            if latest_tag:
+                print(
+                    f"Using latest release tag '{latest_tag}' as base ref instead of '{from_ref}'"
+                )
+                try:
+                    # Retry with the latest release tag
+                    commits = _get_commits_with_prs_graphql(
+                        graphql_client, github_repo, latest_tag, to_ref
+                    )
+                    print(f"Processing {len(commits)} commits...")
+                    return commits
+                except RefNotFoundError as retry_error:
+                    print(f"Error: Fallback also failed: {retry_error}")
+                    print(f"Could not find ref '{retry_error.ref}'")
+                    sys.exit(1)
+            else:
+                print(
+                    f"Error: Could not find base ref '{from_ref}' and no releases found for fallback"
+                )
+                sys.exit(1)
+        else:
+            # to_ref (head) not found - cannot recover
+            print(f"Error: Could not find head ref '{to_ref}'")
+            print(f"Please ensure the tag/ref '{to_ref}' exists")
+            sys.exit(1)
 
     except Exception as e:
         print(f"Error: Failed to get commits using GraphQL: {e}")
@@ -771,16 +869,26 @@ def generate_release_notes(
     output_file: str,
     config_file: str = DEFAULT_VERSION_CONFIG_FILE,
 ) -> None:
-    """Generate release notes between two tags"""
+    """Generate release notes between two tags
+
+    Note: If tags/refs cannot be found, the script will exit with an error
+    and no file will be created. If tags are valid but there are no commits
+    between them, no file will be created either.
+
+    Raises:
+        SystemExit: If tags/refs cannot be found or other errors occur
+    """
     print(f"Generating release notes from {from_tag or 'beginning'} to {to_tag}...")
 
     # Load configuration and get commits
+    # Note: get_commits_between_refs will exit if tags don't exist
     config = load_version_config(config_file)
     commits = get_commits_between_refs(from_tag, to_tag)
 
+    # If we get here, tags are valid. Empty list means no commits between valid tags.
     if not commits:
-        print("No commits found between the specified references.")
-        write_and_output_results("No commits found in this release.\n", output_file, 0)
+        print("No commits found between the specified references (tags are valid).")
+        print("No release notes file will be created.")
         return
 
     # Process commits and generate content
