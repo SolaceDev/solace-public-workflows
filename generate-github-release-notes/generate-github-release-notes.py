@@ -6,6 +6,9 @@ import re
 import sys
 from os import getenv
 from pathlib import Path
+from packaging import version
+
+import requests
 from gql import Client, gql
 from gql.transport.requests import RequestsHTTPTransport
 
@@ -83,24 +86,129 @@ def _create_graphql_client(github_token: str) -> Client:
     return Client(transport=transport)
 
 
+def _parse_version(tag_name: str) -> version.Version | None:
+    """Parse semantic version from tag name, handling 'v' prefix"""
+    try:
+        # Remove 'v' prefix if present
+        version_str = tag_name[1:] if tag_name.startswith("v") else tag_name
+        return version.parse(version_str)
+    except version.InvalidVersion:
+        return None
+
+
+def get_previous_release_tag(
+    github_token: str, repo_name: str, to_ref: str
+) -> str | None:
+    """Get the release tag that comes before to_ref in semantic version order
+
+    Fetches all releases and finds the one with the highest semantic version
+    that is less than to_ref. This works correctly even when to_ref is not
+    the latest release.
+
+    Args:
+        github_token: GitHub authentication token
+        repo_name: Repository name in format "owner/repo"
+        to_ref: The target reference to find the previous release for
+
+    Returns:
+        The tag name of the previous release, or None if no suitable release found
+    """
+    url = f"https://api.github.com/repos/{repo_name}/releases"
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {github_token}",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+
+    try:
+        print(
+            f"Fetching releases from {repo_name} to find previous release before {to_ref}..."
+        )
+
+        # Parse the target version
+        to_version = _parse_version(to_ref)
+        if not to_version:
+            print(f"Warning: Could not parse semantic version from '{to_ref}'")
+            return None
+
+        # Fetch releases (up to 100, should be enough for most repos)
+        response = requests.get(
+            url, headers=headers, params={"per_page": 100}, timeout=10
+        )
+
+        if response.status_code != 200:
+            print(f"Error fetching releases: HTTP {response.status_code}")
+            return None
+
+        releases = response.json()
+        if not releases:
+            print("No releases found in repository")
+            return None
+
+        # Find all releases with valid semantic versions less than to_ref
+        valid_releases = []
+        for release in releases:
+            if release.get("draft") or release.get("prerelease"):
+                continue  # Skip drafts and prereleases
+
+            tag_name = release.get("tag_name")
+            if not tag_name:
+                continue
+
+            release_version = _parse_version(tag_name)
+            if release_version and release_version < to_version:
+                valid_releases.append((release_version, tag_name))
+
+        if not valid_releases:
+            print(f"No releases found with version < {to_ref}")
+            return None
+
+        # Sort by version and get the highest one
+        valid_releases.sort(reverse=True)
+        previous_tag = valid_releases[0][1]
+        print(f"Found previous release: {previous_tag} (before {to_ref})")
+        return previous_tag
+
+    except Exception as e:
+        print(f"Error fetching releases: {e}")
+        import traceback
+
+        traceback.print_exc()
+        return None
+
+
 # Old helper functions removed - replaced with optimized GraphQL implementation
 
 
+class RefNotFoundError(Exception):
+    """Raised when a git ref/tag cannot be found"""
+
+    def __init__(self, ref: str, is_base_ref: bool = True):
+        self.ref = ref
+        self.is_base_ref = is_base_ref
+        super().__init__(f"Could not find ref '{ref}'")
+
+
 def _validate_graphql_response(result: dict, from_ref: str, to_ref: str) -> dict | None:
-    """Validate GraphQL response and return commits data or None if invalid"""
+    """Validate GraphQL response and return commits data or raise exception if invalid
+
+    Raises:
+        RefNotFoundError: If tags/refs cannot be found (may be recoverable)
+        SystemExit: If repository data is completely invalid
+    """
     if not result or "repository" not in result:
-        print("No repository data in GraphQL result")
-        return None
+        print("Error: No repository data in GraphQL result")
+        sys.exit(1)
 
     repo_data = result["repository"]
     if not repo_data or not repo_data.get("baseTagRef"):
-        print(f"Error: Could not find base ref '{from_ref}' in repository")
-        return None
+        # Base ref (from_ref) not found - this might be recoverable
+        raise RefNotFoundError(from_ref, is_base_ref=True)
 
     compare_data = repo_data["baseTagRef"]["compare"]
     if not compare_data:
-        print(f"Error: Could not compare {from_ref} with {to_ref}")
-        return None
+        # Could be either ref, but likely the to_ref
+        raise RefNotFoundError(to_ref, is_base_ref=False)
 
     return compare_data["commits"]
 
@@ -202,9 +310,8 @@ def _get_commits_with_prs_graphql(
             print(f"Executing GraphQL query (page {page_count + 1})...")
             result = graphql_client.execute(query, variable_values=variables)
 
+            # This will raise RefNotFoundError if tags/refs are invalid
             commits_data = _validate_graphql_response(result, from_ref, to_ref)
-            if not commits_data:
-                break
 
             page_info = commits_data["pageInfo"]
             nodes = commits_data["nodes"]
@@ -223,12 +330,15 @@ def _get_commits_with_prs_graphql(
             cursor = page_info["endCursor"]
             page_count += 1
 
+        except RefNotFoundError:
+            # Re-raise to be handled by caller
+            raise
         except Exception as e:
-            print(f"GraphQL query failed on page {page_count + 1}: {e}")
+            print(f"Error: GraphQL query failed on page {page_count + 1}: {e}")
             import traceback
 
             traceback.print_exc()
-            break
+            sys.exit(1)
 
     print(f"Successfully fetched {len(commits)} commits using GraphQL compare")
     return commits
@@ -246,7 +356,11 @@ def _build_commit_dict(commit, pr_number: str | None) -> dict[str, str]:
 
 
 def get_commits_between_refs(from_ref: str, to_ref: str) -> list[dict[str, str]]:
-    """Get commits between two git references using efficient GraphQL queries"""
+    """Get commits between two git references using efficient GraphQL queries
+
+    If from_ref is not found but to_ref is valid, attempts to use the latest release
+    tag as a fallback for from_ref.
+    """
     github_token, github_repo = _validate_environment()
 
     try:
@@ -260,6 +374,40 @@ def get_commits_between_refs(from_ref: str, to_ref: str) -> list[dict[str, str]]
 
         print(f"Processing {len(commits)} commits...")
         return commits
+
+    except RefNotFoundError as e:
+        # If the from_ref (base) was not found, try using the previous release as fallback
+        if e.is_base_ref:
+            print(
+                f"Warning: Base ref '{from_ref}' not found. Trying fallback to previous release before '{to_ref}'..."
+            )
+
+            previous_tag = get_previous_release_tag(github_token, github_repo, to_ref)
+            if previous_tag:
+                print(
+                    f"Using previous release tag '{previous_tag}' as base ref instead of '{from_ref}'"
+                )
+                try:
+                    # Retry with the previous release tag
+                    commits = _get_commits_with_prs_graphql(
+                        graphql_client, github_repo, previous_tag, to_ref
+                    )
+                    print(f"Processing {len(commits)} commits...")
+                    return commits
+                except RefNotFoundError as retry_error:
+                    print(f"Error: Fallback also failed: {retry_error}")
+                    print(f"Could not find ref '{retry_error.ref}'")
+                    sys.exit(1)
+            else:
+                print(
+                    f"Error: Could not find base ref '{from_ref}' and no releases found for fallback"
+                )
+                sys.exit(1)
+        else:
+            # to_ref (head) not found - cannot recover
+            print(f"Error: Could not find head ref '{to_ref}'")
+            print(f"Please ensure the tag/ref '{to_ref}' exists")
+            sys.exit(1)
 
     except Exception as e:
         print(f"Error: Failed to get commits using GraphQL: {e}")
@@ -445,6 +593,34 @@ def _create_version_range(versions: list[str]) -> str:
         return f"up to {newest_version}"
 
 
+def _process_section_commits(
+    commits: list[dict], section_name: str, section_config: dict
+) -> tuple[list[dict], list[str]]:
+    """Process commits for a single custom section"""
+    custom_commits = []
+    custom_versions = []
+
+    for i, commit in enumerate(commits):
+        if _is_custom_bump_commit(commit, section_config):
+            _process_custom_bump_commit(
+                i,
+                commits,
+                section_name,
+                section_config,
+                custom_commits,
+                custom_versions,
+            )
+
+    return custom_commits, custom_versions
+
+
+def _build_section_title(section_name: str, version_range: str) -> str:
+    """Build section title from name and version range"""
+    if version_range != "version":
+        return f"{section_name} {version_range}"
+    return section_name
+
+
 def _detect_custom_changes(
     commits: list[dict], config: dict
 ) -> tuple[list[dict], dict]:
@@ -460,7 +636,6 @@ def _detect_custom_changes(
     if not custom_sections_config:
         return commits, {}
 
-    non_custom_commits = []
     all_custom_commits = []
     custom_changes_by_section = {}
 
@@ -470,29 +645,14 @@ def _detect_custom_changes(
 
     # Process each custom section
     for section_name, section_config in custom_sections_config.items():
-        custom_commits = []
-        custom_versions = []
-
-        # Process commits in order to find custom bump commits and their preceding changes
-        for i, commit in enumerate(commits):
-            if _is_custom_bump_commit(commit, section_config):
-                _process_custom_bump_commit(
-                    i,
-                    commits,
-                    section_name,
-                    section_config,
-                    custom_commits,
-                    custom_versions,
-                )
+        custom_commits, custom_versions = _process_section_commits(
+            commits, section_name, section_config
+        )
 
         # Group all custom changes under a single version range for this section
         if custom_commits and custom_versions:
             version_range = _create_version_range(custom_versions)
-            section_title = (
-                f"{section_name} {version_range}"
-                if version_range != "version"
-                else section_name
-            )
+            section_title = _build_section_title(section_name, version_range)
             custom_changes_by_section[section_title] = custom_commits
             all_custom_commits.extend(custom_commits)
             print(
@@ -500,9 +660,7 @@ def _detect_custom_changes(
             )
 
     # Separate non-custom commits
-    for commit in commits:
-        if commit not in all_custom_commits:
-            non_custom_commits.append(commit)
+    non_custom_commits = [c for c in commits if c not in all_custom_commits]
 
     return non_custom_commits, custom_changes_by_section
 
@@ -771,16 +929,26 @@ def generate_release_notes(
     output_file: str,
     config_file: str = DEFAULT_VERSION_CONFIG_FILE,
 ) -> None:
-    """Generate release notes between two tags"""
+    """Generate release notes between two tags
+
+    Note: If tags/refs cannot be found, the script will exit with an error
+    and no file will be created. If tags are valid but there are no commits
+    between them, no file will be created either.
+
+    Raises:
+        SystemExit: If tags/refs cannot be found or other errors occur
+    """
     print(f"Generating release notes from {from_tag or 'beginning'} to {to_tag}...")
 
     # Load configuration and get commits
+    # Note: get_commits_between_refs will exit if tags don't exist
     config = load_version_config(config_file)
     commits = get_commits_between_refs(from_tag, to_tag)
 
+    # If we get here, tags are valid. Empty list means no commits between valid tags.
     if not commits:
-        print("No commits found between the specified references.")
-        write_and_output_results("No commits found in this release.\n", output_file, 0)
+        print("No commits found between the specified references (tags are valid).")
+        print("No release notes file will be created.")
         return
 
     # Process commits and generate content

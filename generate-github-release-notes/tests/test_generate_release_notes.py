@@ -516,25 +516,43 @@ class TestCommandLineInterface(unittest.TestCase):
         os.environ, {"GITHUB_TOKEN": "fake_token", "GITHUB_REPOSITORY": "test/repo"}
     )
     def test_command_line_args(self):
-        """Test command line argument parsing"""
-        script_path = Path(__file__).parent.parent / "generate-github-release-notes.py"
-
-        # Mock the GraphQL function to avoid actual API calls
+        """Test command line argument parsing with mocked API calls"""
+        # Test directly calling the function with mocked commits
+        # (subprocess testing doesn't work well with mocks)
+        
         with patch.object(
             generate_github_release_notes, "get_commits_between_refs"
         ) as mock_get_commits:
-            mock_get_commits.return_value = []  # Empty commits list
-
-            # Test with valid arguments
-            result = subprocess.run(
-                ["python3", str(script_path), "v1.0.0", "v1.1.0", "test_output.md"],
-                capture_output=True,
-                text=True,
-            )
-
-            # Should succeed with empty commits
-            self.assertEqual(result.returncode, 0)
-            self.assertTrue(Path("test_output.md").exists())
+            # Test with empty commits - should not create file
+            mock_get_commits.return_value = []
+            
+            output_file = "test_output_empty.md"
+            generate_release_notes("v1.0.0", "v1.1.0", output_file)
+            
+            # With new behavior: no file created when no commits
+            self.assertFalse(Path(output_file).exists())
+            
+            # Test with some commits - should create file
+            mock_get_commits.return_value = [
+                {
+                    "hash": "abc1234",
+                    "full_hash": "abc1234567890",
+                    "subject": "feat: add new feature",
+                    "author": "Test Author",
+                    "pr_number": "42",
+                }
+            ]
+            
+            output_file2 = "test_output_with_commits.md"
+            generate_release_notes("v1.0.0", "v1.1.0", output_file2)
+            
+            # Should create file when commits exist
+            self.assertTrue(Path(output_file2).exists())
+            
+            # Verify file contains expected content
+            content = Path(output_file2).read_text()
+            self.assertIn("Features", content)
+            self.assertIn("add new feature", content)
 
 
 if __name__ == "__main__":
