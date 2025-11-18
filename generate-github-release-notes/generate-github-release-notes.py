@@ -6,6 +6,7 @@ import re
 import sys
 from os import getenv
 from pathlib import Path
+from packaging import version
 
 import requests
 from gql import Client, gql
@@ -543,6 +544,34 @@ def _create_version_range(versions: list[str]) -> str:
         return f"up to {newest_version}"
 
 
+def _process_section_commits(
+    commits: list[dict], section_name: str, section_config: dict
+) -> tuple[list[dict], list[str]]:
+    """Process commits for a single custom section"""
+    custom_commits = []
+    custom_versions = []
+
+    for i, commit in enumerate(commits):
+        if _is_custom_bump_commit(commit, section_config):
+            _process_custom_bump_commit(
+                i,
+                commits,
+                section_name,
+                section_config,
+                custom_commits,
+                custom_versions,
+            )
+
+    return custom_commits, custom_versions
+
+
+def _build_section_title(section_name: str, version_range: str) -> str:
+    """Build section title from name and version range"""
+    if version_range != "version":
+        return f"{section_name} {version_range}"
+    return section_name
+
+
 def _detect_custom_changes(
     commits: list[dict], config: dict
 ) -> tuple[list[dict], dict]:
@@ -558,7 +587,6 @@ def _detect_custom_changes(
     if not custom_sections_config:
         return commits, {}
 
-    non_custom_commits = []
     all_custom_commits = []
     custom_changes_by_section = {}
 
@@ -568,29 +596,14 @@ def _detect_custom_changes(
 
     # Process each custom section
     for section_name, section_config in custom_sections_config.items():
-        custom_commits = []
-        custom_versions = []
-
-        # Process commits in order to find custom bump commits and their preceding changes
-        for i, commit in enumerate(commits):
-            if _is_custom_bump_commit(commit, section_config):
-                _process_custom_bump_commit(
-                    i,
-                    commits,
-                    section_name,
-                    section_config,
-                    custom_commits,
-                    custom_versions,
-                )
+        custom_commits, custom_versions = _process_section_commits(
+            commits, section_name, section_config
+        )
 
         # Group all custom changes under a single version range for this section
         if custom_commits and custom_versions:
             version_range = _create_version_range(custom_versions)
-            section_title = (
-                f"{section_name} {version_range}"
-                if version_range != "version"
-                else section_name
-            )
+            section_title = _build_section_title(section_name, version_range)
             custom_changes_by_section[section_title] = custom_commits
             all_custom_commits.extend(custom_commits)
             print(
@@ -598,9 +611,7 @@ def _detect_custom_changes(
             )
 
     # Separate non-custom commits
-    for commit in commits:
-        if commit not in all_custom_commits:
-            non_custom_commits.append(commit)
+    non_custom_commits = [c for c in commits if c not in all_custom_commits]
 
     return non_custom_commits, custom_changes_by_section
 
