@@ -226,7 +226,7 @@ jobs:
         if: inputs.npm_package_path != ''
         run: |
           cd ${{ inputs.npm_package_path }}
-          npm install
+          npm ci
           npm run build
 
       - name: Setup Python for Build
