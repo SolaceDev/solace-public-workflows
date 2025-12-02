@@ -1,0 +1,145 @@
+name: Hatch Release to PyPI
+description: |
+  Composite action for releasing Python packages to PyPI using Trusted Publishing.
+  Handles version bumping, building, publishing, git commit/push, and GitHub release creation.
+
+  Prerequisites:
+  - Repository must be checked out with fetch-depth: 0 and ssh-key for pushing
+  - Hatch must be configured in pyproject.toml
+  - PyPI Trusted Publisher must be configured for the repository
+  - The calling job must have `id-token: write` permission
+
+inputs:
+  version:
+    description: "Version bump type (patch, minor, major)"
+    required: true
+  github_token:
+    description: "GitHub token for creating releases and release notes"
+    required: true
+
+outputs:
+  new_version:
+    description: "The new version that was released"
+    value: ${{ steps.set_output.outputs.new_version }}
+  commit_hash:
+    description: "The commit hash for the version bump commit"
+    value: ${{ steps.set_commit_hash.outputs.commit_hash }}
+  current_version:
+    description: "The version before bumping"
+    value: ${{ steps.current_version.outputs.current_version }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Hatch
+      uses: SolaceDev/solace-public-workflows/.github/actions/hatch-setup@main
+      with:
+        build: "false"
+
+    - name: Get Current Version
+      id: current_version
+      shell: bash
+      run: |
+        CURRENT_VERSION=$(hatch version)
+        echo "CURRENT_VERSION=${CURRENT_VERSION}" >> $GITHUB_ENV
+        echo "current_version=${CURRENT_VERSION}" >> $GITHUB_OUTPUT
+
+    - name: Check if last commit was a version bump commit
+      id: check_bump
+      shell: bash
+      run: |
+        LAST_COMMIT_MSG=$(git log -1 --pretty=%B)
+        echo "Last commit: $LAST_COMMIT_MSG"
+        if echo "$LAST_COMMIT_MSG" | grep -q "\[ci skip\] Bump version to"; then
+            echo "Previous commit was a version bump. Skipping version bump."
+            echo "SKIP_BUMP=1" >> $GITHUB_ENV
+        else
+            echo "SKIP_BUMP=0" >> $GITHUB_ENV
+        fi
+
+    - name: Bump Version
+      id: bump_version
+      shell: bash
+      run: |
+        if [ "$SKIP_BUMP" = "1" ]; then
+            echo "Skipping version bump as the last commit was a version bump."
+            echo "NEW_VERSION=${CURRENT_VERSION}" >> $GITHUB_ENV
+        else
+            hatch version "${{ inputs.version }}"
+            NEW_VERSION=$(hatch version)
+            echo "NEW_VERSION=${NEW_VERSION}" >> $GITHUB_ENV
+        fi
+
+    - name: Fail if the current version doesn't exist
+      if: env.CURRENT_VERSION == ''
+      shell: bash
+      run: exit 1
+
+    - name: Set output for new version
+      id: set_output
+      shell: bash
+      run: |
+        echo "new_version=${NEW_VERSION}" >> $GITHUB_OUTPUT
+
+    - name: Commit new version
+      if: ${{ env.SKIP_BUMP == '0' }}
+      shell: bash
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git commit -a -m "[ci skip] Bump version to ${NEW_VERSION}"
+
+    - name: Get Commit Hash
+      id: set_commit_hash
+      shell: bash
+      run: |
+        COMMIT_HASH=$(git rev-parse HEAD)
+        echo "Commit hash: $COMMIT_HASH"
+        echo "commit_hash=${COMMIT_HASH}" >> $GITHUB_OUTPUT
+
+    - name: Build project for distribution
+      shell: bash
+      run: hatch build
+
+    # Publish using Trusted Publishing - no password required
+    # See: https://docs.pypi.org/trusted-publishers/using-a-publisher/
+    - name: Publish package distributions to PyPI
+      uses: pypa/gh-action-pypi-publish@release/v1
+      with:
+        verbose: true
+
+    - name: Push version bump commit to main
+      if: ${{ env.SKIP_BUMP == '0' }}
+      shell: bash
+      run: |
+        git push
+
+    - name: Create Release
+      uses: ncipollo/release-action@v1
+      env:
+        NEW_VERSION: ${{ env.NEW_VERSION }}
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+      with:
+        artifacts: "dist/*.whl"
+        makeLatest: true
+        generateReleaseNotes: true
+        tag: ${{ env.NEW_VERSION }}
+
+    - name: Generate Release Notes
+      id: generate_release_notes
+      continue-on-error: true
+      uses: SolaceDev/solace-public-workflows/generate-github-release-notes@main
+      with:
+        from-ref: ${{ env.CURRENT_VERSION }}
+        to-ref: ${{ env.NEW_VERSION }}
+        output-file: RELEASE_NOTES.md
+        github-token: ${{ inputs.github_token }}
+
+    - name: Update Release Notes
+      continue-on-error: true
+      if: ${{ format('{0}', steps.generate_release_notes.outputs.total-commits) != '0' }}
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+      run: |
+        gh release edit ${{ env.NEW_VERSION }} --notes-file RELEASE_NOTES.md
