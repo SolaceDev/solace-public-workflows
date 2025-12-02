@@ -1,0 +1,57 @@
+name: Hatch Release Post-Publish
+description: |
+  Finalizes a Python package release after PyPI publish: push commit, create GitHub release, update release notes.
+  Must be called after PyPI publish step.
+
+inputs:
+  github_token:
+    description: "GitHub token for creating releases and release notes"
+    required: true
+  new_version:
+    description: "The new version that was released"
+    required: true
+  current_version:
+    description: "The version before bumping (for release notes)"
+    required: true
+  skip_bump:
+    description: "Whether version bump was skipped (1 if skipped, 0 if not)"
+    required: false
+    default: "0"
+
+runs:
+  using: composite
+  steps:
+    - name: Push version bump commit to main
+      if: ${{ inputs.skip_bump == '0' }}
+      shell: bash
+      run: |
+        git push
+
+    - name: Create Release
+      uses: ncipollo/release-action@v1
+      env:
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+      with:
+        artifacts: "dist/*.whl"
+        makeLatest: true
+        generateReleaseNotes: true
+        tag: ${{ inputs.new_version }}
+
+    - name: Generate Release Notes
+      id: generate_release_notes
+      continue-on-error: true
+      uses: SolaceDev/solace-public-workflows/generate-github-release-notes@main
+      with:
+        from-ref: ${{ inputs.current_version }}
+        to-ref: ${{ inputs.new_version }}
+        output-file: RELEASE_NOTES.md
+        github-token: ${{ inputs.github_token }}
+
+    - name: Update Release Notes
+      continue-on-error: true
+      if: ${{ format('{0}', steps.generate_release_notes.outputs.total-commits) != '0' }}
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+      run: |
+        gh release edit ${{ inputs.new_version }} --notes-file RELEASE_NOTES.md

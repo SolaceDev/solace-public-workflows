@@ -1,20 +1,15 @@
-name: Hatch Release to PyPI
+name: Hatch Release Preparation
 description: |
-  Composite action for releasing Python packages to PyPI using Trusted Publishing.
-  Handles version bumping, building, publishing, git commit/push, and GitHub release creation.
+  Prepares a Python package release: version bump, commit, and build.
+  Must be followed by PyPI publish step (directly in workflow) and hatch-release-post action.
 
   Prerequisites:
   - Repository must be checked out with fetch-depth: 0 and ssh-key for pushing
   - Hatch must be configured in pyproject.toml
-  - PyPI Trusted Publisher must be configured for the repository
-  - The calling job must have `id-token: write` permission
 
 inputs:
   version:
     description: "Version bump type (patch, minor, major)"
-    required: true
-  github_token:
-    description: "GitHub token for creating releases and release notes"
     required: true
 
 outputs:
@@ -27,6 +22,9 @@ outputs:
   current_version:
     description: "The version before bumping"
     value: ${{ steps.current_version.outputs.current_version }}
+  skip_bump:
+    description: "Whether version bump was skipped (1 if skipped, 0 if not)"
+    value: ${{ steps.check_bump.outputs.skip_bump }}
 
 runs:
   using: composite
@@ -53,8 +51,10 @@ runs:
         if echo "$LAST_COMMIT_MSG" | grep -q "\[ci skip\] Bump version to"; then
             echo "Previous commit was a version bump. Skipping version bump."
             echo "SKIP_BUMP=1" >> $GITHUB_ENV
+            echo "skip_bump=1" >> $GITHUB_OUTPUT
         else
             echo "SKIP_BUMP=0" >> $GITHUB_ENV
+            echo "skip_bump=0" >> $GITHUB_OUTPUT
         fi
 
     - name: Bump Version
@@ -100,46 +100,3 @@ runs:
     - name: Build project for distribution
       shell: bash
       run: hatch build
-
-    # Publish using Trusted Publishing - no password required
-    # See: https://docs.pypi.org/trusted-publishers/using-a-publisher/
-    - name: Publish package distributions to PyPI
-      uses: pypa/gh-action-pypi-publish@release/v1
-      with:
-        verbose: true
-
-    - name: Push version bump commit to main
-      if: ${{ env.SKIP_BUMP == '0' }}
-      shell: bash
-      run: |
-        git push
-
-    - name: Create Release
-      uses: ncipollo/release-action@v1
-      env:
-        NEW_VERSION: ${{ env.NEW_VERSION }}
-        GITHUB_TOKEN: ${{ inputs.github_token }}
-      with:
-        artifacts: "dist/*.whl"
-        makeLatest: true
-        generateReleaseNotes: true
-        tag: ${{ env.NEW_VERSION }}
-
-    - name: Generate Release Notes
-      id: generate_release_notes
-      continue-on-error: true
-      uses: SolaceDev/solace-public-workflows/generate-github-release-notes@main
-      with:
-        from-ref: ${{ env.CURRENT_VERSION }}
-        to-ref: ${{ env.NEW_VERSION }}
-        output-file: RELEASE_NOTES.md
-        github-token: ${{ inputs.github_token }}
-
-    - name: Update Release Notes
-      continue-on-error: true
-      if: ${{ format('{0}', steps.generate_release_notes.outputs.total-commits) != '0' }}
-      shell: bash
-      env:
-        GH_TOKEN: ${{ inputs.github_token }}
-      run: |
-        gh release edit ${{ env.NEW_VERSION }} --notes-file RELEASE_NOTES.md

@@ -89,7 +89,7 @@ runs:
 
     - name: Comment on PR with Conflicts
       if: steps.validate.outputs.conflicts-found == 'true' && github.event_name == 'pull_request'
-      uses: actions/github-script@v7
+      uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
       with:
         script: |
           const fs = require('fs');
@@ -147,7 +147,7 @@ runs:
 
     - name: Upload Conflict Report
       if: always()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
       with:
         name: dependency-conflict-report
         path: dependency_conflicts.txt

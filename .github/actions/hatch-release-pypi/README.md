@@ -1,6 +1,18 @@
-# Hatch Release to PyPI Action
+# Hatch Release to PyPI Actions
 
-A composite action for releasing Python packages to PyPI using [Trusted Publishing](https://docs.pypi.org/trusted-publishers/using-a-publisher/).
+Composite actions for releasing Python packages to PyPI using [Trusted Publishing](https://docs.pypi.org/trusted-publishers/using-a-publisher/).
+
+## Why Two Actions?
+
+According to the [PyPI publish action documentation](https://github.com/marketplace/actions/pypi-publish):
+
+> Invoking `pypi-publish` from composite actions is unsupported.
+
+Therefore, the release process is split into two composite actions with the PyPI publish step directly in the caller workflow:
+
+1. **`hatch-release-prep`** - Prepares the release (setup, version bump, commit, build)
+2. **PyPI publish step** - Must be directly in the workflow (not in a composite action)
+3. **`hatch-release-post`** - Finalizes the release (push commit, create GitHub release, release notes)
 
 ## Features
 
@@ -38,6 +50,9 @@ jobs:
     permissions:
       id-token: write
       contents: write
+    outputs:
+      new_version: ${{ steps.prep.outputs.new_version }}
+      commit_hash: ${{ steps.prep.outputs.commit_hash }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -47,30 +62,55 @@ jobs:
 
       # Add any project-specific build steps here (e.g., npm build for frontend)
 
-      - name: Release to PyPI
-        id: release
-        uses: SolaceDev/solace-public-workflows/.github/actions/hatch-release-pypi@main
+      - name: Prepare Release
+        id: prep
+        uses: SolaceDev/solace-public-workflows/.github/actions/hatch-release-prep@main
         with:
           version: patch  # or minor, major
+
+      # PyPI publish MUST be directly in the workflow, not in a composite action
+      - name: Publish package distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          verbose: true
+
+      - name: Finalize Release
+        uses: SolaceDev/solace-public-workflows/.github/actions/hatch-release-post@main
+        with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
+          new_version: ${{ steps.prep.outputs.new_version }}
+          current_version: ${{ steps.prep.outputs.current_version }}
+          skip_bump: ${{ steps.prep.outputs.skip_bump }}
 ```
 
-## Inputs
+## Action Inputs/Outputs
 
-| Input | Description | Required | Default |
-|-------|-------------|----------|---------|
-| `version` | Version bump type (patch, minor, major) | Yes | - |
-| `github_token` | GitHub token for creating releases | Yes | - |
+### hatch-release-prep
 
-## Outputs
+**Inputs:**
+| Input | Description | Required |
+|-------|-------------|----------|
+| `version` | Version bump type (patch, minor, major) | Yes |
 
+**Outputs:**
 | Output | Description |
 |--------|-------------|
 | `new_version` | The new version that was released |
 | `commit_hash` | The commit hash for the version bump commit |
 | `current_version` | The version before bumping |
+| `skip_bump` | Whether version bump was skipped (1 if skipped, 0 if not) |
 
-## Example: Full Release Workflow
+### hatch-release-post
+
+**Inputs:**
+| Input | Description | Required |
+|-------|-------------|----------|
+| `github_token` | GitHub token for creating releases | Yes |
+| `new_version` | The new version that was released | Yes |
+| `current_version` | The version before bumping (for release notes) | Yes |
+| `skip_bump` | Whether version bump was skipped | No (default: "0") |
+
+## Full Example with Security Checks
 
 ```yaml
 name: Release
@@ -89,9 +129,10 @@ on:
 permissions:
   id-token: write
   contents: write
+  checks: write
+  pull-requests: read
 
 jobs:
-  # Optional: Run security checks first
   security-checks:
     uses: SolaceDev/solace-public-workflows/.github/workflows/hatch_release_security_checks.yml@main
     with:
@@ -106,27 +147,32 @@ jobs:
     runs-on: ubuntu-latest
     environment: pypi
     outputs:
-      new_version: ${{ steps.release.outputs.new_version }}
-      commit_hash: ${{ steps.release.outputs.commit_hash }}
+      new_version: ${{ steps.prep.outputs.new_version }}
+      commit_hash: ${{ steps.prep.outputs.commit_hash }}
     steps:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
           ssh-key: ${{ secrets.COMMIT_KEY }}
 
-      - name: Release to PyPI
-        id: release
-        uses: SolaceDev/solace-public-workflows/.github/actions/hatch-release-pypi@main
+      - name: Prepare Release
+        id: prep
+        uses: SolaceDev/solace-public-workflows/.github/actions/hatch-release-prep@main
         with:
           version: ${{ github.event.inputs.version }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
 
-  # Optional: Build Docker image after release
-  docker:
-    needs: release
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo "Building Docker image for version ${{ needs.release.outputs.new_version }}"
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          verbose: true
+
+      - name: Finalize Release
+        uses: SolaceDev/solace-public-workflows/.github/actions/hatch-release-post@main
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          new_version: ${{ steps.prep.outputs.new_version }}
+          current_version: ${{ steps.prep.outputs.current_version }}
+          skip_bump: ${{ steps.prep.outputs.skip_bump }}
 ```
 
 ## Security Benefits

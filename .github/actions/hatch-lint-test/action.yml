@@ -55,21 +55,21 @@ runs:
         hatch test --python ${{ inputs.max-python-version }}  --cover --parallel --junitxml=junit-${{ inputs.max-python-version }}.xml
 
     - name: Status Check - Unit Tests on default python version
-      uses: mikepenz/action-junit-report@v5
+      uses: mikepenz/action-junit-report@3585e9575db828022551b4231f165eb59a0e74e3 # v5.6.2
       if: hashFiles('junit-default.xml') != ''
       with:
         check_name: Unit Tests on default python version
         report_paths: junit-default.xml
 
     - name: Status Check - Unit Tests on Python ${{ inputs.min-python-version }}
-      uses: mikepenz/action-junit-report@v5
+      uses: mikepenz/action-junit-report@3585e9575db828022551b4231f165eb59a0e74e3 # v5.6.2
       if: hashFiles('junit-${{ inputs.min-python-version }}.xml') != ''
       with:
         check_name: Unit Tests on Python ${{ inputs.min-python-version }}
         report_paths: junit-${{ inputs.min-python-version }}.xml
 
     - name: Status Check - Unit Tests on Python ${{ inputs.max-python-version }}
-      uses: mikepenz/action-junit-report@v5
+      uses: mikepenz/action-junit-report@3585e9575db828022551b4231f165eb59a0e74e3 # v5.6.2
       if: hashFiles('junit-${{ inputs.max-python-version }}.xml') != ''
       with:
         check_name: Unit Tests on Python ${{ inputs.max-python-version }}
