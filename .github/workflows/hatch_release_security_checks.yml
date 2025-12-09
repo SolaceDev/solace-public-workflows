@@ -76,7 +76,7 @@ jobs:
 
       - name: Run WhiteSource Policy Gate
         if: ${{ inputs.whitesource_product_name != '' && inputs.whitesource_project_name != '' }}
-        uses: docker://ghcr.io/solacedev/maas-build-actions:latest
+        uses: docker://ghcr.io/solacedev/maas-build-actions:fix-prisma-scans
         env:
           WS_API_KEY: ${{ secrets.WHITESOURCE_API_KEY }}
           WS_PRODUCT_NAME: ${{ inputs.whitesource_product_name }}
@@ -103,7 +103,7 @@ jobs:
 
       - name: Run WhiteSource Vulnerability Gate
         if: ${{ inputs.whitesource_product_name != '' && inputs.whitesource_project_name != '' }}
-        uses: docker://ghcr.io/solacedev/maas-build-actions:latest
+        uses: docker://ghcr.io/solacedev/maas-build-actions:fix-prisma-scans
         env:
           WS_API_KEY: ${{ secrets.WHITESOURCE_API_KEY }}
           WS_PRODUCT_NAME: ${{ inputs.whitesource_product_name }}
@@ -129,7 +129,7 @@ jobs:
 
       - name: Run Prisma Check
         if: ${{ fromJson(inputs.prisma_check) }}
-        uses: docker://ghcr.io/solacedev/maas-build-actions:latest
+        uses: docker://ghcr.io/solacedev/maas-build-actions:fix-prisma-scans
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.MANIFEST_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.MANIFEST_AWS_SECRET_ACCESS_KEY }}
@@ -154,7 +154,7 @@ jobs:
             "
 
       - name: Run SonarQube Hotspot Check
-        uses: docker://ghcr.io/solacedev/maas-build-actions:latest
+        uses: docker://ghcr.io/solacedev/maas-build-actions:fix-prisma-scans
         if: ${{ fromJson(inputs.sonarqube_hotspot_check) }}
         env:
           SONARQUBE_PROJECT_KEY: ${{ secrets.SONARQUBE_PROJECT_KEY }}
