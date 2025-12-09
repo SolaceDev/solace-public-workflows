@@ -28,7 +28,7 @@ runs:
         git push
 
     - name: Create Release
-      uses: ncipollo/release-action@v1
+      uses: ncipollo/release-action@b7eabc95ff50cbeeedec83973935c8f306dfcd0b # v1.20.0
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
       with:

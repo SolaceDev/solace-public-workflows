@@ -52,7 +52,7 @@ runs:
     - name: Install Python Versions for Hatch Test Matrix
       id: setup-python
       if: steps.test-matrix-present.outputs.matrix-present == 'true'
-      uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55 # v5.5.0
+      uses: actions/setup-python@6.1.0
       with:
         python-version: |
           ${{ inputs.min-python-version }}
@@ -61,7 +61,7 @@ runs:
     - name: Install Python Version from pyproject.toml
       id: setup-python-default
       if: steps.test-matrix-present.outputs.matrix-present == 'false'
-      uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55 # v5.5.0
+      uses: actions/setup-python@6.1.0
       with:
         python-version-file: "pyproject.toml"
 
@@ -78,7 +78,7 @@ runs:
         echo "hatch_python_path=${PYTHON_PATH}" >> $GITHUB_OUTPUT
 
     - name: Install uv
-      uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a # v4.2.0
+      uses: astral-sh/setup-uv@7.1.5
 
     - name: Install Hatch
       shell: bash
