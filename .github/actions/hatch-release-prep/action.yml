@@ -11,6 +11,9 @@ inputs:
   version:
     description: "Version bump type (patch, minor, major)"
     required: true
+  max-python-version:
+    description: "Maximum Python version to support."
+    default: "3.13"
 
 outputs:
   new_version:
@@ -29,10 +32,21 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Set up Hatch
-      uses: SolaceDev/solace-public-workflows/.github/actions/hatch-setup@main
+    - name: Setup Python
+      uses: actions/setup-python@5.5.0
       with:
-        build: "false"
+        python-version: ${{ inputs.max-python-version }}
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@4.2.0
+
+    - name: Install Hatch
+      shell: bash
+      run: uv tool install hatch
+
+    - name: Create Hatch Environment
+      shell: bash
+      run: hatch -v env create
 
     - name: Get Current Version
       id: current_version

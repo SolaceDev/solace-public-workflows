@@ -149,8 +149,8 @@ jobs:
           entrypoint: /bin/sh
           args: >
             -c ". $VIRTUAL_ENV/bin/activate &&
-            cd $ACTIONS_PATH/prisma-vulnerability-checker &&
-            python prisma_vulnerability_checker.py
+                cd $ACTIONS_PATH/prisma-vulnerability-checker &&
+                python prisma_vulnerability_checker.py
             "
 
       - name: Run SonarQube Hotspot Check
