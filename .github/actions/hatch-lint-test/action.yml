@@ -1,22 +1,84 @@
 name: hatch-lint-test
-description: Hatch install with support for caching of dependency groups.
+description: Run lint and test with Hatch using uv for installation.
 inputs:
   min-python-version:
     description: "Minimum Python version to test with."
     default: "3.10"
   max-python-version:
     description: "Maximum Python version to test with."
-    default: "3.12"
+    default: "3.13"
 
 runs:
   using: composite
   steps:
-    - name: Set up Hatch
-      id: hatch-setup
-      uses: SolaceDev/solace-public-workflows/.github/actions/hatch-setup@main
+    - name: Verify 'pyproject.toml' exists
+      run: test -f pyproject.toml
+      shell: bash
+
+    - name: Test Matrix Present
+      id: test-matrix-present
+      shell: bash
+      run: |
+        # Verify if hatch specific test matrix is present in pyproject.toml
+        MATRIX_PRESENT=$(awk -v min="${{ inputs.min-python-version }}" -v max="${{ inputs.max-python-version }}" '
+            /\[tool\.hatch\.envs\.hatch-test\]/ { in_env=1; next }
+            in_env && /installer = "pip"/ { has_pip_installer=1; in_env=0 }
+            /\[\[tool\.hatch\.envs\.hatch-test\.matrix\]\]/ { in_matrix=1; next }
+            in_matrix && /python = \[/ {
+              if (index($0, min)) found_min=1
+              if (index($0, max)) found_max=1
+              in_matrix=0
+            }
+            END {
+              if (!has_pip_installer || !found_min || !found_max) {
+                print "false"
+                exit 0
+              }
+              print "true"
+              exit 0
+            }
+          ' pyproject.toml)
+        echo "matrix-present=$MATRIX_PRESENT" >> $GITHUB_OUTPUT
+
+    - name: Install Python Versions for Hatch Test Matrix
+      id: setup-python
+      if: steps.test-matrix-present.outputs.matrix-present == 'true'
+      uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55 # v5.5.0
       with:
-        min-python-version: ${{ inputs.min-python-version }}
-        max-python-version: ${{ inputs.max-python-version }}
+        python-version: |
+          ${{ inputs.min-python-version }}
+          ${{ inputs.max-python-version }}
+
+    - name: Install Python Version from pyproject.toml
+      id: setup-python-default
+      if: steps.test-matrix-present.outputs.matrix-present == 'false'
+      uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55 # v5.5.0
+      with:
+        python-version-file: "pyproject.toml"
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a # v4.2.0
+      with:
+        enable-cache: true
+
+    - name: Install Hatch
+      shell: bash
+      run: uv tool install hatch
+
+    - name: Create Hatch Environment
+      shell: bash
+      run: hatch -v env create
+
+    - name: Create Hatch Environment for Matrix Python Versions
+      shell: bash
+      if: steps.test-matrix-present.outputs.matrix-present == 'true'
+      run: |
+        hatch env create hatch-test.py${{ inputs.min-python-version }}
+        hatch env create hatch-test.py${{ inputs.max-python-version }}
+
+    - name: Install twine
+      shell: bash
+      run: uv tool install twine
 
     - name: Run Lint
       continue-on-error: true
@@ -36,21 +98,21 @@ runs:
 
     - name: Run Tests with default python version
       shell: bash
-      if: steps.hatch-setup.outputs.matrix-present == 'false'
+      if: steps.test-matrix-present.outputs.matrix-present == 'false'
       run: |
         hatch run pytest --junitxml=junit-default.xml
 
     - name: Run Unit Tests on Python ${{ inputs.min-python-version }}
       continue-on-error: true
       shell: bash
-      if: steps.hatch-setup.outputs.matrix-present == 'true'
+      if: steps.test-matrix-present.outputs.matrix-present == 'true'
       run: |
         hatch test --python ${{ inputs.min-python-version }}  --cover --parallel --junitxml=junit-${{ inputs.min-python-version }}.xml
 
     - name: Run Unit Tests on Python ${{ inputs.max-python-version }}
       continue-on-error: true
       shell: bash
-      if: steps.hatch-setup.outputs.matrix-present == 'true'
+      if: steps.test-matrix-present.outputs.matrix-present == 'true'
       run: |
         hatch test --python ${{ inputs.max-python-version }}  --cover --parallel --junitxml=junit-${{ inputs.max-python-version }}.xml
 
@@ -99,14 +161,16 @@ runs:
       with:
         junit-path: ${{ hashFiles('junit-default.xml') != '' && 'junit-default.xml' || hashFiles(env.MIN_PYTHON_VERSION_FILE) != '' && env.MIN_PYTHON_VERSION_FILE || hashFiles(env.MAX_PYTHON_VERSION_FILE) != '' && env.MAX_PYTHON_VERSION_FILE }}
         coverage-path: coverage.xml
+
     # Build and verify packages
     - name: Build
       shell: bash
       run: |
+        hatch build
         hatch dep show requirements > requirements.txt
 
     - name: Verify Packages
       run: |
-        ls dist/*.tar.gz | xargs -n1 hatch run python -m twine check
-        ls dist/*.whl | xargs -n1 hatch run python -m twine check
+        ls dist/*.tar.gz | xargs -n1 twine check
+        ls dist/*.whl | xargs -n1 twine check
       shell: bash
