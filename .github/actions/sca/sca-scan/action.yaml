@@ -69,3 +69,12 @@ runs:
       uses: SolaceDev/solace-public-workflows/.github/actions/sca/fossa-scan@sca_
       env:
         FOSSA_API_KEY: ${{ inputs.fossa_api_key }}
+
+    - name: Failure Notification
+      if: failure()
+      uses: SolaceDev/maas-build-actions/.github/actions/build-finish-notifier@master
+      with:
+        workflow_title: "${{ github.event.repository.name }} ${{ github.workflow }} SCA_Scan"
+        run_url: "https://github.com/${{github.repository}}/actions/runs/${{github.run_id}}"
+        notify_channel: "#sc-deploy-cicd-activity"
+        auto_slack_channel: "False"
