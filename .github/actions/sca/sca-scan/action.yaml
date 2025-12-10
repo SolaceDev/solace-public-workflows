@@ -1,0 +1,70 @@
+name: "SCA Scan"
+description: "Generic SCA scan entrypoint."
+
+inputs:
+  scanners:
+    description: "Comma-separated list of scanners to run. PoC: only 'fossa' is supported."
+    required: false
+    default: "fossa"
+
+  additional_scan_params:
+    description: |
+      Optional scanner-specific overrides, one per line:
+        fossa.key=value
+      Example:
+        fossa.fail_on_severity=high
+        fossa.project_override=custom+48578/ghcr.io/solacedev/my-image
+    required: false
+    default: ""
+
+  fossa_api_key:
+      description: "API Key for Fossa"
+      required: false
+      default: ""
+
+runs:
+  using: "composite"
+  steps:
+    - name: Parse additional_scan_params into env vars
+      if: ${{ inputs.additional_scan_params != '' }}
+      shell: bash
+      run: |
+        echo "::group::≣ SCA - Parsing additional_scan_params..."
+
+        # Read multiline input safely
+        while IFS= read -r line; do
+          # Skip empty lines or comment lines
+          if [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]]; then
+            continue
+          fi
+
+          # Must be key=value format
+          if [[ "$line" != *"="* ]]; then
+            echo "❌ Invalid additional_scan_params line (missing '='): $line"
+            exit 1
+          fi
+
+          key="${line%%=*}"
+          value="${line#*=}"
+
+          # Remove whitespace
+          key="$(echo "$key" | tr -d '[:space:]')"
+          value="$(echo "$value" | tr -d '\r')"
+
+          # Convert "fossa.fail_on_severity" → "SCA_FOSSA_FAIL_ON_SEVERITY"
+          env_key="SCA_$(echo "$key" \
+            | sed 's/\./_/g' \
+            | tr '[:lower:]' '[:upper:]')"
+
+          echo "Exporting: $env_key=$value"
+
+          # Export to GITHUB_ENV so all helper actions see it
+          echo "${env_key}=${value}" >> "$GITHUB_ENV"
+
+        done <<< "${{ inputs.additional_scan_params }}"
+        echo "::endgroup::"
+
+    - name: SCA - Run Fossa scan
+      uses: SolaceDev/solace-public-workflows/.github/actions/sca/fossa-scan@sca_
+      env:
+        FOSSA_API_KEY: ${{ inputs.fossa_api_key }}
