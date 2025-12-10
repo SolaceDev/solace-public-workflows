@@ -38,6 +38,7 @@ runs:
       if: failure()
       uses: SolaceDev/maas-build-actions/.github/actions/build-finish-notifier@master
       with:
-        workflow_title: "${{ github.event.repository.name }} ${{ github.workflow }}"
+        workflow_title: "${{ github.event.repository.name }} ${{ github.workflow }} SCA::Fossa Scan"
         run_url: "https://github.com/${{github.repository}}/actions/runs/${{github.run_id}}"
         notify_channel: "#sc-deploy-cicd-activity"
+        auto_slack_channel: "False"
