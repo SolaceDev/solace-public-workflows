@@ -3,7 +3,7 @@ description: "Generic SCA scan entrypoint."
 
 inputs:
   scanners:
-    description: "Comma-separated list of scanners to run. PoC: only 'fossa' is supported."
+    description: "Comma-separated list of scanners to run."
     required: false
     default: "fossa"
 
