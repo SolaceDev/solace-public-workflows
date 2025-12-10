@@ -1,5 +1,5 @@
 name: hatch-install-with-caching
-description: Hatch install with support for caching using uv.
+description: Hatch install with support for caching of dependency groups.
 inputs:
   min-python-version:
     description: "Minimum Python version to support."
@@ -20,9 +20,18 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Verify 'pyproject.toml' exists
+    - name: Setup Hatch Environment
+      run: |
+        echo "HATCH_CACHE_DIR=${{ github.workspace }}/.hatch_cache" >> $GITHUB_ENV
+        echo "HATCH_DATA_DIR=${{ github.workspace }}/.hatch_data" >> $GITHUB_ENV
+      shell: bash
+
+    - name: Verify 'pyproject.toml' exists)
       run: test -f pyproject.toml
       shell: bash
+
+    - name: Install Hatch
+      uses: pypa/hatch@install
 
     - name: Test Matrix Present
       id: test-matrix-present
@@ -49,21 +58,34 @@ runs:
           ' pyproject.toml)
         echo "matrix-present=$MATRIX_PRESENT" >> $GITHUB_OUTPUT
 
+    - name: Restore Hatch Directory
+      uses: actions/cache@v4
+      id: cache
+      with:
+        path: |
+          ${{ env.HATCH_CACHE_DIR }}
+          ${{ env.HATCH_DATA_DIR }}
+        key: ${{ runner.os }}-hatch-${{ hashFiles('pyproject.toml') }}-${{ hashFiles('requirements.txt') }}
+
     - name: Install Python Versions for Hatch Test Matrix
       id: setup-python
       if: steps.test-matrix-present.outputs.matrix-present == 'true'
-      uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
+      uses: actions/setup-python@v5.5.0
       with:
         python-version: |
           ${{ inputs.min-python-version }}
           ${{ inputs.max-python-version }}
+        cache: "pip"
+        cache-dependency-path: "pyproject.toml"
 
     - name: Install Python Version from pyproject.toml
       id: setup-python-default
       if: steps.test-matrix-present.outputs.matrix-present == 'false'
-      uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
+      uses: actions/setup-python@v5.5.0
       with:
         python-version-file: "pyproject.toml"
+        cache: "pip"
+        cache-dependency-path: "pyproject.toml"
 
     - name: Export Python Path For Hatch
       shell: bash
@@ -77,27 +99,47 @@ runs:
         echo "HATCH_PYTHON_PATH=${PYTHON_PATH}" >> $GITHUB_ENV
         echo "hatch_python_path=${PYTHON_PATH}" >> $GITHUB_OUTPUT
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@ed21f2f24f8dd64503750218de024bcf64c7250a # v7.1.5
-
-    - name: Install Hatch
+    - name: Install Dependencies
       shell: bash
-      run: uv tool install hatch
-
-    - name: Create Hatch Environment
-      shell: bash
-      run: hatch -v env create
+      if: steps.cache.outputs.cache-hit != 'true'
+      run: |
+        hatch env create
 
     - name: Create Hatch Environment for Matrix Python Versions
       shell: bash
-      if: steps.test-matrix-present.outputs.matrix-present == 'true'
+      if: steps.cache.outputs.cache-hit != 'true' && steps.test-matrix-present.outputs.matrix-present == 'true'
       run: |
         hatch env create hatch-test.py${{ inputs.min-python-version }}
         hatch env create hatch-test.py${{ inputs.max-python-version }}
 
-    - name: Install twine
+    - name: Install Dependencies for default python version
       shell: bash
-      run: uv tool install twine
+      if: steps.cache.outputs.cache-hit != 'true'
+      run: |
+        hatch run pip install --upgrade pip
+        hatch run pip install twine pytest pytest-cov
+
+    - name: Install Dependencies for test matrix python version
+      shell: bash
+      if: steps.cache.outputs.cache-hit != 'true' && steps.test-matrix-present.outputs.matrix-present == 'true'
+      run: |
+        hatch run hatch-test.py${{ inputs.min-python-version }}:pip install --upgrade pip
+        hatch run hatch-test.py${{ inputs.max-python-version }}:pip install --upgrade pip
+        hatch run hatch-test.py${{ inputs.min-python-version }}:pip install twine pytest pytest-cov
+        hatch run hatch-test.py${{ inputs.max-python-version }}:pip install twine pytest pytest-cov
+
+    - name: Install Requirements.txt Dependencies for default python version
+      shell: bash
+      if: hashFiles('requirements.txt') != '' && steps.cache.outputs.cache-hit != 'true' && steps.test-matrix-present.outputs.matrix-present == 'false'
+      run: |
+        hatch run pip install --upgrade -r requirements.txt
+
+    - name: Install Requirements.txt Dependencies for test matrix python version
+      shell: bash
+      if: hashFiles('requirements.txt') != '' && steps.cache.outputs.cache-hit != 'true' && steps.test-matrix-present.outputs.matrix-present == 'true'
+      run: |
+        hatch run hatch-test.py${{ inputs.min-python-version }}:pip install --upgrade -r requirements.txt
+        hatch run hatch-test.py${{ inputs.max-python-version }}:pip install --upgrade -r requirements.txt
 
     - name: Build Hatch Package
       shell: bash
