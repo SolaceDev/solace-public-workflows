@@ -1,0 +1,36 @@
+name: "Fossa Scan"
+description: "Runs a Fossa scan using FOSSA_API_KEY and SCA_FOSSA_* env vars."
+
+inputs: {}
+runs:
+  using: "composite"
+  steps:
+    - name: Fossa - Preparation step
+      shell: bash
+      run: |
+        echo "::group::⚙️ Fossa Preparation"
+        echo "Installing FOSSA CLI..."
+        curl -H 'Cache-Control: no-cache' https://raw.githubusercontent.com/fossas/fossa-cli/master/install-latest.sh | bash
+
+        #if SCA_FOSSA_ANALYZE_DEBUG is set to true, add --debug to analyze args
+        if [ "${{ env.SCA_FOSSA_ANALYZE_DEBUG }}" == "true" ]; then
+          SCA_FOSSA_ADDITIONAL_ARGS="--debug"
+        fi
+        echo "SCA_FOSSA_ADDITIONAL_ARGS=${SCA_FOSSA_ADDITIONAL_ARGS}" >> "$GITHUB_ENV"
+
+        echo "::endgroup::"
+
+    - name: Fossa - Scan
+      shell: bash
+      run: |
+        echo "::group::🔍 Fossa Scan"
+        fossa analyze $SCA_FOSSA_ADDITIONAL_ARGS
+        echo "::endgroup::"
+
+    - name: FOSSA - Scan Wait For Results
+      continue-on-error: true
+      shell: bash
+      run: |
+        echo "::group::⏳ Fossa Wait For Results"
+        fossa test
+        echo "::endgroup::"
