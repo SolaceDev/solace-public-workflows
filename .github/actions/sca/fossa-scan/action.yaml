@@ -28,7 +28,7 @@ runs:
         echo "::endgroup::"
 
     - name: FOSSA - Scan Wait For Results
-      continue-on-error: true
+      conntinue-on-error: true
       shell: bash
       run: |
         echo "::group::⏳ Fossa Wait For Results"
