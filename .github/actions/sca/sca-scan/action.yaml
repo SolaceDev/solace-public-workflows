@@ -65,6 +65,7 @@ runs:
         echo "::endgroup::"
 
     - name: SCA - Run Fossa scan
+      if: contains(inputs.scanners, 'fossa')
       uses: SolaceDev/solace-public-workflows/.github/actions/sca/fossa-scan@sca_
       env:
         FOSSA_API_KEY: ${{ inputs.fossa_api_key }}
