@@ -8,6 +8,7 @@ runs:
     - name: Fossa - Preparation step
       shell: bash
       run: |
+        exit 1
         echo "::group::⚙️ Fossa Preparation"
         echo "Installing FOSSA CLI..."
         curl -H 'Cache-Control: no-cache' https://raw.githubusercontent.com/fossas/fossa-cli/master/install-latest.sh | bash
@@ -28,7 +29,7 @@ runs:
         echo "::endgroup::"
 
     - name: FOSSA - Scan Wait For Results
-      conntinue-on-error: true
+      continue-on-error: true
       shell: bash
       run: |
         echo "::group::⏳ Fossa Wait For Results"
