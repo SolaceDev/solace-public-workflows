@@ -530,3 +530,14 @@ jobs:
           scanners: "fossa"
           additional_scan_params: ${{ inputs.sca_additional_scan_params }}
           fossa_api_key: ${{ secrets.FOSSA_API_KEY }}
+
+      - name: FOSSA Guard - Block on Violations
+        uses: SolaceDev/solace-public-workflows/.github/actions/fossa-guard@main
+        # if: github.ref_name == github.event.repository.default_branch
+        continue-on-error: true
+        with:
+          fossa_api_key: ${{ secrets.FOSSA_API_KEY}}
+          fossa_project_id: "solacelabs_${{ github.event.repository.name }}"
+          fossa_category: licensing
+          fossa_mode: BLOCK
+          block_on: policy_conflict
