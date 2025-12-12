@@ -24,7 +24,14 @@ runs:
       shell: bash
       run: |
         echo "::group::🔍 Fossa Scan"
-        fossa analyze $SCA_FOSSA_ADDITIONAL_ARGS
+        FOSSA_CMD="fossa analyze"
+        if [ -n "${{ env.SCA_FOSSA_BRANCH }}" ]; then
+          FOSSA_CMD="$FOSSA_CMD --branch ${{ env.SCA_FOSSA_BRANCH }}"
+        fi
+        if [ -n "${{ env.SCA_FOSSA_REVISION }}" ]; then
+          FOSSA_CMD="$FOSSA_CMD --revision ${{ env.SCA_FOSSA_REVISION }}"
+        fi
+        $FOSSA_CMD $SCA_FOSSA_ADDITIONAL_ARGS
         echo "::endgroup::"
 
     - name: FOSSA - Scan Wait For Results

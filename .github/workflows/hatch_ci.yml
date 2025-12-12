@@ -538,22 +538,24 @@ jobs:
       - name: Install Hatch
         run: uv tool install hatch
 
-      - name: Generate Dependency Tree
+      - name: Generate Dependency Tree and requirements.txt for FOSSA
         run: |
-          # Generate requirements.txt for FOSSA to scan
-          hatch dep show requirements --all > requirements.txt
+          # Generate requirements.txt with ONLY production dependencies (what gets published to PyPI)
+          # This matches what 'hatch build' packages and what end users will install
+          # Note: --all would include optional dependencies which may have conflicts and aren't shipped
+          hatch dep show requirements > requirements.txt
 
-          # Install the package with all dependencies to generate accurate tree
-          uv pip install -e .[all] --system
-
-          # Generate dependency tree showing actual resolved versions
-          uv pip tree --show-version-specifiers > dependency_tree.txt
+          echo "📦 Production dependencies that will be scanned by FOSSA:"
+          cat requirements.txt
 
       - name: sca-scan
         uses: SolaceDev/solace-public-workflows/.github/actions/sca/sca-scan@main
         with:
           scanners: "fossa"
-          additional_scan_params: ${{ inputs.sca_additional_scan_params }}
+          additional_scan_params: |
+            fossa.branch=${{ github.ref_name }}
+            fossa.revision=${{ github.sha }}
+            ${{ inputs.sca_additional_scan_params }}
           fossa_api_key: ${{ secrets.FOSSA_API_KEY }}
 
       - name: FOSSA Guard - Block on Policy Violations
