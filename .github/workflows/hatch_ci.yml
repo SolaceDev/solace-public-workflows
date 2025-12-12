@@ -28,6 +28,16 @@ on:
         required: false
         default: ""
         description: "WhiteSource configuration file"
+      sca_scanners:
+        type: string
+        required: false
+        default: "fossa"
+        description: "Comma-separated list of SCA scanners to run"
+      sca_additional_scan_params:
+        type: string
+        required: false
+        default: ""
+        description: "Additional scanner-specific parameters for SCA scan"
       npm_package_path:
         type: string
         required: false
@@ -48,6 +58,7 @@ on:
         required: false
         default: true
         description: "Validate dependency conflicts"
+
     secrets:
       SONAR_TOKEN:
         description: "SonarQube token for the repository."
@@ -72,6 +83,9 @@ on:
         required: false
       MANIFEST_AWS_REGION:
         description: "AWS Region"
+        required: false
+      FOSSA_API_KEY:
+        description: "FOSSA API Key"
         required: false
 
 permissions:
@@ -495,3 +509,24 @@ jobs:
             cd $ACTIONS_PATH/whitesource-vulnerability-checker &&
             python whitesource_vulnerability_checker.py
             "
+
+  # ----------------------------------------------------
+  # FOSSA SCANNING JOB (runs in parallel)
+  # ----------------------------------------------------
+  fossa-scan:
+    name: FOSSA Security Scan
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && !github.event.repository.fork && github.ref_name == github.event.repository.default_branch
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 0
+
+      - name: sca-scan
+        uses: SolaceDev/solace-public-workflows/.github/actions/sca/sca-scan@main
+        with:
+          scanners: "fossa"
+          additional_scan_params: ${{ inputs.sca_additional_scan_params }}
+          fossa_api_key: ${{ secrets.FOSSA_API_KEY }}
