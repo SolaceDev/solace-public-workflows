@@ -81,10 +81,3 @@ runs:
           });
 
           console.log(`✅ Posted status check: ${state} - ${description}`);
-
-    - name: Fail if Size Exceeded
-      if: steps.check-size.outputs.size-exceeded == 'true'
-      shell: bash
-      run: |
-        echo "::error::PR size (${{ steps.check-size.outputs.pr-size }} lines) exceeds maximum allowed limit (${{ inputs.max-lines }} lines)"
-        exit 1
