@@ -22,14 +22,14 @@ jobs:
         uses: SolaceDev/solace-public-workflows/.github/actions/pr-size-check@main
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          max-lines: 1500  # optional, defaults to 1500
+          max-lines: 500  # optional, defaults to 500
 ```
 
 ## Inputs
 
 | Input | Description | Required | Default |
 |-------|-------------|----------|---------|
-| `max-lines` | Maximum PR size (additions + deletions) | No | `1500` |
+| `max-lines` | Maximum PR size (additions + deletions) | No | `500` |
 | `github-token` | GitHub token for API access (needs `repo:status` scope) | Yes | N/A |
 
 ## Outputs
@@ -41,7 +41,7 @@ jobs:
 
 ## Examples
 
-### Basic usage with default limit (1500 lines)
+### Basic usage with default limit (500 lines)
 
 ```yaml
 - uses: SolaceDev/solace-public-workflows/.github/actions/pr-size-check@main
@@ -66,7 +66,7 @@ jobs:
   uses: SolaceDev/solace-public-workflows/.github/actions/pr-size-check@main
   with:
     github-token: ${{ secrets.GITHUB_TOKEN }}
-    max-lines: 1500
+    max-lines: 500
 
 - name: Comment on large PRs
   if: steps.size-check.outputs.size-exceeded == 'true'
@@ -84,5 +84,5 @@ jobs:
 When a PR exceeds the limit, the action will fail with:
 
 ```
-PR size (2300 lines) exceeds maximum allowed limit (1500 lines)
+PR size (600 lines) exceeds maximum allowed limit (500 lines)
 ```

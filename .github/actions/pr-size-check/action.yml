@@ -5,7 +5,7 @@ inputs:
   max-lines:
     description: "Maximum PR size (additions + deletions)"
     required: false
-    default: "1500"
+    default: "500"
   github-token:
     description: "GitHub token for API access (needs repo:status scope)"
     required: true
@@ -77,7 +77,7 @@ runs:
             state: state,
             target_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/pull/${context.payload.pull_request.number}`,
             description: description,
-            context: 'pr-size-check'
+            context: 'PR Validation / Size Check'
           });
 
           console.log(`✅ Posted status check: ${state} - ${description}`);
