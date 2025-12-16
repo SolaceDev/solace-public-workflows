@@ -23,6 +23,11 @@ on:
         required: false
         default: false
         description: "Run SonarQube Hotspot Check"
+      fossa_check:
+        type: boolean
+        required: false
+        default: false
+        description: "Run FOSSA Check"
     secrets:
       WHITESOURCE_API_KEY:
         description: "Whitesource API key"
@@ -79,10 +84,10 @@ jobs:
 
       - name: FOSSA Guard - Block on Policy Violations
         uses: SolaceDev/solace-public-workflows/.github/actions/fossa-guard@main
-        if: github.ref_name == github.event.repository.default_branch
+        if: github.ref_name == github.event.repository.default_branch && fromJson(inputs.fossa_check)
         continue-on-error: true
         with:
-          fossa_api_key: ${{ secrets.FOSSA_API_KEY}}
+          fossa_api_key: ${{ secrets.FOSSA_API_KEY }}
           fossa_project_id: "${{ github.repository_owner }}_${{ github.event.repository.name }}"
           fossa_branch: ${{ github.event.repository.default_branch }}
           fossa_revision: ${{ github.sha }}
@@ -92,10 +97,10 @@ jobs:
 
       - name: FOSSA Guard - Block on Security Vulnerabilities
         uses: SolaceDev/solace-public-workflows/.github/actions/fossa-guard@main
-        if: github.ref_name == github.event.repository.default_branch
+        if: github.ref_name == github.event.repository.default_branch && fromJson(inputs.fossa_check)
         continue-on-error: true
         with:
-          fossa_api_key: ${{ secrets.FOSSA_API_KEY}}
+          fossa_api_key: ${{ secrets.FOSSA_API_KEY }}
           fossa_project_id: "${{ github.repository_owner }}_${{ github.event.repository.name }}"
           fossa_branch: ${{ github.event.repository.default_branch }}
           fossa_revision: ${{ github.sha }}

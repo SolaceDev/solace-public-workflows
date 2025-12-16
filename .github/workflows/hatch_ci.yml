@@ -31,7 +31,7 @@ on:
       sca_scanners:
         type: string
         required: false
-        default: "fossa"
+        default: ""
         description: "Comma-separated list of SCA scanners to run"
       sca_additional_scan_params:
         type: string
@@ -516,7 +516,7 @@ jobs:
   fossa-scan:
     name: FOSSA Security Scan
     runs-on: ubuntu-latest
-    # if: github.event_name == 'push' && !github.event.repository.fork && github.ref_name == github.event.repository.default_branch
+    if: github.event_name == 'push' && !github.event.repository.fork && github.ref_name == github.event.repository.default_branch && contains(inputs.sca_scanners, 'fossa')
 
     steps:
       - name: Checkout
@@ -542,15 +542,52 @@ jobs:
         run: |
           # Generate requirements.txt with ONLY production dependencies (what gets published to PyPI)
           # This matches what 'hatch build' packages and what end users will install
-          # Note: --all would include optional dependencies which may have conflicts and aren't shipped
-          hatch dep show requirements > requirements.txt
 
-          echo "📦 Production dependencies that will be scanned by FOSSA:"
-          cat requirements.txt
+          # Using uv pip to replicate commands that can be ran locally
+          # Limitation with uv sync for ARM targets, so we use uv pip compile
+
+          # Create virtual environment
+          uv venv
+
+          # Compile and install dependencies
+          uv pip compile pyproject.toml -o requirements.txt
+          uv pip install -r requirements.txt
+          uv pip tree > dependency-tree.txt
+
+          echo '### Dependency Tree' >> $GITHUB_STEP_SUMMARY
+          echo '```text' >> $GITHUB_STEP_SUMMARY
+          cat dependency-tree.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload dependency tree
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-tree
+          path: dependency-tree.txt
+          # SCA (Software Composition Analysis) Scan Step
+          # 
+          # Performs security scanning using FOSSA to analyze dependencies and enforce license policies.
+          # 
+          # Key Parameters:
+          # - fossa.branch: Dynamically set based on event type
+          #   * For pull requests: Set to 'PR' to enable FOSSA's PR-specific analysis features
+          #   * For main branch pushes: Uses the repository's default branch name
+          #   This distinction allows FOSSA to apply different scanning behaviors and policies
+          #   between development (PR) and production (main branch) contexts.
+          #
+          # - fossa.revision: Provides the specific commit reference for FOSSA analysis
+          #   * For pull requests: Uses the head branch ref (e.g., 'feature/my-branch')
+          #   * For main branch pushes: Uses the full commit SHA
+          #   This ensures FOSSA can accurately track and correlate scan results with
+          #   the exact code being analyzed, enabling proper diff analysis between commits.
+          #
+          # The conditional logic (github.event.pull_request.number && 'value' || 'fallback')
+          # ensures consistent behavior across different GitHub event triggers while providing
+          # FOSSA with the contextual information needed for accurate license compliance
+          # and security vulnerability detection.
 
       - name: sca-scan
         uses: SolaceDev/solace-public-workflows/.github/actions/sca/sca-scan@main
-        if: github.ref_name == github.event.repository.default_branch
         with:
           scanners: "fossa"
           additional_scan_params: |
@@ -561,7 +598,6 @@ jobs:
         
       - name: FOSSA Guard - Block on Policy Violations
         uses: SolaceDev/solace-public-workflows/.github/actions/fossa-guard@main
-        if: github.ref_name == github.event.repository.default_branch
         continue-on-error: true
         with:
           fossa_api_key: ${{ secrets.FOSSA_API_KEY}}
