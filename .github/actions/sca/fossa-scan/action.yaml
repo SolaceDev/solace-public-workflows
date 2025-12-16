@@ -12,11 +12,31 @@ runs:
         echo "Installing FOSSA CLI..."
         curl -H 'Cache-Control: no-cache' https://raw.githubusercontent.com/fossas/fossa-cli/master/install-latest.sh | bash
 
+        SCA_FOSSA_ADDITIONAL_ARGS=""
+
         #if SCA_FOSSA_ANALYZE_DEBUG is set to true, add --debug to analyze args
         if [ "${{ env.SCA_FOSSA_ANALYZE_DEBUG }}" == "true" ]; then
-          SCA_FOSSA_ADDITIONAL_ARGS="--debug"
+          SCA_FOSSA_ADDITIONAL_ARGS="$SCA_FOSSA_ADDITIONAL_ARGS --debug"
         fi
+
+        # Set branch parameter if SCA_FOSSA_BRANCH environment variable is provided
+        if [ -n "${{ env.SCA_FOSSA_BRANCH }}" ]; then
+          SCA_FOSSA_ADDITIONAL_ARGS="$SCA_FOSSA_ADDITIONAL_ARGS --branch ${{ env.SCA_FOSSA_BRANCH }}"
+        fi
+
+        # Set revision parameter if SCA_FOSSA_REVISION environment variable is provided
+        if [ -n "${{ env.SCA_FOSSA_REVISION }}" ]; then
+          SCA_FOSSA_ADDITIONAL_ARGS="$SCA_FOSSA_ADDITIONAL_ARGS --revision ${{ env.SCA_FOSSA_REVISION }}"
+        fi
+
         echo "SCA_FOSSA_ADDITIONAL_ARGS=${SCA_FOSSA_ADDITIONAL_ARGS}" >> "$GITHUB_ENV"
+
+        # Set up test args with only revision parameter
+        SCA_FOSSA_TEST_ARGS=""
+        if [ -n "${{ env.SCA_FOSSA_REVISION }}" ]; then
+          SCA_FOSSA_TEST_ARGS="--revision ${{ env.SCA_FOSSA_REVISION }}"
+        fi
+        echo "SCA_FOSSA_TEST_ARGS=${SCA_FOSSA_TEST_ARGS}" >> "$GITHUB_ENV"
 
         echo "::endgroup::"
 
@@ -24,7 +44,10 @@ runs:
       shell: bash
       run: |
         echo "::group::🔍 Fossa Scan"
-        fossa analyze $SCA_FOSSA_ADDITIONAL_ARGS
+        FOSSA_CMD="fossa analyze"
+
+        echo "Running: $FOSSA_CMD $SCA_FOSSA_ADDITIONAL_ARGS"
+        $FOSSA_CMD $SCA_FOSSA_ADDITIONAL_ARGS
         echo "::endgroup::"
 
     - name: FOSSA - Scan Wait For Results
@@ -32,5 +55,6 @@ runs:
       shell: bash
       run: |
         echo "::group::⏳ Fossa Wait For Results"
-        fossa test
+        echo "Running: fossa test $SCA_FOSSA_TEST_ARGS"
+        fossa test $SCA_FOSSA_TEST_ARGS
         echo "::endgroup::"

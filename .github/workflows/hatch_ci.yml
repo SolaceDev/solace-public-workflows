@@ -28,6 +28,16 @@ on:
         required: false
         default: ""
         description: "WhiteSource configuration file"
+      sca_scanners:
+        type: string
+        required: false
+        default: ""
+        description: "Comma-separated list of SCA scanners to run"
+      sca_additional_scan_params:
+        type: string
+        required: false
+        default: ""
+        description: "Additional scanner-specific parameters for SCA scan"
       npm_package_path:
         type: string
         required: false
@@ -48,6 +58,7 @@ on:
         required: false
         default: true
         description: "Validate dependency conflicts"
+
     secrets:
       SONAR_TOKEN:
         description: "SonarQube token for the repository."
@@ -72,6 +83,9 @@ on:
         required: false
       MANIFEST_AWS_REGION:
         description: "AWS Region"
+        required: false
+      FOSSA_API_KEY:
+        description: "FOSSA API Key"
         required: false
 
 permissions:
@@ -495,3 +509,101 @@ jobs:
             cd $ACTIONS_PATH/whitesource-vulnerability-checker &&
             python whitesource_vulnerability_checker.py
             "
+
+  # ----------------------------------------------------
+  # FOSSA SCANNING JOB (runs in parallel)
+  # ----------------------------------------------------
+  fossa-scan:
+    name: FOSSA Security Scan
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && !github.event.repository.fork && github.ref_name == github.event.repository.default_branch && contains(inputs.sca_scanners, 'fossa')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 0
+          
+      - name: Setup Python for Build
+        uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55 # v5.5.0
+        with:
+          python-version: ${{ inputs.max-python-version }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a # v4.2.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "**/pyproject.toml"
+
+      - name: Install Hatch
+        run: uv tool install hatch
+
+      - name: Generate Dependency Tree and requirements.txt for FOSSA
+        run: |
+          # Generate requirements.txt with ONLY production dependencies (what gets published to PyPI)
+          # This matches what 'hatch build' packages and what end users will install
+
+          # Using uv pip to replicate commands that can be ran locally
+          # Limitation with uv sync for ARM targets, so we use uv pip compile
+
+          # Create virtual environment
+          uv venv
+
+          # Compile and install dependencies
+          uv pip compile pyproject.toml -o requirements.txt
+          uv pip install -r requirements.txt
+          uv pip tree > dependency-tree.txt
+
+          echo '### Dependency Tree' >> $GITHUB_STEP_SUMMARY
+          echo '```text' >> $GITHUB_STEP_SUMMARY
+          cat dependency-tree.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload dependency tree
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-tree
+          path: dependency-tree.txt
+          # SCA (Software Composition Analysis) Scan Step
+          # 
+          # Performs security scanning using FOSSA to analyze dependencies and enforce license policies.
+          # 
+          # Key Parameters:
+          # - fossa.branch: Dynamically set based on event type
+          #   * For pull requests: Set to 'PR' to enable FOSSA's PR-specific analysis features
+          #   * For main branch pushes: Uses the repository's default branch name
+          #   This distinction allows FOSSA to apply different scanning behaviors and policies
+          #   between development (PR) and production (main branch) contexts.
+          #
+          # - fossa.revision: Provides the specific commit reference for FOSSA analysis
+          #   * For pull requests: Uses the head branch ref (e.g., 'feature/my-branch')
+          #   * For main branch pushes: Uses the full commit SHA
+          #   This ensures FOSSA can accurately track and correlate scan results with
+          #   the exact code being analyzed, enabling proper diff analysis between commits.
+          #
+          # The conditional logic (github.event.pull_request.number && 'value' || 'fallback')
+          # ensures consistent behavior across different GitHub event triggers while providing
+          # FOSSA with the contextual information needed for accurate license compliance
+          # and security vulnerability detection.
+
+      - name: sca-scan
+        uses: SolaceDev/solace-public-workflows/.github/actions/sca/sca-scan@main
+        with:
+          scanners: "fossa"
+          additional_scan_params: |
+            ${{ inputs.sca_additional_scan_params }}
+            fossa.branch=${{ github.event.pull_request.number && 'PR' || github.event.repository.default_branch }}
+            fossa.revision=${{ github.event.pull_request.number && github.head_ref || github.sha }}
+          fossa_api_key: ${{ secrets.FOSSA_API_KEY }}
+        
+      - name: FOSSA Guard - Block on Policy Violations
+        uses: SolaceDev/solace-public-workflows/.github/actions/fossa-guard@main
+        continue-on-error: true
+        with:
+          fossa_api_key: ${{ secrets.FOSSA_API_KEY}}
+          fossa_project_id: "${{ github.repository_owner }}_${{ github.event.repository.name }}"
+          fossa_branch: ${{ github.event.pull_request.number && 'PR' || github.event.repository.default_branch }}
+          fossa_revision: ${{ github.event.pull_request.number && github.head_ref || github.sha }}
+          fossa_category: licensing
+          fossa_mode: BLOCK
+          block_on: policy_conflict

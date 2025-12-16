@@ -23,6 +23,11 @@ on:
         required: false
         default: false
         description: "Run SonarQube Hotspot Check"
+      fossa_check:
+        type: boolean
+        required: false
+        default: false
+        description: "Run FOSSA Check"
     secrets:
       WHITESOURCE_API_KEY:
         description: "Whitesource API key"
@@ -57,6 +62,9 @@ on:
       SONARQUBE_HOTSPOTS_API_URL:
         description: "SonarQube hotspots API URL"
         required: false
+      FOSSA_API_KEY:
+        description: "Fossa API key"
+        required: false
 
 permissions:
   contents: read
@@ -73,6 +81,32 @@ jobs:
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
           fetch-depth: 0
+
+      - name: FOSSA Guard - Block on Policy Violations
+        uses: SolaceDev/solace-public-workflows/.github/actions/fossa-guard@main
+        if: github.ref_name == github.event.repository.default_branch && fromJson(inputs.fossa_check)
+        continue-on-error: true
+        with:
+          fossa_api_key: ${{ secrets.FOSSA_API_KEY }}
+          fossa_project_id: "${{ github.repository_owner }}_${{ github.event.repository.name }}"
+          fossa_branch: ${{ github.event.repository.default_branch }}
+          fossa_revision: ${{ github.sha }}
+          fossa_category: licensing
+          fossa_mode: BLOCK
+          block_on: policy_conflict
+
+      - name: FOSSA Guard - Block on Security Vulnerabilities
+        uses: SolaceDev/solace-public-workflows/.github/actions/fossa-guard@main
+        if: github.ref_name == github.event.repository.default_branch && fromJson(inputs.fossa_check)
+        continue-on-error: true
+        with:
+          fossa_api_key: ${{ secrets.FOSSA_API_KEY }}
+          fossa_project_id: "${{ github.repository_owner }}_${{ github.event.repository.name }}"
+          fossa_branch: ${{ github.event.repository.default_branch }}
+          fossa_revision: ${{ github.sha }}
+          fossa_category: vulnerability
+          fossa_mode: BLOCK
+          block_on: critical,high
 
       - name: Run WhiteSource Policy Gate
         if: ${{ inputs.whitesource_product_name != '' && inputs.whitesource_project_name != '' }}

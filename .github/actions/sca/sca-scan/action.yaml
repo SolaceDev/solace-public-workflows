@@ -18,9 +18,9 @@ inputs:
     default: ""
 
   fossa_api_key:
-      description: "API Key for Fossa"
-      required: false
-      default: ""
+    description: "API Key for Fossa"
+    required: false
+    default: ""
 
 runs:
   using: "composite"
