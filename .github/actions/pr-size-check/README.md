@@ -81,13 +81,35 @@ jobs:
 
 ## Behavior
 
-- **Success**: PR size is within the limit - the action passes
-- **Failure**: PR size exceeds the limit - the action fails with an error message showing the actual size and the limit
+The action **always succeeds** (workflow passes) but posts a commit status check that shows success or failure:
 
-## Error Message Format
+- **Success**: PR size ≤ limit → Status check `PR Validation / Size Check` shows SUCCESS ✅
+- **Failure**: PR size > limit → Status check `PR Validation / Size Check` shows FAILURE ❌
 
-When a PR exceeds the limit, the action will fail with:
+The workflow itself does not fail. Enforcement happens through branch protection rules (see below).
 
+## Status Check
+
+The action posts a commit status with context name: **`PR Validation / Size Check`**
+
+When a PR exceeds the limit, the status check shows:
 ```
-PR size (600 lines) exceeds maximum allowed limit (500 lines)
+PR size exceeds maximum allowed limit: 600 lines (max: 500)
 ```
+
+When within the limit:
+```
+PR size is within acceptable limits: 300 lines (max: 500)
+```
+
+## Enforcing PR Size Limits
+
+To **block merges** for oversized PRs, add the status check as a required check in your branch protection rules:
+
+1. Go to: **Settings** → **Branches** → **Branch protection rules**
+2. Edit the rule for your main branch (e.g., `main`)
+3. Enable: **Require status checks to pass before merging**
+4. Search for and select: **`PR Validation / Size Check`**
+5. Save changes
+
+Once configured, PRs exceeding the limit cannot be merged until reduced in size.
