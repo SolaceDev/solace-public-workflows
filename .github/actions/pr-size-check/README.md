@@ -6,6 +6,8 @@ A GitHub composite action that validates pull request size against a configurabl
 
 Add this action to your workflow file (e.g., `.github/workflows/pr-checks.yml`):
 
+**Required Permissions:** The workflow must have `statuses: write` and `pull-requests: read` permissions to post status checks.
+
 ```yaml
 name: PR Checks
 
@@ -17,6 +19,9 @@ jobs:
   pr-size-check:
     name: Check PR Size
     runs-on: ubuntu-latest
+    permissions:
+      statuses: write
+      pull-requests: read
     steps:
       - name: Validate PR Size
         uses: SolaceDev/solace-public-workflows/.github/actions/pr-size-check@main
