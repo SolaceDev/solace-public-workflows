@@ -1,0 +1,83 @@
+name: PR Size Check
+description: Validates PR size against a configurable maximum line limit and posts a GitHub status check
+
+inputs:
+  max-lines:
+    description: "Maximum PR size (additions + deletions)"
+    required: false
+    default: "500"
+  github-token:
+    description: "GitHub token for API access (needs repo:status scope)"
+    required: true
+
+outputs:
+  pr-size:
+    description: "Total PR size (additions + deletions)"
+    value: ${{ steps.check-size.outputs.pr-size }}
+  size-exceeded:
+    description: "Whether the PR size exceeds the limit"
+    value: ${{ steps.check-size.outputs.size-exceeded }}
+
+runs:
+  using: composite
+  steps:
+    - name: Check PR Size
+      id: check-size
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        echo "🔍 Checking PR size..."
+
+        # Get PR details from GitHub API
+        PR_DATA=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }})
+
+        # Extract additions and deletions
+        ADDITIONS=$(echo "$PR_DATA" | jq -r '.additions')
+        DELETIONS=$(echo "$PR_DATA" | jq -r '.deletions')
+        PR_SIZE=$((ADDITIONS + DELETIONS))
+
+        echo "pr-size=$PR_SIZE" >> $GITHUB_OUTPUT
+
+        echo "📊 PR Statistics:"
+        echo "  - Additions: $ADDITIONS"
+        echo "  - Deletions: $DELETIONS"
+        echo "  - Total Size: $PR_SIZE lines"
+        echo "  - Maximum Allowed: ${{ inputs.max-lines }} lines"
+
+        if [ "$PR_SIZE" -gt "${{ inputs.max-lines }}" ]; then
+          echo "size-exceeded=true" >> $GITHUB_OUTPUT
+          echo "state=failure" >> $GITHUB_OUTPUT
+          echo "description=PR size exceeds maximum allowed limit: $PR_SIZE lines (max: ${{ inputs.max-lines }})" >> $GITHUB_OUTPUT
+          echo "❌ PR size ($PR_SIZE lines) exceeds maximum allowed limit (${{ inputs.max-lines }} lines)"
+        else
+          echo "size-exceeded=false" >> $GITHUB_OUTPUT
+          echo "state=success" >> $GITHUB_OUTPUT
+          echo "description=PR size is within acceptable limits: $PR_SIZE lines (max: ${{ inputs.max-lines }})" >> $GITHUB_OUTPUT
+          echo "✅ PR size ($PR_SIZE lines) is within acceptable limits (max: ${{ inputs.max-lines }} lines)"
+        fi
+
+    - name: Create Status Check
+      uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+      env:
+        STATE: ${{ steps.check-size.outputs.state }}
+        DESCRIPTION: ${{ steps.check-size.outputs.description }}
+        PR_SIZE: ${{ steps.check-size.outputs.pr-size }}
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const state = process.env.STATE;
+          const description = process.env.DESCRIPTION;
+          const prSize = process.env.PR_SIZE;
+
+          await github.rest.repos.createCommitStatus({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            sha: context.payload.pull_request.head.sha,
+            state: state,
+            target_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/pull/${context.payload.pull_request.number}`,
+            description: description,
+            context: 'PR Validation / Size Check'
+          });
+
+          console.log(`✅ Posted status check: ${state} - ${description}`);
