@@ -29,11 +29,6 @@ runs:
           SCA_FOSSA_ADDITIONAL_ARGS="$SCA_FOSSA_ADDITIONAL_ARGS --revision ${{ env.SCA_FOSSA_REVISION }}"
         fi
 
-        # Set target directory if SCA_FOSSA_TARGET_DIRECTORY environment variable is provided
-        if [ -n "${{ env.SCA_FOSSA_TARGET_DIRECTORY }}" ]; then
-          SCA_FOSSA_ADDITIONAL_ARGS="$SCA_FOSSA_ADDITIONAL_ARGS ${{ env.SCA_FOSSA_TARGET_DIRECTORY }}"
-        fi
-
         echo "SCA_FOSSA_ADDITIONAL_ARGS=${SCA_FOSSA_ADDITIONAL_ARGS}" >> "$GITHUB_ENV"
 
         # Set up test args with only revision parameter
@@ -41,8 +36,10 @@ runs:
         if [ -n "${{ env.SCA_FOSSA_REVISION }}" ]; then
           SCA_FOSSA_TEST_ARGS="--revision ${{ env.SCA_FOSSA_REVISION }}"
         fi
+        
+        # Change directory to target directory if provided
         if [ -n "${{ env.SCA_FOSSA_TARGET_DIRECTORY }}" ]; then
-          SCA_FOSSA_TEST_ARGS="$SCA_FOSSA_TEST_ARGS ${{ env.SCA_FOSSA_TARGET_DIRECTORY }}"
+          pushd "${{ env.SCA_FOSSA_TARGET_DIRECTORY }}"
         fi
 
         echo "SCA_FOSSA_TEST_ARGS=${SCA_FOSSA_TEST_ARGS}" >> "$GITHUB_ENV"
@@ -66,4 +63,9 @@ runs:
         echo "::group::⏳ Fossa Wait For Results"
         echo "Running: fossa test $SCA_FOSSA_TEST_ARGS"
         fossa test $SCA_FOSSA_TEST_ARGS
+
+        # Go back to the previous directory if target directory was provided
+        if [ -n "${{ env.SCA_FOSSA_TARGET_DIRECTORY }}" ]; then
+          popd
+        fi        
         echo "::endgroup::"
