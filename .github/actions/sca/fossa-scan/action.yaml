@@ -41,6 +41,10 @@ runs:
         if [ -n "${{ env.SCA_FOSSA_REVISION }}" ]; then
           SCA_FOSSA_TEST_ARGS="--revision ${{ env.SCA_FOSSA_REVISION }}"
         fi
+        if [ -n "${{ env.SCA_FOSSA_TARGET_DIRECTORY }}" ]; then
+          SCA_FOSSA_TEST_ARGS="$SCA_FOSSA_TEST_ARGS ${{ env.SCA_FOSSA_TARGET_DIRECTORY }}"
+        fi
+
         echo "SCA_FOSSA_TEST_ARGS=${SCA_FOSSA_TEST_ARGS}" >> "$GITHUB_ENV"
 
         echo "::endgroup::"
