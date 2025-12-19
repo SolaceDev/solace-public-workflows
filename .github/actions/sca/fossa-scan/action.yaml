@@ -29,6 +29,11 @@ runs:
           SCA_FOSSA_ADDITIONAL_ARGS="$SCA_FOSSA_ADDITIONAL_ARGS --revision ${{ env.SCA_FOSSA_REVISION }}"
         fi
 
+        # Set target directory if SCA_FOSSA_TARGET_DIRECTORY environment variable is provided
+        if [ -n "${{ env.SCA_FOSSA_TARGET_DIRECTORY }}" ]; then
+          SCA_FOSSA_ADDITIONAL_ARGS="$SCA_FOSSA_ADDITIONAL_ARGS ${{ env.SCA_FOSSA_TARGET_DIRECTORY }}"
+        fi
+
         echo "SCA_FOSSA_ADDITIONAL_ARGS=${SCA_FOSSA_ADDITIONAL_ARGS}" >> "$GITHUB_ENV"
 
         # Set up test args with only revision parameter
