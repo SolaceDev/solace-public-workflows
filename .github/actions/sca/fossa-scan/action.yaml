@@ -57,7 +57,8 @@ runs:
         FOSSA_CMD="fossa analyze"
 
         echo "Running: $FOSSA_CMD $SCA_FOSSA_ADDITIONAL_ARGS"
-        $FOSSA_CMD $SCA_FOSSA_ADDITIONAL_ARGS ./solace
+        cd ./solace
+        $FOSSA_CMD $SCA_FOSSA_ADDITIONAL_ARGS
         echo "::endgroup::"
 
     - name: FOSSA - Scan Wait For Results
@@ -66,5 +67,6 @@ runs:
       run: |
         echo "::group::⏳ Fossa Wait For Results"
         echo "Running: fossa test $SCA_FOSSA_TEST_ARGS"
-        fossa test $SCA_FOSSA_TEST_ARGS ./solace
+        cd ./solace
+        fossa test $SCA_FOSSA_TEST_ARGS
         echo "::endgroup::"
