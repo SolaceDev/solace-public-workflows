@@ -29,6 +29,21 @@ runs:
           SCA_FOSSA_ADDITIONAL_ARGS="$SCA_FOSSA_ADDITIONAL_ARGS --revision ${{ env.SCA_FOSSA_REVISION }}"
         fi
 
+        # Add --unpack-archives if SCA_FOSSA_UNPACK_ARCHIVES is set to true
+        if [ "${{ env.SCA_FOSSA_UNPACK_ARCHIVES }}" == "true" ]; then
+          SCA_FOSSA_ADDITIONAL_ARGS="$SCA_FOSSA_ADDITIONAL_ARGS --unpack-archives"
+        fi
+
+        # Add --without-default-filters if SCA_FOSSA_WITHOUT_DEFAULT_FILTERS is set to true
+        if [ "${{ env.SCA_FOSSA_WITHOUT_DEFAULT_FILTERS }}" == "true" ]; then
+          SCA_FOSSA_ADDITIONAL_ARGS="$SCA_FOSSA_ADDITIONAL_ARGS --without-default-filters"
+        fi
+
+        # Add --force-vendored-dependency-rescans if SCA_FOSSA_FORCE_VENDORED_DEPENDENCY_RESCANS is set to true
+        if [ "${{ env.SCA_FOSSA_FORCE_VENDORED_DEPENDENCY_RESCANS }}" == "true" ]; then
+          SCA_FOSSA_ADDITIONAL_ARGS="$SCA_FOSSA_ADDITIONAL_ARGS --force-vendored-dependency-rescans"
+        fi
+
         echo "SCA_FOSSA_ADDITIONAL_ARGS=${SCA_FOSSA_ADDITIONAL_ARGS}" >> "$GITHUB_ENV"
 
         # Set up test args with only revision parameter
