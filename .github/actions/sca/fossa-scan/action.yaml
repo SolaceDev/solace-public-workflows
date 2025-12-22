@@ -70,7 +70,7 @@ runs:
 
         echo "Running: fossa test $SCA_FOSSA_TEST_ARGS"
         cd ./solace
-        fossa list-target
+        fossa list-targets
         pwd
         fossa test $SCA_FOSSA_TEST_ARGS
         echo "::endgroup::"
