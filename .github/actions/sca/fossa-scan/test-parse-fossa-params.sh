@@ -180,6 +180,68 @@ test_project_parameter() {
   unset FOSSA_CLI_ARGS
 }
 
+test_command_filtering_analyze() {
+  echo ""
+  echo "Test: Command filtering - analyze"
+
+  export SCA_FOSSA_ANALYZE_DEBUG="true"
+  export SCA_FOSSA_PATH="sam-mongodb"
+  export SCA_FOSSA_CONFIG="sam-mongodb/.fossa.yml"
+  export FOSSA_PARAMS_CONFIG="$SCRIPT_DIR/fossa-params.json"
+
+  source "$SCRIPT_DIR/parse-fossa-params.sh"
+  build_fossa_args "analyze" > /dev/null
+
+  assert_contains "$FOSSA_CLI_ARGS" "--debug" "Analyze should include --debug"
+  assert_contains "$FOSSA_CLI_ARGS" "--path sam-mongodb" "Analyze should include --path"
+  assert_contains "$FOSSA_CLI_ARGS" "--config sam-mongodb/.fossa.yml" "Analyze should include --config"
+
+  unset SCA_FOSSA_ANALYZE_DEBUG SCA_FOSSA_PATH SCA_FOSSA_CONFIG
+  unset FOSSA_CLI_ARGS
+}
+
+test_command_filtering_test() {
+  echo ""
+  echo "Test: Command filtering - test"
+
+  export SCA_FOSSA_ANALYZE_DEBUG="true"
+  export SCA_FOSSA_PATH="sam-mongodb"
+  export SCA_FOSSA_CONFIG="sam-mongodb/.fossa.yml"
+  export SCA_FOSSA_BRANCH="PR"
+  export SCA_FOSSA_REVISION="abc123"
+  export SCA_FOSSA_PROJECT="MyOrg_project"
+  export FOSSA_PARAMS_CONFIG="$SCRIPT_DIR/fossa-params.json"
+
+  source "$SCRIPT_DIR/parse-fossa-params.sh"
+  build_fossa_args "test" > /dev/null
+
+  # Test command should include these
+  assert_contains "$FOSSA_CLI_ARGS" "--branch PR" "Test should include --branch"
+  assert_contains "$FOSSA_CLI_ARGS" "--revision abc123" "Test should include --revision"
+  assert_contains "$FOSSA_CLI_ARGS" "--project MyOrg_project" "Test should include --project"
+  assert_contains "$FOSSA_CLI_ARGS" "--config sam-mongodb/.fossa.yml" "Test should include --config"
+
+  # Test command should NOT include these (analyze-only)
+  if [[ "$FOSSA_CLI_ARGS" == *"--debug"* ]]; then
+    echo -e "${RED}✗${NC} Test should NOT include --debug (analyze-only)"
+    ((TEST_FAILED++))
+  else
+    echo -e "${GREEN}✓${NC} Test should NOT include --debug (analyze-only)"
+    ((TEST_PASSED++))
+  fi
+
+  if [[ "$FOSSA_CLI_ARGS" == *"--path"* ]]; then
+    echo -e "${RED}✗${NC} Test should NOT include --path (analyze-only)"
+    ((TEST_FAILED++))
+  else
+    echo -e "${GREEN}✓${NC} Test should NOT include --path (analyze-only)"
+    ((TEST_PASSED++))
+  fi
+
+  unset SCA_FOSSA_ANALYZE_DEBUG SCA_FOSSA_PATH SCA_FOSSA_CONFIG SCA_FOSSA_BRANCH SCA_FOSSA_REVISION SCA_FOSSA_PROJECT
+  unset FOSSA_CLI_ARGS
+}
+
 test_monorepo_use_case() {
   echo ""
   echo "Test: Monorepo use case (real-world scenario)"
@@ -216,6 +278,8 @@ test_multiple_parameters
 test_empty_value_not_included
 test_false_flag_not_included
 test_project_parameter
+test_command_filtering_analyze
+test_command_filtering_test
 test_monorepo_use_case
 
 echo ""

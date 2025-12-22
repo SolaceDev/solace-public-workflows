@@ -12,20 +12,17 @@ runs:
         echo "Installing FOSSA CLI..."
         curl -H 'Cache-Control: no-cache' https://raw.githubusercontent.com/fossas/fossa-cli/master/install-latest.sh | bash
 
-        # Use the parameter parser script
+        # Use the parameter parser script for analyze command
         export FOSSA_PARAMS_CONFIG="${GITHUB_ACTION_PATH}/fossa-params.json"
         source "${GITHUB_ACTION_PATH}/parse-fossa-params.sh"
-        build_fossa_args
 
-        # Store result for later steps
+        # Build analyze args
+        build_fossa_args "analyze"
         echo "SCA_FOSSA_ADDITIONAL_ARGS=${FOSSA_CLI_ARGS}" >> "$GITHUB_ENV"
 
-        # Set up test args with only revision parameter
-        SCA_FOSSA_TEST_ARGS=""
-        if [ -n "${{ env.SCA_FOSSA_REVISION }}" ]; then
-          SCA_FOSSA_TEST_ARGS="--revision ${{ env.SCA_FOSSA_REVISION }}"
-        fi
-        echo "SCA_FOSSA_TEST_ARGS=${SCA_FOSSA_TEST_ARGS}" >> "$GITHUB_ENV"
+        # Build test args
+        build_fossa_args "test"
+        echo "SCA_FOSSA_TEST_ARGS=${FOSSA_CLI_ARGS}" >> "$GITHUB_ENV"
 
         echo "::endgroup::"
 

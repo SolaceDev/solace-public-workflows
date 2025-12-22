@@ -23,15 +23,20 @@ set -euo pipefail
 FOSSA_PARAMS_CONFIG="${FOSSA_PARAMS_CONFIG:-$(dirname "${BASH_SOURCE[0]}")/fossa-params.json}"
 
 ###############################################################################
-# build_fossa_args
+# build_fossa_args [command]
 #
 # Reads JSON configuration and builds FOSSA CLI arguments from environment
 # variables. Sets the FOSSA_CLI_ARGS variable with the result.
+#
+# Parameters:
+#   command - Optional FOSSA command to filter parameters by (e.g., "analyze", "test")
+#             If not provided, uses all parameters regardless of command.
 #
 # Returns:
 #   0 on success, 1 on error
 ###############################################################################
 build_fossa_args() {
+  local filter_command="${1:-}"
   local config_file="$FOSSA_PARAMS_CONFIG"
 
   # Validate config file exists
@@ -46,7 +51,11 @@ build_fossa_args() {
     return 1
   fi
 
-  echo "📋 Loading FOSSA parameter mappings from: $config_file"
+  if [ -n "$filter_command" ]; then
+    echo "📋 Loading FOSSA '$filter_command' parameter mappings from: $config_file"
+  else
+    echo "📋 Loading FOSSA parameter mappings from: $config_file"
+  fi
 
   # Initialize output variable
   FOSSA_CLI_ARGS=""
@@ -57,11 +66,20 @@ build_fossa_args() {
   param_count=$(jq -r '.parameters | length' "$config_file")
 
   for ((i=0; i<param_count; i++)); do
-    local env_var cli_flag param_type env_value
+    local env_var cli_flag param_type env_value commands
 
     env_var=$(jq -r ".parameters[$i].env" "$config_file")
     cli_flag=$(jq -r ".parameters[$i].flag" "$config_file")
     param_type=$(jq -r ".parameters[$i].type" "$config_file")
+    commands=$(jq -r ".parameters[$i].commands | join(\",\")" "$config_file")
+
+    # Filter by command if specified
+    if [ -n "$filter_command" ]; then
+      # Check if this parameter supports the requested command
+      if ! echo "$commands" | grep -q "$filter_command"; then
+        continue  # Skip this parameter
+      fi
+    fi
 
     # Get the environment variable value
     # Use indirect expansion instead of eval for safety and compatibility

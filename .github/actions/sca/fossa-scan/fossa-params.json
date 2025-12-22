@@ -1,12 +1,13 @@
 {
   "$schema": "fossa-params-schema",
   "description": "FOSSA CLI parameter mappings for the fossa-scan GitHub Action",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "parameters": [
     {
       "env": "SCA_FOSSA_ANALYZE_DEBUG",
       "flag": "--debug",
       "type": "flag",
+      "commands": ["analyze"],
       "description": "Enable debug logging during FOSSA analysis",
       "example": "fossa.analyze_debug=true"
     },
@@ -14,6 +15,7 @@
       "env": "SCA_FOSSA_BRANCH",
       "flag": "--branch",
       "type": "value",
+      "commands": ["analyze", "test"],
       "description": "Branch name for FOSSA project tracking",
       "example": "fossa.branch=main"
     },
@@ -21,6 +23,7 @@
       "env": "SCA_FOSSA_REVISION",
       "flag": "--revision",
       "type": "value",
+      "commands": ["analyze", "test"],
       "description": "Git revision/commit SHA for FOSSA tracking",
       "example": "fossa.revision=abc123"
     },
@@ -28,6 +31,7 @@
       "env": "SCA_FOSSA_PROJECT",
       "flag": "--project",
       "type": "value",
+      "commands": ["analyze", "test"],
       "description": "Override project name/ID for FOSSA tracking",
       "example": "fossa.project=MyOrg_my-project"
     },
@@ -35,6 +39,7 @@
       "env": "SCA_FOSSA_PATH",
       "flag": "--path",
       "type": "value",
+      "commands": ["analyze"],
       "description": "Base directory to scan (useful for monorepos)",
       "example": "fossa.path=packages/my-package"
     },
@@ -42,6 +47,7 @@
       "env": "SCA_FOSSA_CONFIG",
       "flag": "--config",
       "type": "value",
+      "commands": ["analyze", "test"],
       "description": "Path to custom .fossa.yml configuration file",
       "example": "fossa.config=packages/my-package/.fossa.yml"
     },
@@ -49,6 +55,7 @@
       "env": "SCA_FOSSA_UNPACK_ARCHIVES",
       "flag": "--unpack-archives",
       "type": "flag",
+      "commands": ["analyze"],
       "description": "Unpack and scan archive files",
       "example": "fossa.unpack_archives=true"
     },
@@ -56,6 +63,7 @@
       "env": "SCA_FOSSA_WITHOUT_DEFAULT_FILTERS",
       "flag": "--without-default-filters",
       "type": "flag",
+      "commands": ["analyze"],
       "description": "Disable default file filters",
       "example": "fossa.without_default_filters=true"
     },
@@ -63,6 +71,7 @@
       "env": "SCA_FOSSA_FORCE_VENDORED_DEPENDENCY_RESCANS",
       "flag": "--force-vendored-dependency-rescans",
       "type": "flag",
+      "commands": ["analyze"],
       "description": "Force rescanning of vendored dependencies",
       "example": "fossa.force_vendored_dependency_rescans=true"
     }
@@ -71,6 +80,7 @@
     "Parameters are mapped from additional_scan_params (e.g., 'fossa.branch=main') to environment variables (e.g., 'SCA_FOSSA_BRANCH')",
     "Type 'flag' means boolean - only added if set to 'true'",
     "Type 'value' means the parameter requires a value and is added if non-empty",
+    "The 'commands' field specifies which FOSSA commands support this parameter: 'analyze' and/or 'test'",
     "To add a new parameter: add an entry to this file and it will automatically be processed"
   ]
 }
