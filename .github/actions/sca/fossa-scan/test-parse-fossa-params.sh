@@ -212,7 +212,6 @@ test_command_filtering_test() {
   build_fossa_args "test" > /dev/null
 
   # Test command should include these
-  assert_contains "$FOSSA_CLI_ARGS" "--branch PR" "Test should include --branch"
   assert_contains "$FOSSA_CLI_ARGS" "--revision abc123" "Test should include --revision"
   assert_contains "$FOSSA_CLI_ARGS" "--project MyOrg_project" "Test should include --project"
   assert_contains "$FOSSA_CLI_ARGS" "--config sam-mongodb/.fossa.yml" "Test should include --config"
@@ -223,6 +222,14 @@ test_command_filtering_test() {
     ((TEST_FAILED++))
   else
     echo -e "${GREEN}✓${NC} Test should NOT include --debug (analyze-only)"
+    ((TEST_PASSED++))
+  fi
+
+  if [[ "$FOSSA_CLI_ARGS" == *"--branch"* ]]; then
+    echo -e "${RED}✗${NC} Test should NOT include --branch (analyze-only)"
+    ((TEST_FAILED++))
+  else
+    echo -e "${GREEN}✓${NC} Test should NOT include --branch (analyze-only)"
     ((TEST_PASSED++))
   fi
 

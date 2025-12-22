@@ -89,11 +89,11 @@ Generates: `fossa analyze --config sam-mongodb/.fossa.yml --path sam-mongodb`
 | Parameter | Type | FOSSA Flag | Commands | Description |
 |-----------|------|------------|----------|-------------|
 | `fossa.analyze_debug` | flag | `--debug` | `analyze` | Enable debug logging |
-| `fossa.branch` | value | `--branch` | `analyze`, `test` | Branch name for tracking |
+| `fossa.branch` | value | `--branch` | `analyze` | Branch name for tracking |
 | `fossa.revision` | value | `--revision` | `analyze`, `test` | Git commit SHA |
 | `fossa.project` | value | `--project` | `analyze`, `test` | Override project name/ID |
 | `fossa.path` | value | N/A (working directory) | `analyze`, `test` | Base directory to scan from |
-| `fossa.config` | value | `--config` | `analyze`, `test` | Path to `.fossa.yml` |
+| `fossa.config` | value | `--config` | `analyze`, `test` | Path to `.fossa.yml` (optional if using fossa.path) |
 | `fossa.unpack_archives` | flag | `--unpack-archives` | `analyze` | Unpack and scan archives |
 | `fossa.without_default_filters` | flag | `--without-default-filters` | `analyze` | Disable default filters |
 | `fossa.force_vendored_dependency_rescans` | flag | `--force-vendored-dependency-rescans` | `analyze` | Force rescan vendored deps |
@@ -105,6 +105,8 @@ Generates: `fossa analyze --config sam-mongodb/.fossa.yml --path sam-mongodb`
 
 **Special Parameters:**
 - `fossa.path` - Sets the working directory for FOSSA commands. This is not a CLI flag but uses GitHub Actions' `working-directory` to change into the specified directory before running `fossa analyze` and `fossa test`.
+  - **Important:** If you specify `fossa.path`, FOSSA will automatically look for `.fossa.yml` in that directory. You only need `fossa.config` if your config file is in a different location or has a non-standard name.
+  - **Example:** `fossa.path=sam-bedrock-agent` will automatically use `sam-bedrock-agent/.fossa.yml` if it exists.
 
 See [fossa-params.json](./fossa-params.json) for the complete list with examples.
 

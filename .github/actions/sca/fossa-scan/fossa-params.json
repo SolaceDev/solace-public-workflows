@@ -15,7 +15,7 @@
       "env": "SCA_FOSSA_BRANCH",
       "flag": "--branch",
       "type": "value",
-      "commands": ["analyze", "test"],
+      "commands": ["analyze"],
       "description": "Branch name for FOSSA project tracking",
       "example": "fossa.branch=main"
     },
@@ -74,6 +74,8 @@
     "Type 'value' means the parameter requires a value and is added if non-empty",
     "The 'commands' field specifies which FOSSA commands support this parameter: 'analyze' and/or 'test'",
     "Special parameter: 'fossa.path' sets the working directory for FOSSA commands (not a CLI flag, uses GitHub Actions working-directory)",
+    "If you specify 'fossa.path', FOSSA will automatically look for .fossa.yml in that directory - you only need 'fossa.config' if the config is elsewhere",
+    "Example: fossa.path=sam-bedrock-agent will cd into sam-bedrock-agent and use sam-bedrock-agent/.fossa.yml automatically",
     "To add a new parameter: add an entry to this file and it will automatically be processed"
   ]
 }
