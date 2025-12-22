@@ -44,6 +44,18 @@ runs:
           SCA_FOSSA_ADDITIONAL_ARGS="$SCA_FOSSA_ADDITIONAL_ARGS --force-vendored-dependency-rescans"
         fi
 
+        # Add --path if SCA_FOSSA_PATH is provided
+        if [ -n "${{ env.SCA_FOSSA_PATH }}" ]; then
+          SCA_FOSSA_ADDITIONAL_ARGS="$SCA_FOSSA_ADDITIONAL_ARGS --path ${{ env.SCA_FOSSA_PATH }}"
+          echo "Using FOSSA path: ${{ env.SCA_FOSSA_PATH }}"
+        fi
+
+        # Add --config if SCA_FOSSA_CONFIG is provided
+        if [ -n "${{ env.SCA_FOSSA_CONFIG }}" ]; then
+          SCA_FOSSA_ADDITIONAL_ARGS="$SCA_FOSSA_ADDITIONAL_ARGS --config ${{ env.SCA_FOSSA_CONFIG }}"
+          echo "Using FOSSA config: ${{ env.SCA_FOSSA_CONFIG }}"
+        fi
+
         echo "SCA_FOSSA_ADDITIONAL_ARGS=${SCA_FOSSA_ADDITIONAL_ARGS}" >> "$GITHUB_ENV"
 
         # Set up test args with only revision parameter
