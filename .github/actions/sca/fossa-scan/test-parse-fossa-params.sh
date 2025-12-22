@@ -164,6 +164,22 @@ test_false_flag_not_included() {
   unset FOSSA_CLI_ARGS
 }
 
+test_project_parameter() {
+  echo ""
+  echo "Test: Project parameter"
+
+  export SCA_FOSSA_PROJECT="MyOrg_my-project"
+  export FOSSA_PARAMS_CONFIG="$SCRIPT_DIR/fossa-params.json"
+
+  source "$SCRIPT_DIR/parse-fossa-params.sh"
+  build_fossa_args > /dev/null
+
+  assert_contains "$FOSSA_CLI_ARGS" "--project MyOrg_my-project" "Should include project override"
+
+  unset SCA_FOSSA_PROJECT
+  unset FOSSA_CLI_ARGS
+}
+
 test_monorepo_use_case() {
   echo ""
   echo "Test: Monorepo use case (real-world scenario)"
@@ -178,6 +194,7 @@ test_monorepo_use_case() {
   source "$SCRIPT_DIR/parse-fossa-params.sh"
   build_fossa_args > /dev/null
 
+  assert_contains "$FOSSA_CLI_ARGS" "--project SolaceLabs_sam-mongodb" "Should include project name"
   assert_contains "$FOSSA_CLI_ARGS" "--path sam-mongodb" "Should include plugin path"
   assert_contains "$FOSSA_CLI_ARGS" "--config sam-mongodb/.fossa.yml" "Should include plugin config"
 
@@ -198,6 +215,7 @@ test_value_parameter
 test_multiple_parameters
 test_empty_value_not_included
 test_false_flag_not_included
+test_project_parameter
 test_monorepo_use_case
 
 echo ""

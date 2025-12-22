@@ -91,6 +91,7 @@ Generates: `fossa analyze --config sam-mongodb/.fossa.yml --path sam-mongodb`
 | `fossa.analyze_debug` | flag | `--debug` | Enable debug logging |
 | `fossa.branch` | value | `--branch` | Branch name for tracking |
 | `fossa.revision` | value | `--revision` | Git commit SHA |
+| `fossa.project` | value | `--project` | Override project name/ID |
 | `fossa.path` | value | `--path` | Base directory to scan |
 | `fossa.config` | value | `--config` | Path to `.fossa.yml` |
 | `fossa.unpack_archives` | flag | `--unpack-archives` | Unpack and scan archives |

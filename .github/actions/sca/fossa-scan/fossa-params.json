@@ -25,6 +25,13 @@
       "example": "fossa.revision=abc123"
     },
     {
+      "env": "SCA_FOSSA_PROJECT",
+      "flag": "--project",
+      "type": "value",
+      "description": "Override project name/ID for FOSSA tracking",
+      "example": "fossa.project=MyOrg_my-project"
+    },
+    {
       "env": "SCA_FOSSA_PATH",
       "flag": "--path",
       "type": "value",
