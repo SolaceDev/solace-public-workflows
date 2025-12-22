@@ -66,6 +66,6 @@ runs:
 
     - name: SCA - Run Fossa scan
       if: contains(inputs.scanners, 'fossa')
-      uses: ./fossa-scan
+      uses: SolaceDev/solace-public-workflows/.github/actions/sca/fossa-scan@specify_fossa_config_path
       env:
         FOSSA_API_KEY: ${{ inputs.fossa_api_key }}
