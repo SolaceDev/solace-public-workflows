@@ -12,53 +12,29 @@ runs:
         echo "Installing FOSSA CLI..."
         curl -H 'Cache-Control: no-cache' https://raw.githubusercontent.com/fossas/fossa-cli/master/install-latest.sh | bash
 
-        SCA_FOSSA_ADDITIONAL_ARGS=""
+        # Use the parameter parser script for analyze command
+        export FOSSA_PARAMS_CONFIG="${GITHUB_ACTION_PATH}/fossa-params.json"
+        source "${GITHUB_ACTION_PATH}/parse-fossa-params.sh"
 
-        #if SCA_FOSSA_ANALYZE_DEBUG is set to true, add --debug to analyze args
-        if [ "${{ env.SCA_FOSSA_ANALYZE_DEBUG }}" == "true" ]; then
-          SCA_FOSSA_ADDITIONAL_ARGS="$SCA_FOSSA_ADDITIONAL_ARGS --debug"
-        fi
+        # Build analyze args
+        build_fossa_args "analyze"
+        echo "SCA_FOSSA_ADDITIONAL_ARGS=${FOSSA_CLI_ARGS}" >> "$GITHUB_ENV"
 
-        # Set branch parameter if SCA_FOSSA_BRANCH environment variable is provided
-        if [ -n "${{ env.SCA_FOSSA_BRANCH }}" ]; then
-          SCA_FOSSA_ADDITIONAL_ARGS="$SCA_FOSSA_ADDITIONAL_ARGS --branch ${{ env.SCA_FOSSA_BRANCH }}"
-        fi
-
-        # Set revision parameter if SCA_FOSSA_REVISION environment variable is provided
-        if [ -n "${{ env.SCA_FOSSA_REVISION }}" ]; then
-          SCA_FOSSA_ADDITIONAL_ARGS="$SCA_FOSSA_ADDITIONAL_ARGS --revision ${{ env.SCA_FOSSA_REVISION }}"
-        fi
-
-        # Add --unpack-archives if SCA_FOSSA_UNPACK_ARCHIVES is set to true
-        if [ "${{ env.SCA_FOSSA_UNPACK_ARCHIVES }}" == "true" ]; then
-          SCA_FOSSA_ADDITIONAL_ARGS="$SCA_FOSSA_ADDITIONAL_ARGS --unpack-archives"
-        fi
-
-        # Add --without-default-filters if SCA_FOSSA_WITHOUT_DEFAULT_FILTERS is set to true
-        if [ "${{ env.SCA_FOSSA_WITHOUT_DEFAULT_FILTERS }}" == "true" ]; then
-          SCA_FOSSA_ADDITIONAL_ARGS="$SCA_FOSSA_ADDITIONAL_ARGS --without-default-filters"
-        fi
-
-        # Add --force-vendored-dependency-rescans if SCA_FOSSA_FORCE_VENDORED_DEPENDENCY_RESCANS is set to true
-        if [ "${{ env.SCA_FOSSA_FORCE_VENDORED_DEPENDENCY_RESCANS }}" == "true" ]; then
-          SCA_FOSSA_ADDITIONAL_ARGS="$SCA_FOSSA_ADDITIONAL_ARGS --force-vendored-dependency-rescans"
-        fi
-
-        echo "SCA_FOSSA_ADDITIONAL_ARGS=${SCA_FOSSA_ADDITIONAL_ARGS}" >> "$GITHUB_ENV"
-
-        # Set up test args with only revision parameter
-        SCA_FOSSA_TEST_ARGS=""
-        if [ -n "${{ env.SCA_FOSSA_REVISION }}" ]; then
-          SCA_FOSSA_TEST_ARGS="--revision ${{ env.SCA_FOSSA_REVISION }}"
-        fi
-        echo "SCA_FOSSA_TEST_ARGS=${SCA_FOSSA_TEST_ARGS}" >> "$GITHUB_ENV"
+        # Build test args
+        build_fossa_args "test"
+        echo "SCA_FOSSA_TEST_ARGS=${FOSSA_CLI_ARGS}" >> "$GITHUB_ENV"
 
         echo "::endgroup::"
 
     - name: Fossa - Scan
       shell: bash
+      working-directory: ${{ env.SCA_FOSSA_PATH || '.' }}
       run: |
         echo "::group::🔍 Fossa Scan"
+        if [ -n "${{ env.SCA_FOSSA_PATH }}" ]; then
+          echo "Scanning from directory: ${{ env.SCA_FOSSA_PATH }}"
+        fi
+
         FOSSA_CMD="fossa analyze"
 
         echo "Running: $FOSSA_CMD $SCA_FOSSA_ADDITIONAL_ARGS"
@@ -68,6 +44,7 @@ runs:
     - name: FOSSA - Scan Wait For Results
       continue-on-error: true
       shell: bash
+      working-directory: ${{ env.SCA_FOSSA_PATH || '.' }}
       run: |
         echo "::group::⏳ Fossa Wait For Results"
         echo "Running: fossa test $SCA_FOSSA_TEST_ARGS"
