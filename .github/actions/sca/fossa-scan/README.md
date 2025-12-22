@@ -101,22 +101,81 @@ See [fossa-params.json](./fossa-params.json) for the complete list with examples
 
 ## Adding New Parameters
 
-To add a new FOSSA CLI parameter:
+To add a new FOSSA CLI parameter, follow these steps:
 
-1. Add an entry to `fossa-params.json`:
-   ```json
-   {
-     "env": "SCA_FOSSA_NEW_PARAM",
-     "flag": "--new-param",
-     "type": "value",
-     "description": "Description of the parameter",
-     "example": "fossa.new_param=value"
-   }
-   ```
+### 1. Update the JSON Configuration
 
-2. That's it! The action will automatically process it.
+Add an entry to [`fossa-params.json`](./fossa-params.json):
 
-**No code changes required** - the JSON configuration is declarative and self-contained.
+```json
+{
+  "env": "SCA_FOSSA_NEW_PARAM",
+  "flag": "--new-param",
+  "type": "value",
+  "description": "Description of what this parameter does",
+  "example": "fossa.new_param=value"
+}
+```
+
+**Field Guide:**
+- `env`: Environment variable name (must start with `SCA_FOSSA_`)
+- `flag`: FOSSA CLI flag (e.g., `--config`, `--path`)
+- `type`: Either `"flag"` (boolean) or `"value"` (requires a value)
+- `description`: Human-readable description of the parameter
+- `example`: Usage example via `additional_scan_params`
+
+### 2. Run the Test Suite
+
+Before committing, verify your changes work correctly:
+
+```bash
+cd .github/actions/sca/fossa-scan
+./test-parse-fossa-params.sh
+```
+
+Expected output:
+```
+🧪 FOSSA Parameter Parser Test Suite
+...
+✅ All tests passed!
+```
+
+### 3. (Optional) Add a Test Case
+
+For complex parameters, add a test case to [`test-parse-fossa-params.sh`](./test-parse-fossa-params.sh):
+
+```bash
+test_your_new_parameter() {
+  echo ""
+  echo "Test: Your new parameter"
+
+  export SCA_FOSSA_NEW_PARAM="test-value"
+  export FOSSA_PARAMS_CONFIG="$SCRIPT_DIR/fossa-params.json"
+
+  source "$SCRIPT_DIR/parse-fossa-params.sh"
+  build_fossa_args > /dev/null
+
+  assert_contains "$FOSSA_CLI_ARGS" "--new-param test-value" \
+    "Should include --new-param with value"
+
+  unset SCA_FOSSA_NEW_PARAM FOSSA_CLI_ARGS
+}
+```
+
+Then add `test_your_new_parameter` to the test execution section.
+
+### 4. Update Documentation
+
+Add your parameter to the "Available Parameters" table in this README.
+
+### 5. Commit and Create PR
+
+```bash
+git add fossa-params.json README.md
+git commit -m "feat: Add support for --new-param FOSSA flag"
+```
+
+**That's it!** No code changes to `action.yaml` or `parse-fossa-params.sh` are needed - the JSON configuration is declarative and self-contained.
 
 ## Architecture
 
