@@ -58,6 +58,7 @@ runs:
 
         echo "Running: $FOSSA_CMD $SCA_FOSSA_ADDITIONAL_ARGS"
         cd ./solace
+        pwd
         $FOSSA_CMD $SCA_FOSSA_ADDITIONAL_ARGS
         echo "::endgroup::"
 
@@ -68,5 +69,6 @@ runs:
         echo "::group::⏳ Fossa Wait For Results"
         echo "Running: fossa test $SCA_FOSSA_TEST_ARGS"
         cd ./solace
+        pwd
         fossa test $SCA_FOSSA_TEST_ARGS
         echo "::endgroup::"
