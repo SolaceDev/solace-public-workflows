@@ -86,17 +86,22 @@ Generates: `fossa analyze --config sam-mongodb/.fossa.yml --path sam-mongodb`
 
 ## Available Parameters
 
-| Parameter | Type | FOSSA Flag | Description |
-|-----------|------|------------|-------------|
-| `fossa.analyze_debug` | flag | `--debug` | Enable debug logging |
-| `fossa.branch` | value | `--branch` | Branch name for tracking |
-| `fossa.revision` | value | `--revision` | Git commit SHA |
-| `fossa.project` | value | `--project` | Override project name/ID |
-| `fossa.path` | value | `--path` | Base directory to scan |
-| `fossa.config` | value | `--config` | Path to `.fossa.yml` |
-| `fossa.unpack_archives` | flag | `--unpack-archives` | Unpack and scan archives |
-| `fossa.without_default_filters` | flag | `--without-default-filters` | Disable default filters |
-| `fossa.force_vendored_dependency_rescans` | flag | `--force-vendored-dependency-rescans` | Force rescan vendored deps |
+| Parameter | Type | FOSSA Flag | Commands | Description |
+|-----------|------|------------|----------|-------------|
+| `fossa.analyze_debug` | flag | `--debug` | `analyze` | Enable debug logging |
+| `fossa.branch` | value | `--branch` | `analyze`, `test` | Branch name for tracking |
+| `fossa.revision` | value | `--revision` | `analyze`, `test` | Git commit SHA |
+| `fossa.project` | value | `--project` | `analyze`, `test` | Override project name/ID |
+| `fossa.path` | value | `--path` | `analyze` | Base directory to scan |
+| `fossa.config` | value | `--config` | `analyze`, `test` | Path to `.fossa.yml` |
+| `fossa.unpack_archives` | flag | `--unpack-archives` | `analyze` | Unpack and scan archives |
+| `fossa.without_default_filters` | flag | `--without-default-filters` | `analyze` | Disable default filters |
+| `fossa.force_vendored_dependency_rescans` | flag | `--force-vendored-dependency-rescans` | `analyze` | Force rescan vendored deps |
+
+**Commands Column:**
+- `analyze` - Used for the `fossa analyze` command (scans code and uploads results)
+- `test` - Used for the `fossa test` command (checks scan results against policies)
+- Both commands - Parameter is used by both commands
 
 See [fossa-params.json](./fossa-params.json) for the complete list with examples.
 
@@ -113,6 +118,7 @@ Add an entry to [`fossa-params.json`](./fossa-params.json):
   "env": "SCA_FOSSA_NEW_PARAM",
   "flag": "--new-param",
   "type": "value",
+  "commands": ["analyze", "test"],
   "description": "Description of what this parameter does",
   "example": "fossa.new_param=value"
 }
@@ -122,6 +128,10 @@ Add an entry to [`fossa-params.json`](./fossa-params.json):
 - `env`: Environment variable name (must start with `SCA_FOSSA_`)
 - `flag`: FOSSA CLI flag (e.g., `--config`, `--path`)
 - `type`: Either `"flag"` (boolean) or `"value"` (requires a value)
+- `commands`: Array of FOSSA commands that support this parameter
+  - `["analyze"]` - Only used for `fossa analyze`
+  - `["test"]` - Only used for `fossa test`
+  - `["analyze", "test"]` - Used for both commands
 - `description`: Human-readable description of the parameter
 - `example`: Usage example via `additional_scan_params`
 
