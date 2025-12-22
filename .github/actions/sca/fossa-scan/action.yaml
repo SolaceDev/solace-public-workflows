@@ -14,47 +14,39 @@ runs:
 
         SCA_FOSSA_ADDITIONAL_ARGS=""
 
-        #if SCA_FOSSA_ANALYZE_DEBUG is set to true, add --debug to analyze args
-        if [ "${{ env.SCA_FOSSA_ANALYZE_DEBUG }}" == "true" ]; then
-          SCA_FOSSA_ADDITIONAL_ARGS="$SCA_FOSSA_ADDITIONAL_ARGS --debug"
-        fi
+        # Define parameter mappings: ENV_VAR_NAME:CLI_FLAG:VALUE_TYPE
+        # VALUE_TYPE can be: "flag" (boolean flag), "value" (flag with value)
+        FOSSA_PARAMS=(
+          "SCA_FOSSA_ANALYZE_DEBUG:--debug:flag"
+          "SCA_FOSSA_BRANCH:--branch:value"
+          "SCA_FOSSA_REVISION:--revision:value"
+          "SCA_FOSSA_PATH:--path:value"
+          "SCA_FOSSA_CONFIG:--config:value"
+          "SCA_FOSSA_UNPACK_ARCHIVES:--unpack-archives:flag"
+          "SCA_FOSSA_WITHOUT_DEFAULT_FILTERS:--without-default-filters:flag"
+          "SCA_FOSSA_FORCE_VENDORED_DEPENDENCY_RESCANS:--force-vendored-dependency-rescans:flag"
+        )
 
-        # Set branch parameter if SCA_FOSSA_BRANCH environment variable is provided
-        if [ -n "${{ env.SCA_FOSSA_BRANCH }}" ]; then
-          SCA_FOSSA_ADDITIONAL_ARGS="$SCA_FOSSA_ADDITIONAL_ARGS --branch ${{ env.SCA_FOSSA_BRANCH }}"
-        fi
+        # Process each parameter
+        for param in "${FOSSA_PARAMS[@]}"; do
+          IFS=':' read -r env_var cli_flag value_type <<< "$param"
 
-        # Set revision parameter if SCA_FOSSA_REVISION environment variable is provided
-        if [ -n "${{ env.SCA_FOSSA_REVISION }}" ]; then
-          SCA_FOSSA_ADDITIONAL_ARGS="$SCA_FOSSA_ADDITIONAL_ARGS --revision ${{ env.SCA_FOSSA_REVISION }}"
-        fi
+          # Get the environment variable value
+          env_value="${!env_var}"
 
-        # Add --unpack-archives if SCA_FOSSA_UNPACK_ARCHIVES is set to true
-        if [ "${{ env.SCA_FOSSA_UNPACK_ARCHIVES }}" == "true" ]; then
-          SCA_FOSSA_ADDITIONAL_ARGS="$SCA_FOSSA_ADDITIONAL_ARGS --unpack-archives"
-        fi
-
-        # Add --without-default-filters if SCA_FOSSA_WITHOUT_DEFAULT_FILTERS is set to true
-        if [ "${{ env.SCA_FOSSA_WITHOUT_DEFAULT_FILTERS }}" == "true" ]; then
-          SCA_FOSSA_ADDITIONAL_ARGS="$SCA_FOSSA_ADDITIONAL_ARGS --without-default-filters"
-        fi
-
-        # Add --force-vendored-dependency-rescans if SCA_FOSSA_FORCE_VENDORED_DEPENDENCY_RESCANS is set to true
-        if [ "${{ env.SCA_FOSSA_FORCE_VENDORED_DEPENDENCY_RESCANS }}" == "true" ]; then
-          SCA_FOSSA_ADDITIONAL_ARGS="$SCA_FOSSA_ADDITIONAL_ARGS --force-vendored-dependency-rescans"
-        fi
-
-        # Add --path if SCA_FOSSA_PATH is provided
-        if [ -n "${{ env.SCA_FOSSA_PATH }}" ]; then
-          SCA_FOSSA_ADDITIONAL_ARGS="$SCA_FOSSA_ADDITIONAL_ARGS --path ${{ env.SCA_FOSSA_PATH }}"
-          echo "Using FOSSA path: ${{ env.SCA_FOSSA_PATH }}"
-        fi
-
-        # Add --config if SCA_FOSSA_CONFIG is provided
-        if [ -n "${{ env.SCA_FOSSA_CONFIG }}" ]; then
-          SCA_FOSSA_ADDITIONAL_ARGS="$SCA_FOSSA_ADDITIONAL_ARGS --config ${{ env.SCA_FOSSA_CONFIG }}"
-          echo "Using FOSSA config: ${{ env.SCA_FOSSA_CONFIG }}"
-        fi
+          if [ "$value_type" == "flag" ]; then
+            # Boolean flag - only add if set to "true"
+            if [ "$env_value" == "true" ]; then
+              SCA_FOSSA_ADDITIONAL_ARGS="$SCA_FOSSA_ADDITIONAL_ARGS $cli_flag"
+            fi
+          elif [ "$value_type" == "value" ]; then
+            # Flag with value - only add if value is non-empty
+            if [ -n "$env_value" ]; then
+              SCA_FOSSA_ADDITIONAL_ARGS="$SCA_FOSSA_ADDITIONAL_ARGS $cli_flag $env_value"
+              echo "Using FOSSA $cli_flag: $env_value"
+            fi
+          fi
+        done
 
         echo "SCA_FOSSA_ADDITIONAL_ARGS=${SCA_FOSSA_ADDITIONAL_ARGS}" >> "$GITHUB_ENV"
 
