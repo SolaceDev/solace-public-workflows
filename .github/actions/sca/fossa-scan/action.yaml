@@ -12,43 +12,13 @@ runs:
         echo "Installing FOSSA CLI..."
         curl -H 'Cache-Control: no-cache' https://raw.githubusercontent.com/fossas/fossa-cli/master/install-latest.sh | bash
 
-        SCA_FOSSA_ADDITIONAL_ARGS=""
+        # Use the parameter parser script
+        export FOSSA_PARAMS_CONFIG="${GITHUB_ACTION_PATH}/fossa-params.json"
+        source "${GITHUB_ACTION_PATH}/parse-fossa-params.sh"
+        build_fossa_args
 
-        # Define parameter mappings: ENV_VAR_NAME:CLI_FLAG:VALUE_TYPE
-        # VALUE_TYPE can be: "flag" (boolean flag), "value" (flag with value)
-        FOSSA_PARAMS=(
-          "SCA_FOSSA_ANALYZE_DEBUG:--debug:flag"
-          "SCA_FOSSA_BRANCH:--branch:value"
-          "SCA_FOSSA_REVISION:--revision:value"
-          "SCA_FOSSA_PATH:--path:value"
-          "SCA_FOSSA_CONFIG:--config:value"
-          "SCA_FOSSA_UNPACK_ARCHIVES:--unpack-archives:flag"
-          "SCA_FOSSA_WITHOUT_DEFAULT_FILTERS:--without-default-filters:flag"
-          "SCA_FOSSA_FORCE_VENDORED_DEPENDENCY_RESCANS:--force-vendored-dependency-rescans:flag"
-        )
-
-        # Process each parameter
-        for param in "${FOSSA_PARAMS[@]}"; do
-          IFS=':' read -r env_var cli_flag value_type <<< "$param"
-
-          # Get the environment variable value
-          env_value="${!env_var}"
-
-          if [ "$value_type" == "flag" ]; then
-            # Boolean flag - only add if set to "true"
-            if [ "$env_value" == "true" ]; then
-              SCA_FOSSA_ADDITIONAL_ARGS="$SCA_FOSSA_ADDITIONAL_ARGS $cli_flag"
-            fi
-          elif [ "$value_type" == "value" ]; then
-            # Flag with value - only add if value is non-empty
-            if [ -n "$env_value" ]; then
-              SCA_FOSSA_ADDITIONAL_ARGS="$SCA_FOSSA_ADDITIONAL_ARGS $cli_flag $env_value"
-              echo "Using FOSSA $cli_flag: $env_value"
-            fi
-          fi
-        done
-
-        echo "SCA_FOSSA_ADDITIONAL_ARGS=${SCA_FOSSA_ADDITIONAL_ARGS}" >> "$GITHUB_ENV"
+        # Store result for later steps
+        echo "SCA_FOSSA_ADDITIONAL_ARGS=${FOSSA_CLI_ARGS}" >> "$GITHUB_ENV"
 
         # Set up test args with only revision parameter
         SCA_FOSSA_TEST_ARGS=""

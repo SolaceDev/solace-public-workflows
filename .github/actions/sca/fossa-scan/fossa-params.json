@@ -1,0 +1,69 @@
+{
+  "$schema": "fossa-params-schema",
+  "description": "FOSSA CLI parameter mappings for the fossa-scan GitHub Action",
+  "version": "1.0.0",
+  "parameters": [
+    {
+      "env": "SCA_FOSSA_ANALYZE_DEBUG",
+      "flag": "--debug",
+      "type": "flag",
+      "description": "Enable debug logging during FOSSA analysis",
+      "example": "fossa.analyze_debug=true"
+    },
+    {
+      "env": "SCA_FOSSA_BRANCH",
+      "flag": "--branch",
+      "type": "value",
+      "description": "Branch name for FOSSA project tracking",
+      "example": "fossa.branch=main"
+    },
+    {
+      "env": "SCA_FOSSA_REVISION",
+      "flag": "--revision",
+      "type": "value",
+      "description": "Git revision/commit SHA for FOSSA tracking",
+      "example": "fossa.revision=abc123"
+    },
+    {
+      "env": "SCA_FOSSA_PATH",
+      "flag": "--path",
+      "type": "value",
+      "description": "Base directory to scan (useful for monorepos)",
+      "example": "fossa.path=packages/my-package"
+    },
+    {
+      "env": "SCA_FOSSA_CONFIG",
+      "flag": "--config",
+      "type": "value",
+      "description": "Path to custom .fossa.yml configuration file",
+      "example": "fossa.config=packages/my-package/.fossa.yml"
+    },
+    {
+      "env": "SCA_FOSSA_UNPACK_ARCHIVES",
+      "flag": "--unpack-archives",
+      "type": "flag",
+      "description": "Unpack and scan archive files",
+      "example": "fossa.unpack_archives=true"
+    },
+    {
+      "env": "SCA_FOSSA_WITHOUT_DEFAULT_FILTERS",
+      "flag": "--without-default-filters",
+      "type": "flag",
+      "description": "Disable default file filters",
+      "example": "fossa.without_default_filters=true"
+    },
+    {
+      "env": "SCA_FOSSA_FORCE_VENDORED_DEPENDENCY_RESCANS",
+      "flag": "--force-vendored-dependency-rescans",
+      "type": "flag",
+      "description": "Force rescanning of vendored dependencies",
+      "example": "fossa.force_vendored_dependency_rescans=true"
+    }
+  ],
+  "notes": [
+    "Parameters are mapped from additional_scan_params (e.g., 'fossa.branch=main') to environment variables (e.g., 'SCA_FOSSA_BRANCH')",
+    "Type 'flag' means boolean - only added if set to 'true'",
+    "Type 'value' means the parameter requires a value and is added if non-empty",
+    "To add a new parameter: add an entry to this file and it will automatically be processed"
+  ]
+}
