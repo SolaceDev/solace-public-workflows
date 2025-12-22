@@ -111,7 +111,6 @@ test_multiple_parameters() {
   assert_contains "$FOSSA_CLI_ARGS" "--debug" "Should include --debug"
   assert_contains "$FOSSA_CLI_ARGS" "--branch PR" "Should include --branch PR"
   assert_contains "$FOSSA_CLI_ARGS" "--revision abc123" "Should include --revision"
-  assert_contains "$FOSSA_CLI_ARGS" "--path sam-mongodb" "Should include --path"
   assert_contains "$FOSSA_CLI_ARGS" "--config sam-mongodb/.fossa.yml" "Should include --config"
 
   unset SCA_FOSSA_ANALYZE_DEBUG SCA_FOSSA_BRANCH SCA_FOSSA_REVISION SCA_FOSSA_PATH SCA_FOSSA_CONFIG
@@ -185,7 +184,6 @@ test_command_filtering_analyze() {
   echo "Test: Command filtering - analyze"
 
   export SCA_FOSSA_ANALYZE_DEBUG="true"
-  export SCA_FOSSA_PATH="sam-mongodb"
   export SCA_FOSSA_CONFIG="sam-mongodb/.fossa.yml"
   export FOSSA_PARAMS_CONFIG="$SCRIPT_DIR/fossa-params.json"
 
@@ -193,10 +191,9 @@ test_command_filtering_analyze() {
   build_fossa_args "analyze" > /dev/null
 
   assert_contains "$FOSSA_CLI_ARGS" "--debug" "Analyze should include --debug"
-  assert_contains "$FOSSA_CLI_ARGS" "--path sam-mongodb" "Analyze should include --path"
   assert_contains "$FOSSA_CLI_ARGS" "--config sam-mongodb/.fossa.yml" "Analyze should include --config"
 
-  unset SCA_FOSSA_ANALYZE_DEBUG SCA_FOSSA_PATH SCA_FOSSA_CONFIG
+  unset SCA_FOSSA_ANALYZE_DEBUG SCA_FOSSA_CONFIG
   unset FOSSA_CLI_ARGS
 }
 
@@ -205,7 +202,6 @@ test_command_filtering_test() {
   echo "Test: Command filtering - test"
 
   export SCA_FOSSA_ANALYZE_DEBUG="true"
-  export SCA_FOSSA_PATH="sam-mongodb"
   export SCA_FOSSA_CONFIG="sam-mongodb/.fossa.yml"
   export SCA_FOSSA_BRANCH="PR"
   export SCA_FOSSA_REVISION="abc123"
@@ -230,15 +226,7 @@ test_command_filtering_test() {
     ((TEST_PASSED++))
   fi
 
-  if [[ "$FOSSA_CLI_ARGS" == *"--path"* ]]; then
-    echo -e "${RED}✗${NC} Test should NOT include --path (analyze-only)"
-    ((TEST_FAILED++))
-  else
-    echo -e "${GREEN}✓${NC} Test should NOT include --path (analyze-only)"
-    ((TEST_PASSED++))
-  fi
-
-  unset SCA_FOSSA_ANALYZE_DEBUG SCA_FOSSA_PATH SCA_FOSSA_CONFIG SCA_FOSSA_BRANCH SCA_FOSSA_REVISION SCA_FOSSA_PROJECT
+  unset SCA_FOSSA_ANALYZE_DEBUG SCA_FOSSA_CONFIG SCA_FOSSA_BRANCH SCA_FOSSA_REVISION SCA_FOSSA_PROJECT
   unset FOSSA_CLI_ARGS
 }
 
@@ -246,7 +234,6 @@ test_monorepo_use_case() {
   echo ""
   echo "Test: Monorepo use case (real-world scenario)"
 
-  export SCA_FOSSA_PATH="sam-mongodb"
   export SCA_FOSSA_CONFIG="sam-mongodb/.fossa.yml"
   export SCA_FOSSA_PROJECT="SolaceLabs_sam-mongodb"
   export SCA_FOSSA_BRANCH="PR"
@@ -257,10 +244,9 @@ test_monorepo_use_case() {
   build_fossa_args > /dev/null
 
   assert_contains "$FOSSA_CLI_ARGS" "--project SolaceLabs_sam-mongodb" "Should include project name"
-  assert_contains "$FOSSA_CLI_ARGS" "--path sam-mongodb" "Should include plugin path"
   assert_contains "$FOSSA_CLI_ARGS" "--config sam-mongodb/.fossa.yml" "Should include plugin config"
 
-  unset SCA_FOSSA_PATH SCA_FOSSA_CONFIG SCA_FOSSA_PROJECT SCA_FOSSA_BRANCH SCA_FOSSA_REVISION
+  unset SCA_FOSSA_CONFIG SCA_FOSSA_PROJECT SCA_FOSSA_BRANCH SCA_FOSSA_REVISION
   unset FOSSA_CLI_ARGS
 }
 

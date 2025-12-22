@@ -28,8 +28,13 @@ runs:
 
     - name: Fossa - Scan
       shell: bash
+      working-directory: ${{ env.SCA_FOSSA_PATH || '.' }}
       run: |
         echo "::group::🔍 Fossa Scan"
+        if [ -n "${{ env.SCA_FOSSA_PATH }}" ]; then
+          echo "Scanning from directory: ${{ env.SCA_FOSSA_PATH }}"
+        fi
+
         FOSSA_CMD="fossa analyze"
 
         echo "Running: $FOSSA_CMD $SCA_FOSSA_ADDITIONAL_ARGS"
@@ -39,6 +44,7 @@ runs:
     - name: FOSSA - Scan Wait For Results
       continue-on-error: true
       shell: bash
+      working-directory: ${{ env.SCA_FOSSA_PATH || '.' }}
       run: |
         echo "::group::⏳ Fossa Wait For Results"
         echo "Running: fossa test $SCA_FOSSA_TEST_ARGS"

@@ -92,7 +92,7 @@ Generates: `fossa analyze --config sam-mongodb/.fossa.yml --path sam-mongodb`
 | `fossa.branch` | value | `--branch` | `analyze`, `test` | Branch name for tracking |
 | `fossa.revision` | value | `--revision` | `analyze`, `test` | Git commit SHA |
 | `fossa.project` | value | `--project` | `analyze`, `test` | Override project name/ID |
-| `fossa.path` | value | `--path` | `analyze` | Base directory to scan |
+| `fossa.path` | value | N/A (working directory) | `analyze`, `test` | Base directory to scan from |
 | `fossa.config` | value | `--config` | `analyze`, `test` | Path to `.fossa.yml` |
 | `fossa.unpack_archives` | flag | `--unpack-archives` | `analyze` | Unpack and scan archives |
 | `fossa.without_default_filters` | flag | `--without-default-filters` | `analyze` | Disable default filters |
@@ -102,6 +102,9 @@ Generates: `fossa analyze --config sam-mongodb/.fossa.yml --path sam-mongodb`
 - `analyze` - Used for the `fossa analyze` command (scans code and uploads results)
 - `test` - Used for the `fossa test` command (checks scan results against policies)
 - Both commands - Parameter is used by both commands
+
+**Special Parameters:**
+- `fossa.path` - Sets the working directory for FOSSA commands. This is not a CLI flag but uses GitHub Actions' `working-directory` to change into the specified directory before running `fossa analyze` and `fossa test`.
 
 See [fossa-params.json](./fossa-params.json) for the complete list with examples.
 
