@@ -1,8 +1,16 @@
 {
   "$schema": "fossa-params-schema",
   "description": "FOSSA CLI parameter mappings for the fossa-scan GitHub Action",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "parameters": [
+    {
+      "env": "SCA_FOSSA_SKIP_TEST",
+      "flag": "",
+      "type": "flag",
+      "commands": [],
+      "description": "Skip 'fossa test' step after analyze (action-specific, not a CLI flag)",
+      "example": "fossa.skip_test=true"
+    },
     {
       "env": "SCA_FOSSA_DEBUG",
       "flag": "--debug",

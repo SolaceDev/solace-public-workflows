@@ -6,6 +6,10 @@ A GitHub Action that runs FOSSA security and license compliance scanning with co
 
 This action uses a JSON-based configuration system (`fossa-params.json`) to dynamically map environment variables to FOSSA CLI flags, making it easy to add new parameters without modifying the action logic.
 
+**Performance Features:**
+- Automatically checks if FOSSA CLI is already installed before downloading (saves time in cached environments)
+- Configurable test step execution via `fossa.skip_test` parameter
+
 ## Configuration
 
 ### Parameter Mapping (`fossa-params.json`)
@@ -98,9 +102,32 @@ Generates: `fossa analyze --project-label critical --project-label backend --pro
     fossa_api_key: ${{ secrets.FOSSA_API_KEY }}
 ```
 
+### Skip Test Step (for container scans or custom workflows)
+
+```yaml
+- name: FOSSA Analyze Only
+  uses: SolaceDev/solace-public-workflows/.github/actions/sca/sca-scan@main
+  with:
+    scanners: "fossa"
+    additional_scan_params: |
+      fossa.skip_test=true
+      fossa.project=my-project
+    fossa_api_key: ${{ secrets.FOSSA_API_KEY }}
+```
+
 ## Available Parameters
 
-This action supports **47 FOSSA CLI parameters** across the `analyze` and `test` commands. Below is a summary of key parameters. For the complete list with examples, see [fossa-params.json](./fossa-params.json).
+This action supports **48 parameters** including 47 FOSSA CLI flags and 1 action-specific parameter. Below is a summary of key parameters. For the complete list with examples, see [fossa-params.json](./fossa-params.json).
+
+**Note:** The `fossa test` step runs automatically after `fossa analyze` unless you set `fossa.skip_test=true`.
+
+### Action-Specific Parameters
+
+These parameters control the GitHub Action behavior and are not FOSSA CLI flags.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `fossa.skip_test` | flag | Skip the `fossa test` step after analyze (useful for container scans or when extending other FOSSA commands) |
 
 ### Common Parameters (analyze & test)
 
