@@ -8,7 +8,7 @@
       "flag": "",
       "type": "flag",
       "commands": [],
-      "description": "Skip 'fossa test' step after analyze (action-specific, not a CLI flag)",
+      "description": "Skip 'fossa test' step after analyze (action-specific, not a CLI flag; commands array intentionally left empty because this parameter does not map to any FOSSA CLI commands)",
       "example": "fossa.skip_test=true"
     },
     {
