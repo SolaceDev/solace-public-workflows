@@ -1,31 +1,23 @@
 {
   "$schema": "fossa-params-schema",
   "description": "FOSSA CLI parameter mappings for the fossa-scan GitHub Action",
-  "version": "2.0.0",
+  "version": "3.1.0",
   "parameters": [
     {
-      "env": "SCA_FOSSA_ANALYZE_DEBUG",
+      "env": "SCA_FOSSA_SKIP_TEST",
+      "flag": "",
+      "type": "flag",
+      "commands": [],
+      "description": "Skip 'fossa test' step after analyze (action-specific, not a CLI flag; commands array intentionally left empty because this parameter does not map to any FOSSA CLI commands)",
+      "example": "fossa.skip_test=true"
+    },
+    {
+      "env": "SCA_FOSSA_DEBUG",
       "flag": "--debug",
       "type": "flag",
-      "commands": ["analyze"],
-      "description": "Enable debug logging during FOSSA analysis",
-      "example": "fossa.analyze_debug=true"
-    },
-    {
-      "env": "SCA_FOSSA_BRANCH",
-      "flag": "--branch",
-      "type": "value",
-      "commands": ["analyze"],
-      "description": "Branch name for FOSSA project tracking",
-      "example": "fossa.branch=main"
-    },
-    {
-      "env": "SCA_FOSSA_REVISION",
-      "flag": "--revision",
-      "type": "value",
       "commands": ["analyze", "test"],
-      "description": "Git revision/commit SHA for FOSSA tracking",
-      "example": "fossa.revision=abc123"
+      "description": "Enable debug logging during FOSSA analysis",
+      "example": "fossa.debug=true"
     },
     {
       "env": "SCA_FOSSA_PROJECT",
@@ -36,12 +28,236 @@
       "example": "fossa.project=MyOrg_my-project"
     },
     {
+      "env": "SCA_FOSSA_REVISION",
+      "flag": "--revision",
+      "type": "value",
+      "commands": ["analyze", "test"],
+      "description": "Git revision/commit SHA for FOSSA tracking",
+      "example": "fossa.revision=abc123"
+    },
+    {
+      "env": "SCA_FOSSA_FOSSA_API_KEY",
+      "flag": "--fossa-api-key",
+      "type": "value",
+      "commands": ["analyze", "test"],
+      "description": "FOSSA API key (alternative to FOSSA_API_KEY env var)",
+      "example": "fossa.fossa_api_key=my-api-key"
+    },
+    {
+      "env": "SCA_FOSSA_ENDPOINT",
+      "flag": "--endpoint",
+      "type": "value",
+      "commands": ["analyze", "test"],
+      "description": "Override the FOSSA API server base URL",
+      "example": "fossa.endpoint=https://example.com"
+    },
+    {
       "env": "SCA_FOSSA_CONFIG",
       "flag": "--config",
       "type": "value",
       "commands": ["analyze", "test"],
       "description": "Path to custom .fossa.yml configuration file",
       "example": "fossa.config=packages/my-package/.fossa.yml"
+    },
+    {
+      "env": "SCA_FOSSA_TITLE",
+      "flag": "--title",
+      "type": "value",
+      "commands": ["analyze"],
+      "description": "Set the title of the FOSSA project",
+      "example": "fossa.title=My Project Title"
+    },
+    {
+      "env": "SCA_FOSSA_BRANCH",
+      "flag": "--branch",
+      "type": "value",
+      "commands": ["analyze"],
+      "description": "Override the detected FOSSA project branch",
+      "example": "fossa.branch=main"
+    },
+    {
+      "env": "SCA_FOSSA_PROJECT_URL",
+      "flag": "--project-url",
+      "type": "value",
+      "commands": ["analyze"],
+      "description": "Add a URL to the FOSSA project",
+      "example": "fossa.project_url=https://github.com/myorg/myrepo"
+    },
+    {
+      "env": "SCA_FOSSA_JIRA_PROJECT_KEY",
+      "flag": "--jira-project-key",
+      "type": "value",
+      "commands": ["analyze"],
+      "description": "Add a Jira project key to the FOSSA project",
+      "example": "fossa.jira_project_key=PROJ-123"
+    },
+    {
+      "env": "SCA_FOSSA_LINK",
+      "flag": "--link",
+      "type": "value",
+      "commands": ["analyze"],
+      "description": "Attach a link to the current FOSSA build",
+      "example": "fossa.link=https://ci.example.com/build/123"
+    },
+    {
+      "env": "SCA_FOSSA_TEAM",
+      "flag": "--team",
+      "type": "value",
+      "commands": ["analyze"],
+      "description": "Specify a team within your FOSSA organization",
+      "example": "fossa.team=Platform Team"
+    },
+    {
+      "env": "SCA_FOSSA_POLICY",
+      "flag": "--policy",
+      "type": "value",
+      "commands": ["analyze"],
+      "description": "Assign a specific FOSSA policy (mutually exclusive with policy-id)",
+      "example": "fossa.policy=Default Policy"
+    },
+    {
+      "env": "SCA_FOSSA_POLICY_ID",
+      "flag": "--policy-id",
+      "type": "value",
+      "commands": ["analyze"],
+      "description": "Assign a specific FOSSA policy by ID (mutually exclusive with policy)",
+      "example": "fossa.policy_id=12345"
+    },
+    {
+      "env": "SCA_FOSSA_PROJECT_LABEL",
+      "flag": "--project-label",
+      "type": "multi_value",
+      "commands": ["analyze"],
+      "description": "Assign up to 5 labels to the project (can be specified multiple times)",
+      "example": "fossa.project_label=label1,label2,label3"
+    },
+    {
+      "env": "SCA_FOSSA_RELEASE_GROUP_NAME",
+      "flag": "--release-group-name",
+      "type": "value",
+      "commands": ["analyze"],
+      "description": "Add project to release group (requires release-group-release)",
+      "example": "fossa.release_group_name=Q4-2024"
+    },
+    {
+      "env": "SCA_FOSSA_RELEASE_GROUP_RELEASE",
+      "flag": "--release-group-release",
+      "type": "value",
+      "commands": ["analyze"],
+      "description": "Add project to release version within release group",
+      "example": "fossa.release_group_release=v1.2.0"
+    },
+    {
+      "env": "SCA_FOSSA_ONLY_TARGET",
+      "flag": "--only-target",
+      "type": "multi_value",
+      "commands": ["analyze"],
+      "description": "Only scan these targets (can be specified multiple times)",
+      "example": "fossa.only_target=npm:.,pip:src/backend"
+    },
+    {
+      "env": "SCA_FOSSA_EXCLUDE_TARGET",
+      "flag": "--exclude-target",
+      "type": "multi_value",
+      "commands": ["analyze"],
+      "description": "Exclude these targets from scanning (can be specified multiple times)",
+      "example": "fossa.exclude_target=npm:test,pip:examples"
+    },
+    {
+      "env": "SCA_FOSSA_ONLY_PATH",
+      "flag": "--only-path",
+      "type": "multi_value",
+      "commands": ["analyze"],
+      "description": "Only scan these paths (can be specified multiple times)",
+      "example": "fossa.only_path=src/,lib/"
+    },
+    {
+      "env": "SCA_FOSSA_EXCLUDE_PATH",
+      "flag": "--exclude-path",
+      "type": "multi_value",
+      "commands": ["analyze"],
+      "description": "Exclude these paths from scanning (can be specified multiple times)",
+      "example": "fossa.exclude_path=test/,examples/"
+    },
+    {
+      "env": "SCA_FOSSA_INCLUDE_UNUSED_DEPS",
+      "flag": "--include-unused-deps",
+      "type": "flag",
+      "commands": ["analyze"],
+      "description": "Include all deps found instead of filtering non-production deps",
+      "example": "fossa.include_unused_deps=true"
+    },
+    {
+      "env": "SCA_FOSSA_DEBUG_NO_DISCOVERY_EXCLUSION",
+      "flag": "--debug-no-discovery-exclusion",
+      "type": "flag",
+      "commands": ["analyze"],
+      "description": "Ignore filters during discovery phase (debugging only)",
+      "example": "fossa.debug_no_discovery_exclusion=true"
+    },
+    {
+      "env": "SCA_FOSSA_WITHOUT_DEFAULT_FILTERS",
+      "flag": "--without-default-filters",
+      "type": "flag",
+      "commands": ["analyze"],
+      "description": "Ignore default path filters",
+      "example": "fossa.without_default_filters=true"
+    },
+    {
+      "env": "SCA_FOSSA_OUTPUT",
+      "flag": "--output",
+      "type": "flag",
+      "commands": ["analyze"],
+      "description": "Print projects and dependency graph to stdout instead of uploading",
+      "example": "fossa.output=true"
+    },
+    {
+      "env": "SCA_FOSSA_TEE_OUTPUT",
+      "flag": "--tee-output",
+      "type": "flag",
+      "commands": ["analyze"],
+      "description": "Print projects and dependency graph to stdout in addition to uploading",
+      "example": "fossa.tee_output=true"
+    },
+    {
+      "env": "SCA_FOSSA_JSON",
+      "flag": "--json",
+      "type": "flag",
+      "commands": ["analyze"],
+      "description": "Print project metadata as JSON after analysis",
+      "example": "fossa.json=true"
+    },
+    {
+      "env": "SCA_FOSSA_FOSSA_DEPS_FILE",
+      "flag": "--fossa-deps-file",
+      "type": "value",
+      "commands": ["analyze"],
+      "description": "Specify the fossa-deps file to use",
+      "example": "fossa.fossa_deps_file=/path/to/fossa-deps.yml"
+    },
+    {
+      "env": "SCA_FOSSA_FORCE_VENDORED_DEPENDENCY_SCAN_METHOD",
+      "flag": "--force-vendored-dependency-scan-method",
+      "type": "value",
+      "commands": ["analyze"],
+      "description": "Force vendored dependency scan method (CLILicenseScan or ArchiveUpload)",
+      "example": "fossa.force_vendored_dependency_scan_method=CLILicenseScan"
+    },
+    {
+      "env": "SCA_FOSSA_FORCE_VENDORED_DEPENDENCY_RESCANS",
+      "flag": "--force-vendored-dependency-rescans",
+      "type": "flag",
+      "commands": ["analyze"],
+      "description": "Force rescanning of vendored dependencies",
+      "example": "fossa.force_vendored_dependency_rescans=true"
+    },
+    {
+      "env": "SCA_FOSSA_IGNORE_ORG_WIDE_CUSTOM_LICENSE_SCAN_CONFIGS",
+      "flag": "--ignore-org-wide-custom-license-scan-configs",
+      "type": "flag",
+      "commands": ["analyze"],
+      "description": "Ignore organization-wide custom license searches",
+      "example": "fossa.ignore_org_wide_custom_license_scan_configs=true"
     },
     {
       "env": "SCA_FOSSA_UNPACK_ARCHIVES",
@@ -52,26 +268,131 @@
       "example": "fossa.unpack_archives=true"
     },
     {
-      "env": "SCA_FOSSA_WITHOUT_DEFAULT_FILTERS",
-      "flag": "--without-default-filters",
+      "env": "SCA_FOSSA_DETECT_VENDORED",
+      "flag": "--detect-vendored",
       "type": "flag",
       "commands": ["analyze"],
-      "description": "Disable default file filters",
-      "example": "fossa.without_default_filters=true"
+      "description": "Enable the vendored source identification engine",
+      "example": "fossa.detect_vendored=true"
     },
     {
-      "env": "SCA_FOSSA_FORCE_VENDORED_DEPENDENCY_RESCANS",
-      "flag": "--force-vendored-dependency-rescans",
+      "env": "SCA_FOSSA_DETECT_DYNAMIC",
+      "flag": "--detect-dynamic",
+      "type": "value",
+      "commands": ["analyze"],
+      "description": "Analyze binary at provided path for dynamically linked dependencies",
+      "example": "fossa.detect_dynamic=./some-binary"
+    },
+    {
+      "env": "SCA_FOSSA_STATIC_ONLY_ANALYSIS",
+      "flag": "--static-only-analysis",
       "type": "flag",
       "commands": ["analyze"],
-      "description": "Force rescanning of vendored dependencies",
-      "example": "fossa.force_vendored_dependency_rescans=true"
+      "description": "Do not use third-party tools when analyzing projects",
+      "example": "fossa.static_only_analysis=true"
+    },
+    {
+      "env": "SCA_FOSSA_STRICT",
+      "flag": "--strict",
+      "type": "flag",
+      "commands": ["analyze"],
+      "description": "Enforce strict analysis rejecting fallbacks for most accurate results",
+      "example": "fossa.strict=true"
+    },
+    {
+      "env": "SCA_FOSSA_SNIPPET_SCAN",
+      "flag": "--snippet-scan",
+      "type": "flag",
+      "commands": ["analyze"],
+      "description": "Enable snippet scanning to identify open source code snippets",
+      "example": "fossa.snippet_scan=true"
+    },
+    {
+      "env": "SCA_FOSSA_X_VENDETTA",
+      "flag": "--x-vendetta",
+      "type": "flag",
+      "commands": ["analyze"],
+      "description": "Enable experimental vendored dependency scanning with Vendetta",
+      "example": "fossa.x_vendetta=true"
+    },
+    {
+      "env": "SCA_FOSSA_EXPERIMENTAL_ENABLE_BINARY_DISCOVERY",
+      "flag": "--experimental-enable-binary-discovery",
+      "type": "flag",
+      "commands": ["analyze"],
+      "description": "Enable reporting binary files as unlicensed dependencies",
+      "example": "fossa.experimental_enable_binary_discovery=true"
+    },
+    {
+      "env": "SCA_FOSSA_EXPERIMENTAL_LINK_PROJECT_BINARY",
+      "flag": "--experimental-link-project-binary",
+      "type": "value",
+      "commands": ["analyze"],
+      "description": "Link provided binary files to the project being analyzed",
+      "example": "fossa.experimental_link_project_binary=./some-dir"
+    },
+    {
+      "env": "SCA_FOSSA_EXPERIMENTAL_SKIP_VSI_GRAPH",
+      "flag": "--experimental-skip-vsi-graph",
+      "type": "value",
+      "commands": ["analyze"],
+      "description": "Skip resolving dependencies of given previously linked project",
+      "example": "fossa.experimental_skip_vsi_graph=custom+1/some$locator"
+    },
+    {
+      "env": "SCA_FOSSA_EXPERIMENTAL_FORCE_FIRST_PARTY_SCANS",
+      "flag": "--experimental-force-first-party-scans",
+      "type": "flag",
+      "commands": ["analyze"],
+      "description": "Force first party scans to run",
+      "example": "fossa.experimental_force_first_party_scans=true"
+    },
+    {
+      "env": "SCA_FOSSA_EXPERIMENTAL_BLOCK_FIRST_PARTY_SCANS",
+      "flag": "--experimental-block-first-party-scans",
+      "type": "flag",
+      "commands": ["analyze"],
+      "description": "Force first party scans to not run",
+      "example": "fossa.experimental_block_first_party_scans=true"
+    },
+    {
+      "env": "SCA_FOSSA_EXPERIMENTAL_ANALYZE_PATH_DEPENDENCIES",
+      "flag": "--experimental-analyze-path-dependencies",
+      "type": "flag",
+      "commands": ["analyze"],
+      "description": "License scan path dependencies and include in final analysis",
+      "example": "fossa.experimental_analyze_path_dependencies=true"
+    },
+    {
+      "env": "SCA_FOSSA_TIMEOUT",
+      "flag": "--timeout",
+      "type": "value",
+      "commands": ["test"],
+      "description": "Maximum seconds to wait for issue scan results (default: 3600)",
+      "example": "fossa.timeout=1800"
+    },
+    {
+      "env": "SCA_FOSSA_FORMAT",
+      "flag": "--format",
+      "type": "value",
+      "commands": ["test"],
+      "description": "Output format for issues (json or default human-readable)",
+      "example": "fossa.format=json"
+    },
+    {
+      "env": "SCA_FOSSA_DIFF",
+      "flag": "--diff",
+      "type": "value",
+      "commands": ["test"],
+      "description": "Only report new issues compared to specified revision",
+      "example": "fossa.diff=abc123"
     }
   ],
   "notes": [
     "Parameters are mapped from additional_scan_params (e.g., 'fossa.branch=main') to environment variables (e.g., 'SCA_FOSSA_BRANCH')",
     "Type 'flag' means boolean - only added if set to 'true'",
     "Type 'value' means the parameter requires a value and is added if non-empty",
+    "Type 'multi_value' means the parameter can be specified multiple times with comma-separated values",
     "The 'commands' field specifies which FOSSA commands support this parameter: 'analyze' and/or 'test'",
     "Special parameter: 'fossa.path' sets the working directory for FOSSA commands (not a CLI flag, uses GitHub Actions working-directory)",
     "If you specify 'fossa.path', FOSSA will automatically look for .fossa.yml in that directory - you only need 'fossa.config' if the config is elsewhere",

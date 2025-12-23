@@ -89,16 +89,42 @@ build_fossa_args() {
       flag)
         # Boolean flag - only add if explicitly set to "true"
         if [ "$env_value" == "true" ]; then
-          FOSSA_CLI_ARGS="$FOSSA_CLI_ARGS $cli_flag"
-          echo "  ✓ Enabled: $cli_flag"
+          # Skip if this is an action-specific parameter (empty flag)
+          if [ -n "$cli_flag" ]; then
+            FOSSA_CLI_ARGS="$FOSSA_CLI_ARGS $cli_flag"
+            echo "  ✓ Enabled: $cli_flag"
+          else
+            echo "  ✓ Action parameter set: $env_var"
+          fi
         fi
         ;;
 
       value)
         # Flag with value - only add if value is non-empty
         if [ -n "$env_value" ]; then
-          FOSSA_CLI_ARGS="$FOSSA_CLI_ARGS $cli_flag $env_value"
-          echo "  ✓ Using $cli_flag: $env_value"
+          # Skip if this is an action-specific parameter (empty flag)
+          if [ -n "$cli_flag" ]; then
+            FOSSA_CLI_ARGS="$FOSSA_CLI_ARGS $cli_flag $env_value"
+            echo "  ✓ Using $cli_flag: $env_value"
+          else
+            echo "  ✓ Action parameter set: $env_var=$env_value"
+          fi
+        fi
+        ;;
+
+      multi_value)
+        # Flag that can be specified multiple times with comma-separated values
+        if [ -n "$env_value" ]; then
+          # Split by comma and add each value separately
+          IFS=',' read -ra VALUES <<< "$env_value"
+          for val in "${VALUES[@]}"; do
+            # Trim whitespace
+            val=$(echo "$val" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+            if [ -n "$val" ]; then
+              FOSSA_CLI_ARGS="$FOSSA_CLI_ARGS $cli_flag $val"
+              echo "  ✓ Using $cli_flag: $val"
+            fi
+          done
         fi
         ;;
 
