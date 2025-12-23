@@ -29,7 +29,8 @@ The action reads parameter definitions from `fossa-params.json`:
 **Field Definitions:**
 - `env`: Environment variable name (automatically set by `sca-scan` action)
 - `flag`: FOSSA CLI flag to use
-- `type`: Either `"flag"` (boolean) or `"value"` (requires a value)
+- `type`: Either `"flag"` (boolean), `"value"` (requires a value), or `"multi_value"` (comma-separated list)
+- `commands`: Array of FOSSA commands that support this parameter (`["analyze"]`, `["test"]`, or both)
 - `description`: Human-readable description
 - `example`: Example usage via `additional_scan_params`
 
@@ -41,9 +42,10 @@ Only added to CLI if environment variable equals `"true"`.
 **Example:**
 ```yaml
 additional_scan_params: |
-  fossa.analyze_debug=true
+  fossa.debug=true
+  fossa.snippet_scan=true
 ```
-Generates: `fossa analyze --debug`
+Generates: `fossa analyze --debug --snippet-scan`
 
 #### Type: `value` (String)
 Added to CLI with the provided value if non-empty.
@@ -53,8 +55,20 @@ Added to CLI with the provided value if non-empty.
 additional_scan_params: |
   fossa.config=sam-mongodb/.fossa.yml
   fossa.path=sam-mongodb
+  fossa.team=Platform Team
 ```
-Generates: `fossa analyze --config sam-mongodb/.fossa.yml --path sam-mongodb`
+Generates: `fossa analyze --config sam-mongodb/.fossa.yml --team Platform Team`
+
+#### Type: `multi_value` (Comma-separated list)
+Added to CLI multiple times, once for each comma-separated value. Used for flags that can be specified multiple times.
+
+**Example:**
+```yaml
+additional_scan_params: |
+  fossa.project_label=critical,backend,production
+  fossa.exclude_path=test/,examples/,docs/
+```
+Generates: `fossa analyze --project-label critical --project-label backend --project-label production --exclude-path test/ --exclude-path examples/ --exclude-path docs/`
 
 ## Usage
 
@@ -86,22 +100,76 @@ Generates: `fossa analyze --config sam-mongodb/.fossa.yml --path sam-mongodb`
 
 ## Available Parameters
 
-| Parameter | Type | FOSSA Flag | Commands | Description |
-|-----------|------|------------|----------|-------------|
-| `fossa.analyze_debug` | flag | `--debug` | `analyze` | Enable debug logging |
-| `fossa.branch` | value | `--branch` | `analyze` | Branch name for tracking |
-| `fossa.revision` | value | `--revision` | `analyze`, `test` | Git commit SHA |
-| `fossa.project` | value | `--project` | `analyze`, `test` | Override project name/ID |
-| `fossa.path` | value | N/A (working directory) | `analyze`, `test` | Base directory to scan from |
-| `fossa.config` | value | `--config` | `analyze`, `test` | Path to `.fossa.yml` (optional if using fossa.path) |
-| `fossa.unpack_archives` | flag | `--unpack-archives` | `analyze` | Unpack and scan archives |
-| `fossa.without_default_filters` | flag | `--without-default-filters` | `analyze` | Disable default filters |
-| `fossa.force_vendored_dependency_rescans` | flag | `--force-vendored-dependency-rescans` | `analyze` | Force rescan vendored deps |
+This action supports **47 FOSSA CLI parameters** across the `analyze` and `test` commands. Below is a summary of key parameters. For the complete list with examples, see [fossa-params.json](./fossa-params.json).
+
+### Common Parameters (analyze & test)
+
+| Parameter | Type | FOSSA Flag | Description |
+|-----------|------|------------|-------------|
+| `fossa.debug` | flag | `--debug` | Enable debug logging |
+| `fossa.project` | value | `--project` | Override project name/ID |
+| `fossa.revision` | value | `--revision` | Git commit SHA |
+| `fossa.config` | value | `--config` | Path to `.fossa.yml` |
+| `fossa.endpoint` | value | `--endpoint` | Override FOSSA API server URL |
+| `fossa.fossa_api_key` | value | `--fossa-api-key` | API key (alternative to env var) |
+
+### Analyze Command Parameters
+
+#### Project Details
+| Parameter | Type | FOSSA Flag | Description |
+|-----------|------|------------|-------------|
+| `fossa.title` | value | `--title` | Set project title |
+| `fossa.branch` | value | `--branch` | Override detected branch |
+| `fossa.project_url` | value | `--project-url` | Add project URL |
+| `fossa.jira_project_key` | value | `--jira-project-key` | Add Jira project key |
+| `fossa.link` | value | `--link` | Attach link to build |
+| `fossa.team` | value | `--team` | Specify team name |
+| `fossa.policy` | value | `--policy` | Assign policy by name |
+| `fossa.policy_id` | value | `--policy-id` | Assign policy by ID |
+| `fossa.project_label` | multi_value | `--project-label` | Assign labels (up to 5) |
+| `fossa.release_group_name` | value | `--release-group-name` | Add to release group |
+| `fossa.release_group_release` | value | `--release-group-release` | Release version |
+
+#### Path & Target Filtering
+| Parameter | Type | FOSSA Flag | Description |
+|-----------|------|------------|-------------|
+| `fossa.only_target` | multi_value | `--only-target` | Only scan these targets |
+| `fossa.exclude_target` | multi_value | `--exclude-target` | Exclude targets |
+| `fossa.only_path` | multi_value | `--only-path` | Only scan these paths |
+| `fossa.exclude_path` | multi_value | `--exclude-path` | Exclude paths |
+| `fossa.include_unused_deps` | flag | `--include-unused-deps` | Include all deps |
+| `fossa.without_default_filters` | flag | `--without-default-filters` | Disable default filters |
+
+#### Output Options
+| Parameter | Type | FOSSA Flag | Description |
+|-----------|------|------------|-------------|
+| `fossa.output` | flag | `--output` | Print to stdout instead of upload |
+| `fossa.tee_output` | flag | `--tee-output` | Print to stdout AND upload |
+| `fossa.json` | flag | `--json` | Print metadata as JSON |
+| `fossa.fossa_deps_file` | value | `--fossa-deps-file` | Specify fossa-deps file |
+
+#### Analysis Features
+| Parameter | Type | FOSSA Flag | Description |
+|-----------|------|------------|-------------|
+| `fossa.unpack_archives` | flag | `--unpack-archives` | Unpack and scan archives |
+| `fossa.detect_vendored` | flag | `--detect-vendored` | Enable vendored source detection |
+| `fossa.static_only_analysis` | flag | `--static-only-analysis` | No third-party tools |
+| `fossa.strict` | flag | `--strict` | Enforce strict analysis |
+| `fossa.snippet_scan` | flag | `--snippet-scan` | Enable snippet scanning |
+| `fossa.x_vendetta` | flag | `--x-vendetta` | Enable Vendetta scanning |
+
+### Test Command Parameters
+
+| Parameter | Type | FOSSA Flag | Description |
+|-----------|------|------------|-------------|
+| `fossa.timeout` | value | `--timeout` | Max seconds to wait (default: 3600) |
+| `fossa.format` | value | `--format` | Output format (json) |
+| `fossa.diff` | value | `--diff` | Only report new issues vs revision |
 
 **Commands Column:**
 - `analyze` - Used for the `fossa analyze` command (scans code and uploads results)
 - `test` - Used for the `fossa test` command (checks scan results against policies)
-- Both commands - Parameter is used by both commands
+- Both - Parameter is used by both commands
 
 **Special Parameters:**
 - `fossa.path` - Sets the working directory for FOSSA commands. This is not a CLI flag but uses GitHub Actions' `working-directory` to change into the specified directory before running `fossa analyze` and `fossa test`.
@@ -132,7 +200,10 @@ Add an entry to [`fossa-params.json`](./fossa-params.json):
 **Field Guide:**
 - `env`: Environment variable name (must start with `SCA_FOSSA_`)
 - `flag`: FOSSA CLI flag (e.g., `--config`, `--path`)
-- `type`: Either `"flag"` (boolean) or `"value"` (requires a value)
+- `type`: One of:
+  - `"flag"` - Boolean parameter (only added when set to `true`)
+  - `"value"` - String parameter (requires a value)
+  - `"multi_value"` - Comma-separated list that generates multiple flags
 - `commands`: Array of FOSSA commands that support this parameter
   - `["analyze"]` - Only used for `fossa analyze`
   - `["test"]` - Only used for `fossa test`
@@ -216,5 +287,7 @@ fossa-scan Action
 ## Related Documentation
 
 - [FOSSA CLI Documentation](https://github.com/fossas/fossa-cli)
+- [FOSSA `analyze` Command Reference](https://github.com/fossas/fossa-cli/blob/master/docs/references/subcommands/analyze.md)
+- [FOSSA `test` Command Reference](https://github.com/fossas/fossa-cli/blob/master/docs/references/subcommands/test.md)
 - [Parent SCA Scan Action](../sca-scan/)
 - [FOSSA Parameter Config](./fossa-params.json)
