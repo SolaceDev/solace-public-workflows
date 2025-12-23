@@ -102,6 +102,22 @@ build_fossa_args() {
         fi
         ;;
 
+      multi_value)
+        # Flag that can be specified multiple times with comma-separated values
+        if [ -n "$env_value" ]; then
+          # Split by comma and add each value separately
+          IFS=',' read -ra VALUES <<< "$env_value"
+          for val in "${VALUES[@]}"; do
+            # Trim whitespace
+            val=$(echo "$val" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+            if [ -n "$val" ]; then
+              FOSSA_CLI_ARGS="$FOSSA_CLI_ARGS $cli_flag $val"
+              echo "  ✓ Using $cli_flag: $val"
+            fi
+          done
+        fi
+        ;;
+
       *)
         echo "  ⚠️  Unknown parameter type '$param_type' for $env_var" >&2
         ;;
