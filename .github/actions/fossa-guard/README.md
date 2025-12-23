@@ -39,6 +39,16 @@ The `fossa-guard` GitHub Action integrates with the FOSSA API to fetch and proce
 | `github_run_id`       | No       | GitHub Actions run ID for build links (optional).                            |
 | `github_server_url`   | No       | GitHub server URL (default: https://github.com) (optional).                  |
 
+### PR Integration Inputs (Optional)
+
+| Input | Default | Description |
+|-------|---------|-------------|
+| `github_token` | `${{ github.token }}` | GitHub token for PR comments and status checks |
+| `enable_pr_comment` | `true` | Enable PR commenting (`true`/`false`) |
+| `enable_status_check` | `true` | Enable GitHub status checks (`true`/`false`) |
+| `status_check_name` | `FOSSA Guard` | Custom name for status checks |
+| `pr_comment_max_violations` | `5` | Max violations shown in PR comment |
+
 ### Issue Types Explained
 - **policy_conflict**: There is a known explicit policy violation (FOSSA terminology). This means the license or dependency is denied in your FOSSA policy and should block the build.
 - **policy_flag**: The license needs to be reviewed or is unknown (FOSSA terminology). This means the license or dependency is flagged for review or is uncategorized in your FOSSA policy and may require manual attention.
@@ -101,6 +111,54 @@ jobs:
 
 ---
 
+## Pull Request Workflow Example
+
+```yaml
+name: FOSSA PR Check
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  pull-requests: write  # For PR comments
+  checks: write         # For status checks
+  issues: write         # For PR comments
+
+jobs:
+  fossa-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: FOSSA Guard with PR Integration
+        uses: SolaceDev/solace-public-workflows/.github/actions/fossa-guard@main
+        with:
+          fossa_api_key: ${{ secrets.FOSSA_API_KEY }}
+          fossa_project_id: ${{ secrets.FOSSA_PROJECT_ID }}
+          fossa_category: licensing
+          fossa_mode: BLOCK
+          fossa_branch: ${{ github.event.pull_request.number && 'PR' || github.event.repository.default_branch }}
+          fossa_revision: ${{ github.event.pull_request.head.ref || github.sha }}
+          block_on: policy_conflict,policy_flag
+          # PR features (auto-enabled)
+          github_token: ${{ github.token }}
+          enable_pr_comment: true
+          enable_status_check: true
+```
+
+### Branch Protection Setup
+
+To enforce FOSSA checks before merging:
+
+1. Repository Settings → Branches → Add protection rule
+2. Enable "Require status checks to pass before merging"
+3. Add required checks:
+   - `FOSSA Guard (licensing)`
+   - `FOSSA Guard (vulnerability)` (if applicable)
+
+---
+
 ## Notes
 - The action prints a Markdown summary to the GitHub Actions log.
 - If the `GITHUB_STEP_SUMMARY` environment variable is set, the summary is also written to the step summary for rich UI display.
@@ -109,3 +167,30 @@ jobs:
 - Slack integration parameters (`slack_token`, `slack_channel`, `slack_thread_ts`) allow posting formatted reports to Slack channels or threads.
 - GitHub context parameters (`github_repository`, `github_run_id`, `github_server_url`) allow linking reports to specific repositories and builds.
 - For more details, see the script source and comments.
+
+---
+
+## Troubleshooting
+
+### PR Comment Not Appearing
+
+**Check:**
+- `github_token` input is set (defaults to `${{ github.token }}`)
+- Workflow has `pull-requests: write` and `issues: write` permissions
+- Running in `pull_request` event (not `push`)
+
+### Status Check Not Appearing
+
+**Check:**
+- Workflow has `checks: write` permission
+- Using PR head SHA: `fossa_revision: ${{ github.event.pull_request.head.ref || github.sha }}`
+
+### Token Permission Errors
+
+Add to workflow:
+```yaml
+permissions:
+  pull-requests: write
+  checks: write
+  issues: write
+```

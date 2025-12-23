@@ -49,10 +49,30 @@ inputs:
   github_server_url:
     description: "GitHub server URL (default: https://github.com) (optional)"
     required: false
+  github_token:
+    description: "GitHub token for PR comments and status checks"
+    required: false
+    default: ${{ github.token }}
+  enable_pr_comment:
+    description: "Enable PR commenting (true/false)"
+    required: false
+    default: "true"
+  enable_status_check:
+    description: "Enable GitHub status checks (true/false)"
+    required: false
+    default: "true"
+  status_check_name:
+    description: "Custom name for GitHub status check"
+    required: false
+    default: "FOSSA Guard"
+  pr_comment_max_violations:
+    description: "Maximum violations to show in PR comment"
+    required: false
+    default: "5"
 
 runs:
   using: docker
-  image: docker://ghcr.io/solacedev/maas-build-actions:master
+  image: docker://ghcr.io/solacedev/maas-build-actions:ghcr.io/solacedev/maas-build-actions:support_pr_commeting_status_check
   entrypoint: /bin/sh
   args:
     - -c
@@ -73,6 +93,11 @@ runs:
       if [ -n "$INPUT_GITHUB_REPOSITORY" ]; then export GITHUB_REPOSITORY="$INPUT_GITHUB_REPOSITORY"; fi
       if [ -n "$INPUT_GITHUB_RUN_ID" ]; then export GITHUB_RUN_ID="$INPUT_GITHUB_RUN_ID"; fi
       if [ -n "$INPUT_GITHUB_SERVER_URL" ]; then export GITHUB_SERVER_URL="$INPUT_GITHUB_SERVER_URL"; fi
+      if [ -n "$INPUT_GITHUB_TOKEN" ]; then export GITHUB_TOKEN="$INPUT_GITHUB_TOKEN"; fi
+      if [ -n "$INPUT_ENABLE_PR_COMMENT" ]; then export ENABLE_PR_COMMENT="$INPUT_ENABLE_PR_COMMENT"; fi
+      if [ -n "$INPUT_ENABLE_STATUS_CHECK" ]; then export ENABLE_STATUS_CHECK="$INPUT_ENABLE_STATUS_CHECK"; fi
+      if [ -n "$INPUT_STATUS_CHECK_NAME" ]; then export STATUS_CHECK_NAME="$INPUT_STATUS_CHECK_NAME"; fi
+      if [ -n "$INPUT_PR_COMMENT_MAX_VIOLATIONS" ]; then export PR_COMMENT_MAX_VIOLATIONS="$INPUT_PR_COMMENT_MAX_VIOLATIONS"; fi
       echo "Debug: Inputs:"
       echo "FOSSA_API_KEY: [REDACTED]"
       echo "FOSSA_PROJECT_ID: $FOSSA_PROJECT_ID"
@@ -90,5 +115,10 @@ runs:
       echo "GITHUB_REPOSITORY: $GITHUB_REPOSITORY"
       echo "GITHUB_RUN_ID: $GITHUB_RUN_ID"
       echo "GITHUB_SERVER_URL: $GITHUB_SERVER_URL"
+      echo "GITHUB_TOKEN: [REDACTED]"
+      echo "ENABLE_PR_COMMENT: $ENABLE_PR_COMMENT"
+      echo "ENABLE_STATUS_CHECK: $ENABLE_STATUS_CHECK"
+      echo "STATUS_CHECK_NAME: $STATUS_CHECK_NAME"
+      echo "PR_COMMENT_MAX_VIOLATIONS: $PR_COMMENT_MAX_VIOLATIONS"
       source /maas-build-actions/venv/bin/activate
       python3 /maas-build-actions/scripts/fossa-guard/fossa_guard.py
