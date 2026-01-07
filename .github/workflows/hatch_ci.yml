@@ -156,23 +156,17 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a # v4.2.0
-        with:
-          enable-cache: true
-
+        id: setup-uv
+        uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
       - name: Install Hatch
         run: uv tool install hatch
+      - name: Create Hatch Environment
+        run: hatch -v env create hatch-test.py${{ matrix.python-version }}
 
-      - name: Run Tests with Coverage
+      - name: Run Tests with Hatch
         continue-on-error: true
         run: |
-          hatch -v test --cover --junitxml=junit-${{ matrix.python-version }}.xml --cov-report=xml
-
-      - name: Combine Coverage Reports
-        continue-on-error: true
-        run: |
-          hatch -e hatch-test.py${{ matrix.python-version }} run coverage xml
-        shell: bash
+          hatch -v run hatch-test.py${{ matrix.python-version }}:pytest tests/ --cov --cov-report=xml:coverage.xml --cov-report=term --junitxml=junit-${{ matrix.python-version }}.xml
 
       - name: Upload Test Results
         uses: mikepenz/action-junit-report@3585e9575db828022551b4231f165eb59a0e74e3 # v5.6.2
@@ -250,8 +244,6 @@ jobs:
 
       - name: Install uv
         uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a # v4.2.0
-        with:
-          enable-cache: true
 
       - name: Install Hatch
         run: uv tool install hatch
@@ -523,7 +515,7 @@ jobs:
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           fetch-depth: 0
-          
+
       - name: Setup Python for Build
         uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55 # v5.5.0
         with:
@@ -565,9 +557,9 @@ jobs:
           name: dependency-tree
           path: dependency-tree.txt
           # SCA (Software Composition Analysis) Scan Step
-          # 
+          #
           # Performs security scanning using FOSSA to analyze dependencies and enforce license policies.
-          # 
+          #
           # Key Parameters:
           # - fossa.branch: Dynamically set based on event type
           #   * For pull requests: Set to 'PR' to enable FOSSA's PR-specific analysis features
@@ -595,7 +587,7 @@ jobs:
             fossa.branch=${{ github.event.pull_request.number && 'PR' || github.event.repository.default_branch }}
             fossa.revision=${{ github.event.pull_request.number && github.head_ref || github.sha }}
           fossa_api_key: ${{ secrets.FOSSA_API_KEY }}
-        
+
       - name: FOSSA Guard - Block on Policy Violations
         uses: SolaceDev/solace-public-workflows/.github/actions/fossa-guard@main
         continue-on-error: true
