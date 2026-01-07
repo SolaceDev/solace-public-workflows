@@ -158,21 +158,13 @@ jobs:
       - name: Install uv
         id: setup-uv
         uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
-      - name: Run Tests with UV
-        if: hashFiles('uv.lock') != ''
-        run: |
-          uv sync --all-extras
-          uv run pytest tests/ --cov --cov-report=xml:coverage.xml --cov-report=term --junitxml=junit-${{ matrix.python-version }}.xml
       - name: Install Hatch
-        if: hashFiles('uv.lock') == ''
         run: uv tool install hatch
       - name: Create Hatch Environment
-        if: hashFiles('uv.lock') == ''
         run: hatch -v env create hatch-test.py${{ matrix.python-version }}
 
       - name: Run Tests with Hatch
         continue-on-error: true
-        if: hashFiles('uv.lock') == ''
         run: |
           hatch -v run hatch-test.py${{ matrix.python-version }}:pytest tests/ --cov --cov-report=xml:coverage.xml --cov-report=term --junitxml=junit-${{ matrix.python-version }}.xml
 
