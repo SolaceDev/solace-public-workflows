@@ -69,6 +69,17 @@ inputs:
     description: "Maximum violations to show in PR comment"
     required: false
     default: "5"
+  enable_diff_mode:
+    description: "Enable diff mode to show only new issues (true/false)"
+    required: false
+    default: "false"
+  diff_base_revision_sha:
+    description: "Base revision SHA to compare against (optional - auto-detects default branch)"
+    required: false
+  enable_license_enrichment:
+    description: "Show declared/discovered license indicators (true/false)"
+    required: false
+    default: "true"
 
 runs:
   using: docker
@@ -98,6 +109,9 @@ runs:
       if [ -n "$INPUT_ENABLE_STATUS_CHECK" ]; then export ENABLE_STATUS_CHECK="$INPUT_ENABLE_STATUS_CHECK"; fi
       if [ -n "$INPUT_STATUS_CHECK_NAME" ]; then export STATUS_CHECK_NAME="$INPUT_STATUS_CHECK_NAME"; fi
       if [ -n "$INPUT_PR_COMMENT_MAX_VIOLATIONS" ]; then export PR_COMMENT_MAX_VIOLATIONS="$INPUT_PR_COMMENT_MAX_VIOLATIONS"; fi
+      if [ -n "$INPUT_ENABLE_DIFF_MODE" ]; then export ENABLE_DIFF_MODE="$INPUT_ENABLE_DIFF_MODE"; fi
+      if [ -n "$INPUT_DIFF_BASE_REVISION_SHA" ]; then export DIFF_BASE_REVISION_SHA="$INPUT_DIFF_BASE_REVISION_SHA"; fi
+      if [ -n "$INPUT_ENABLE_LICENSE_ENRICHMENT" ]; then export ENABLE_LICENSE_ENRICHMENT="$INPUT_ENABLE_LICENSE_ENRICHMENT"; fi
       echo "Debug: Inputs:"
       echo "FOSSA_API_KEY: [REDACTED]"
       echo "FOSSA_PROJECT_ID: $FOSSA_PROJECT_ID"
@@ -120,5 +134,13 @@ runs:
       echo "ENABLE_STATUS_CHECK: $ENABLE_STATUS_CHECK"
       echo "STATUS_CHECK_NAME: $STATUS_CHECK_NAME"
       echo "PR_COMMENT_MAX_VIOLATIONS: $PR_COMMENT_MAX_VIOLATIONS"
+      echo "ENABLE_DIFF_MODE: $ENABLE_DIFF_MODE"
+      echo "DIFF_BASE_REVISION_SHA: $DIFF_BASE_REVISION_SHA"
+      echo "ENABLE_LICENSE_ENRICHMENT: $ENABLE_LICENSE_ENRICHMENT"
+      echo "GITHUB_EVENT_NAME: $GITHUB_EVENT_NAME"
+      echo "GITHUB_REF: $GITHUB_REF"
+      echo "GITHUB_SHA: $GITHUB_SHA"
+      echo "GITHUB_HEAD_REF: $GITHUB_HEAD_REF"
+      echo "GITHUB_BASE_REF: $GITHUB_BASE_REF"
       source /maas-build-actions/venv/bin/activate
       python3 /maas-build-actions/scripts/fossa-guard/fossa_guard.py

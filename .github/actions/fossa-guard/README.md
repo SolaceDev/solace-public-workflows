@@ -48,6 +48,9 @@ The `fossa-guard` GitHub Action integrates with the FOSSA API to fetch and proce
 | `enable_status_check` | `true` | Enable GitHub status checks (`true`/`false`) |
 | `status_check_name` | `FOSSA Guard` | Custom name for status checks |
 | `pr_comment_max_violations` | `5` | Max violations shown in PR comment |
+| `enable_diff_mode` | `false` | Enable diff mode to show only new issues (`true`/`false`) |
+| `diff_base_revision_sha` | (auto-detect) | Base revision SHA to compare against (optional - auto-detects default branch) |
+| `enable_license_enrichment` | `true` | Show declared/discovered license indicators (`true`/`false`) |
 
 ### Issue Types Explained
 - **policy_conflict**: There is a known explicit policy violation (FOSSA terminology). This means the license or dependency is denied in your FOSSA policy and should block the build.
@@ -62,9 +65,17 @@ The `fossa-guard` GitHub Action integrates with the FOSSA API to fetch and proce
 
 | Mode   | Description                                                                                   |
 |--------|-----------------------------------------------------------------------------------------------|
-| BLOCK  | Fails the build if violations matching `block_on` are found. Prints a Markdown/HTML summary.  |
-| REPORT | Generates and sends Slack reports (requires `slack_token` and `slack_channel`). Prints a Markdown/HTML summary. Intended for reporting only. Exit code 1 if Slack reporting fails and REPORT is the only action. |
+| BLOCK  | Fails the build if violations matching `block_on` are found (exit code 2). PR comments show violations. Status checks fail. Prints a Markdown/HTML summary.  |
+| REPORT | Shows violations in PR comments and status checks (marked as failed), but build passes (exit code 0). Useful for gradual rollout. Also sends Slack reports if configured. |
 | BLOCK,REPORT | Combines both actions - blocks on violations AND sends Slack reports. Exit code 2 if blocking violations found (Slack failure won't affect exit code). Exit code 0 if no blocking violations. |
+
+### Mode Behavior Clarification
+
+**Important**: PR comments and status checks work identically in both BLOCK and REPORT modes. The only difference is:
+- **REPORT mode**: Shows violations in status check (failure), but build passes (exit 0)
+- **BLOCK mode**: Shows violations in status check (failure), and build fails (exit 2)
+
+This allows you to enable PR integration in REPORT mode first for visibility without blocking builds, then switch to BLOCK mode when ready to enforce compliance.
 
 ---
 
@@ -111,7 +122,9 @@ jobs:
 
 ---
 
-## Pull Request Workflow Example
+## Pull Request Workflow Examples
+
+### Basic PR Integration
 
 ```yaml
 name: FOSSA PR Check
@@ -147,6 +160,82 @@ jobs:
           enable_status_check: true
 ```
 
+### With Diff Mode (Recommended for PRs)
+
+Diff mode shows only newly introduced issues, making PR reviews more focused:
+
+```yaml
+name: FOSSA PR Check with Diff Mode
+
+on:
+  pull_request:
+    branches: [main, master]
+
+permissions:
+  pull-requests: write  # For PR comments
+  checks: write         # For status checks
+  issues: write         # For PR comments
+
+jobs:
+  fossa-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: FOSSA Guard - Licensing (Diff Mode)
+        uses: SolaceDev/solace-public-workflows/.github/actions/fossa-guard@main
+        with:
+          fossa_api_key: ${{ secrets.FOSSA_API_KEY }}
+          fossa_project_id: ${{ secrets.FOSSA_PROJECT_ID }}
+          fossa_category: licensing
+          fossa_mode: BLOCK
+          fossa_branch: PR
+          fossa_revision: ${{ github.event.pull_request.head.ref }}
+          block_on: policy_conflict
+          # Diff mode - auto-detects base branch
+          enable_diff_mode: true
+          # PR Integration
+          github_token: ${{ github.token }}
+          enable_pr_comment: true
+          enable_status_check: true
+
+      - name: FOSSA Guard - Vulnerabilities (Diff Mode)
+        uses: SolaceDev/solace-public-workflows/.github/actions/fossa-guard@main
+        with:
+          fossa_api_key: ${{ secrets.FOSSA_API_KEY }}
+          fossa_project_id: ${{ secrets.FOSSA_PROJECT_ID }}
+          fossa_category: vulnerability
+          fossa_mode: BLOCK
+          fossa_branch: PR
+          fossa_revision: ${{ github.event.pull_request.head.ref }}
+          block_on: critical,high
+          # Diff mode
+          enable_diff_mode: true
+          # PR Integration
+          github_token: ${{ github.token }}
+          enable_pr_comment: true
+          enable_status_check: true
+```
+
+### REPORT Mode Example (Non-Blocking)
+
+Use REPORT mode for gradual rollout - violations are shown but don't fail the build:
+
+```yaml
+- name: FOSSA Guard (Report Mode - Non-Blocking)
+  uses: SolaceDev/solace-public-workflows/.github/actions/fossa-guard@main
+  with:
+    fossa_api_key: ${{ secrets.FOSSA_API_KEY }}
+    fossa_project_id: ${{ secrets.FOSSA_PROJECT_ID }}
+    fossa_category: licensing
+    fossa_mode: REPORT  # Show violations but don't fail build
+    block_on: policy_conflict,policy_flag
+    enable_diff_mode: true
+    github_token: ${{ github.token }}
+    enable_pr_comment: true
+    enable_status_check: true  # Status shows failure but build passes
+```
+
 ### Branch Protection Setup
 
 To enforce FOSSA checks before merging:
@@ -156,6 +245,53 @@ To enforce FOSSA checks before merging:
 3. Add required checks:
    - `FOSSA Guard (licensing)`
    - `FOSSA Guard (vulnerability)` (if applicable)
+
+---
+
+## Diff Mode
+
+Diff mode compares the PR branch against the base branch to show only newly introduced issues, making PR reviews more focused.
+
+### How It Works
+
+- Compares current scan results against base branch scan results
+- Shows "X new, Y total (Z in base)" in PR comments for clarity
+- Auto-detects default branch (main/master) if `diff_base_revision_sha` not provided
+- Uses three-tier matching strategy for accurate comparison
+
+### Requirements
+
+- Base branch must have been scanned by FOSSA for comparison to work
+- Best used with PR workflows to focus on newly introduced issues
+
+### Usage
+
+```yaml
+with:
+  enable_diff_mode: true
+  # Optional - will auto-detect if not provided
+  diff_base_revision_sha: ${{ github.event.pull_request.base.sha }}
+```
+
+---
+
+## PR Comment Features
+
+- **Smart deduplication**: One comment per category (licensing/vulnerability) - updates existing, doesn't duplicate
+- **Top N violations**: Shows top N violations (default: 5, configurable via `pr_comment_max_violations`)
+- **Clear explanations**: Shows what's blocking vs what needs review
+- **Direct links**: Links to full scan report and FOSSA dashboard
+- **Blocking status**: For vulnerabilities, shows actual blocking status (e.g., "✅ No blocking issues found (configured to block on: HIGH)")
+- **Diff mode support**: Shows "X new, Y total (Z in base)" when diff mode is enabled
+
+---
+
+## Status Check Behavior
+
+- Status checks show **failure** when violations exist matching `block_on` rules (regardless of mode)
+- Status checks show **success** when no violations found or all issues are non-blocking
+- Can be used with branch protection rules to enforce compliance
+- Works in both BLOCK and REPORT modes (only exit code differs)
 
 ---
 
@@ -178,12 +314,22 @@ To enforce FOSSA checks before merging:
 - `github_token` input is set (defaults to `${{ github.token }}`)
 - Workflow has `pull-requests: write` and `issues: write` permissions
 - Running in `pull_request` event (not `push`)
+- `enable_pr_comment` is not set to `false`
 
 ### Status Check Not Appearing
 
 **Check:**
 - Workflow has `checks: write` permission
 - Using PR head SHA: `fossa_revision: ${{ github.event.pull_request.head.ref || github.sha }}`
+- `enable_status_check` is not set to `false`
+
+### Diff Mode Not Working
+
+**Check:**
+- The PR branch revision has been scanned by FOSSA (ensure FOSSA scan runs before FOSSA Guard)
+- The base branch revision exists in FOSSA scan history
+- `enable_diff_mode` is set to `true`
+- FOSSA project exists and has scan data for both revisions
 
 ### Token Permission Errors
 
@@ -194,3 +340,24 @@ permissions:
   checks: write
   issues: write
 ```
+
+---
+
+## Migration Path
+
+For existing users wanting to adopt the new features:
+
+1. **Phase 1**: Enable PR comments and status checks (already auto-enabled with default settings)
+2. **Phase 2**: Test with REPORT mode to see violations without blocking builds
+3. **Phase 3**: Enable diff mode for PR workflows to focus on new issues
+4. **Phase 4**: Switch to BLOCK mode when ready to enforce compliance
+
+All features are opt-in and backwards compatible. Existing workflows without PR integration continue to work as before.
+
+---
+
+## Reference Links
+
+- **Implementation PR**: https://github.com/SolaceDev/maas-build-actions/pull/581
+- **Live Example**: https://github.com/SolaceDev/solace-agent-mesh-enterprise/pull/458
+- **Full Documentation**: See maas-build-actions repository `scripts/fossa-guard/fossa-guard-usage.md`
