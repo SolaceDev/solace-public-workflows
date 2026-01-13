@@ -44,8 +44,8 @@ The `fossa-guard` GitHub Action integrates with the FOSSA API to fetch and proce
 | Input | Default | Description |
 |-------|---------|-------------|
 | `github_token` | `${{ github.token }}` | GitHub token for PR comments and status checks |
-| `enable_pr_comment` | `true` | Enable PR commenting (`true`/`false`) |
-| `enable_status_check` | `true` | Enable GitHub status checks (`true`/`false`) |
+| `enable_pr_comment` | `false` | Enable PR commenting (`true`/`false`) |
+| `enable_status_check` | `false` | Enable GitHub status checks (`true`/`false`) |
 | `status_check_name` | `FOSSA Guard` | Custom name for status checks |
 | `pr_comment_max_violations` | `5` | Max violations shown in PR comment |
 | `enable_diff_mode` | `false` | Enable diff mode to show only new issues (`true`/`false`) |

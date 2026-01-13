@@ -56,11 +56,11 @@ inputs:
   enable_pr_comment:
     description: "Enable PR commenting (true/false)"
     required: false
-    default: "true"
+    default: "false"
   enable_status_check:
     description: "Enable GitHub status checks (true/false)"
     required: false
-    default: "true"
+    default: "false"
   status_check_name:
     description: "Custom name for GitHub status check"
     required: false
