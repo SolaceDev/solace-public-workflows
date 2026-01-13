@@ -343,18 +343,6 @@ permissions:
 
 ---
 
-## Migration Path
-
-For existing users wanting to adopt the new features:
-
-1. **Phase 1**: Enable PR comments and status checks (already auto-enabled with default settings)
-2. **Phase 2**: Test with REPORT mode to see violations without blocking builds
-3. **Phase 3**: Enable diff mode for PR workflows to focus on new issues
-4. **Phase 4**: Switch to BLOCK mode when ready to enforce compliance
-
-All features are opt-in and backwards compatible. Existing workflows without PR integration continue to work as before.
-
----
 
 ## Reference Links
 
