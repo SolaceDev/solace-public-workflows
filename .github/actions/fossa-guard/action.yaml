@@ -83,7 +83,7 @@ inputs:
 
 runs:
   using: docker
-  image: docker://ghcr.io/solacedev/maas-build-actions:support_pr_commeting_status_check
+  image: docker://ghcr.io/solacedev/maas-build-actions:latest
   entrypoint: /bin/sh
   args:
     - -c
