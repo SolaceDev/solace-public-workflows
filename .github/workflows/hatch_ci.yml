@@ -318,18 +318,60 @@ jobs:
           ls -lah junit-*.xml 2>/dev/null || echo "No JUnit XML files found"
         shell: bash
 
+      - name: Prepare SonarQube Arguments
+        id: prepare-sonar-args
+        shell: bash
+        run: |
+          # Default values for sonar properties
+          declare -A DEFAULTS=(
+            ["sonar.tests"]="tests/"
+            ["sonar.verbose"]="true"
+            ["sonar.sources"]="src/"
+            ["sonar.projectKey"]="${{github.repository_owner}}_${{github.event.repository.name}}"
+            ["sonar.python.coverage.reportPaths"]="*coverage*.xml"
+          )
+
+          # Read existing properties from sonar-project.properties if it exists
+          declare -A EXISTING_PROPS
+          if [ -f "sonar-project.properties" ]; then
+            echo "Found sonar-project.properties, checking for existing properties..."
+            while IFS='=' read -r key value; do
+              # Skip comments and empty lines
+              [[ "$key" =~ ^#.*$ ]] && continue
+              [[ -z "$key" ]] && continue
+              # Trim whitespace
+              key=$(echo "$key" | xargs)
+              value=$(echo "$value" | xargs)
+              EXISTING_PROPS["$key"]="$value"
+              echo "  Found property: $key=$value"
+            done < sonar-project.properties
+          else
+            echo "No sonar-project.properties file found, using all defaults"
+          fi
+
+          # Build args string with only properties that are not already defined
+          ARGS=""
+          for key in "${!DEFAULTS[@]}"; do
+            if [ -z "${EXISTING_PROPS[$key]}" ]; then
+              echo "Using default for: $key=${DEFAULTS[$key]}"
+              ARGS="$ARGS -D$key=${DEFAULTS[$key]}"
+            else
+              echo "Respecting existing property: $key=${EXISTING_PROPS[$key]}"
+            fi
+          done
+
+          # Remove leading space and output
+          ARGS=$(echo "$ARGS" | xargs)
+          echo "Final sonar args: $ARGS"
+          echo "args=$ARGS" >> $GITHUB_OUTPUT
+
       - name: SonarQube Scan
         uses: sonarsource/sonarqube-scan-action@fd88b7d7ccbaefd23d8f36f73b59db7a3d246602 # v6.0.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
         with:
-          args: >
-            "-Dsonar.tests=tests/"
-            "-Dsonar.verbose=true"
-            "-Dsonar.sources=src/"
-            "-Dsonar.projectKey=${{github.repository_owner}}_${{github.event.repository.name}}"
-            "-Dsonar.python.coverage.reportPaths=*coverage*.xml"
+          args: ${{ steps.prepare-sonar-args.outputs.args }}
 
       - name: SonarQube Quality Gate check
         if: github.event_name == 'pull_request'
