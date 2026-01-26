@@ -58,6 +58,11 @@ on:
         required: false
         default: true
         description: "Validate dependency conflicts"
+      run_sonar:
+        type: boolean
+        required: false
+        default: true
+        description: "Run SonarQube analysis (coverage-and-sonar job)"
 
     secrets:
       SONAR_TOKEN:
@@ -283,7 +288,7 @@ jobs:
     name: Coverage and SonarQube Analysis
     runs-on: ubuntu-latest
     needs: [validate-dependencies, test-python-matrix]
-    if: ${{ !github.event.repository.fork }}
+    if: ${{ !github.event.repository.fork && fromJson(inputs.run_sonar) }}
     steps:
       - name: Checkout
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
