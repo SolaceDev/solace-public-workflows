@@ -1,0 +1,75 @@
+name: Skopeo Copy Images
+description: "Copy container images using skopeo with multi-tag support"
+inputs:
+  source_image:
+    description: "Source image (e.g., registry/repo:tag)"
+    required: true
+  destination_repo:
+    description: "Destination repository without tag (e.g., gcr.io/project/repo)"
+    required: true
+  version_tag:
+    description: "Primary version tag to apply"
+    required: true
+  additional_tags:
+    description: "Comma-separated list of additional tags to apply (e.g., 'latest,rc')"
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Install skopeo if needed
+      shell: bash
+      run: |
+        if ! command -v skopeo &> /dev/null; then
+          echo "📦 skopeo not found, installing..."
+          sudo apt-get update -qq
+          sudo apt-get install -y skopeo
+          echo "✅ skopeo installed successfully"
+        else
+          echo "✅ skopeo already installed: $(skopeo --version)"
+        fi
+
+    - name: Copy Images with Tags
+      shell: bash
+      run: |
+        SOURCE="${{ inputs.source_image }}"
+        DEST_REPO="${{ inputs.destination_repo }}"
+        VERSION="${{ inputs.version_tag }}"
+        ADDITIONAL_TAGS="${{ inputs.additional_tags }}"
+
+        echo "======================================"
+        echo "Copying images with skopeo"
+        echo "======================================"
+        echo "Source: $SOURCE"
+        echo "Destination: $DEST_REPO"
+        echo "Version tag: $VERSION"
+        echo "Additional tags: ${ADDITIONAL_TAGS:-none}"
+        echo ""
+
+        # Define function to copy image with a specific tag
+        copy_image() {
+          local tag="$1"
+          echo "Copying to tag: $tag"
+          skopeo copy --all "docker://$SOURCE" "docker://$DEST_REPO:$tag"
+          echo "✅ Pushed: $DEST_REPO:$tag"
+        }
+
+        # Push primary version tag
+        copy_image "$VERSION"
+
+        # Apply additional tags if provided
+        if [ -n "$ADDITIONAL_TAGS" ]; then
+          IFS=',' read -ra TAGS <<< "$ADDITIONAL_TAGS"
+          for tag in "${TAGS[@]}"; do
+            tag=$(echo "$tag" | xargs)  # Trim whitespace
+            if [ -n "$tag" ]; then
+              copy_image "$tag"
+            fi
+          done
+        fi
+
+        echo ""
+        echo "======================================"
+        echo "✅ All tags copied successfully"
+        echo "======================================"
