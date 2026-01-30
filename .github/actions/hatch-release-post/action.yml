@@ -21,11 +21,31 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Push version bump commit to main
+    - name: Get current branch name
+      id: get-branch
+      shell: bash
+      run: |
+        BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
+        echo "branch_name=$BRANCH_NAME" >> $GITHUB_OUTPUT
+        echo "Current branch: $BRANCH_NAME"
+
+    - name: Push version bump commit
       if: ${{ inputs.skip_bump == '0' }}
       shell: bash
       run: |
-        git push
+        # Push to the current branch explicitly (not just the default upstream)
+        BRANCH_NAME="${{ steps.get-branch.outputs.branch_name }}"
+        echo "Pushing to branch: $BRANCH_NAME"
+        git push origin "$BRANCH_NAME"
+
+    - name: Get commit hash for tagging
+      id: get-commit
+      shell: bash
+      run: |
+        # Use current HEAD - this is the version bump commit on the current branch
+        COMMIT=$(git rev-parse HEAD)
+        echo "commit=$COMMIT" >> $GITHUB_OUTPUT
+        echo "Will tag commit: $COMMIT"
 
     - name: Create Release
       uses: ncipollo/release-action@b7eabc95ff50cbeeedec83973935c8f306dfcd0b # v1.20.0
@@ -33,9 +53,10 @@ runs:
         GITHUB_TOKEN: ${{ inputs.github_token }}
       with:
         artifacts: "dist/*.whl"
-        makeLatest: true
+        makeLatest: ${{ steps.get-branch.outputs.branch_name == 'main' }}
         generateReleaseNotes: true
         tag: ${{ inputs.new_version }}
+        commit: ${{ steps.get-commit.outputs.commit }}
 
     - name: Generate Release Notes
       id: generate_release_notes
