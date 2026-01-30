@@ -1,0 +1,390 @@
+name: SCA Scan and Guard
+
+# Shareable workflow for Software Composition Analysis (SCA) scanning
+# Runs FOSSA scan with licensing and vulnerability checks
+# Supports both PR (diff-based) and Release (full scan) contexts
+
+on:
+  workflow_call:
+    inputs:
+      git_ref:
+        description: 'Git ref to checkout (e.g., 0.0.269 for releases). Leave empty for PR context.'
+        required: false
+        type: string
+      skip_fossa_gate:
+        description: 'EMERGENCY: Skip FOSSA gate (for outages or critical issues)'
+        required: false
+        type: boolean
+        default: false
+      bypass_justification:
+        description: 'REQUIRED: Justification for bypassing FOSSA gate'
+        required: false
+        type: string
+        default: ''
+      slack_channel:
+        description: 'Slack channel for failure notifications'
+        required: false
+        type: string
+        default: '#sc-deploy-cicd-activity'
+      fossa_licensing_mode:
+        description: 'FOSSA licensing check mode: BLOCK (fail on violations) or REPORT (report only)'
+        required: false
+        type: string
+        default: 'REPORT'
+      fossa_licensing_block_on:
+        description: 'What to block on for licensing: policy_conflict, policy_flag, etc.'
+        required: false
+        type: string
+        default: 'policy_conflict'
+      fossa_vulnerability_mode:
+        description: 'FOSSA vulnerability check mode: BLOCK (fail on vulnerabilities) or REPORT (report only)'
+        required: false
+        type: string
+        default: 'REPORT'
+      fossa_vulnerability_block_on:
+        description: 'Vulnerability severities to block on (comma-separated): critical,high,medium,low'
+        required: false
+        type: string
+        default: 'critical,high'
+      use_vault:
+        description: 'Retrieve FOSSA API key from Vault (for private repos). If false, expects FOSSA_API_KEY from secrets.'
+        required: false
+        type: boolean
+        default: false
+      vault_url:
+        description: 'Vault URL (required if use_vault is true)'
+        required: false
+        type: string
+        default: ''
+      vault_role:
+        description: 'Vault role for JWT authentication'
+        required: false
+        type: string
+        default: 'cicd-workflows-secret-read-role'
+      vault_secret_path:
+        description: 'Vault secret path for FOSSA API key'
+        required: false
+        type: string
+        default: 'secret/data/tools/githubactions'
+
+    secrets:
+      FOSSA_API_KEY:
+        description: 'FOSSA API key (required if use_vault is false)'
+        required: false
+
+permissions:
+  contents: read
+  pull-requests: write
+  id-token: write
+  actions: read
+  checks: write
+
+jobs:
+  fossa_scan:
+    name: 'FOSSA Scan'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check Admin Permissions for Bypass
+        if: inputs.skip_fossa_gate == true
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const actor = context.actor;
+            const repo = context.repo;
+
+            try {
+              const { data: permission } = await github.rest.repos.getCollaboratorPermissionLevel({
+                owner: repo.owner,
+                repo: repo.repo,
+                username: actor
+              });
+
+              console.log(`User ${actor} has permission: ${permission.permission}`);
+
+              if (permission.permission !== 'admin') {
+                core.setFailed(`❌ FOSSA bypass denied: User ${actor} does not have admin permissions. Only repository admins can bypass FOSSA gate.`);
+              } else {
+                console.log(`✅ Admin permission verified for ${actor}`);
+              }
+            } catch (error) {
+              core.setFailed(`Failed to check permissions: ${error.message}`);
+            }
+
+      - name: Determine scan context
+        id: context
+        run: |
+          echo "### 🔍 FOSSA Scan Context Detection" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Detect if this is a PR, Release, or Manual scan
+          if [[ -n "${{ github.event.pull_request.number }}" ]]; then
+            # PR context - diff-based scan
+            echo "branch=PR" >> $GITHUB_OUTPUT
+            echo "revision=${{ github.head_ref }}" >> $GITHUB_OUTPUT
+            echo "git_ref=${{ github.ref }}" >> $GITHUB_OUTPUT
+            echo "scan_type=PR" >> $GITHUB_OUTPUT
+            echo "**Context**: Pull Request #${{ github.event.pull_request.number }}" >> $GITHUB_STEP_SUMMARY
+            echo "**Scan Type**: Diff-based (new issues only)" >> $GITHUB_STEP_SUMMARY
+            echo "**Branch**: PR" >> $GITHUB_STEP_SUMMARY
+            echo "**Revision**: ${{ github.head_ref }}" >> $GITHUB_STEP_SUMMARY
+          elif [[ -n "${{ inputs.git_ref }}" ]]; then
+            # Release context (called by orchestrator) - full scan
+            echo "branch=${{ github.event.repository.default_branch }}" >> $GITHUB_OUTPUT
+            echo "revision=${{ inputs.git_ref }}" >> $GITHUB_OUTPUT
+            echo "git_ref=${{ inputs.git_ref }}" >> $GITHUB_OUTPUT
+            echo "scan_type=Release" >> $GITHUB_OUTPUT
+            echo "**Context**: Release" >> $GITHUB_STEP_SUMMARY
+            echo "**Scan Type**: Full scan (all dependencies)" >> $GITHUB_STEP_SUMMARY
+            echo "**Branch**: ${{ github.event.repository.default_branch }}" >> $GITHUB_STEP_SUMMARY
+            echo "**Revision**: ${{ inputs.git_ref }}" >> $GITHUB_STEP_SUMMARY
+          else
+            # Manual trigger without git_ref
+            echo "branch=${{ github.event.repository.default_branch }}" >> $GITHUB_OUTPUT
+            echo "revision=${{ github.sha }}" >> $GITHUB_OUTPUT
+            echo "git_ref=${{ github.ref }}" >> $GITHUB_OUTPUT
+            echo "scan_type=Manual" >> $GITHUB_OUTPUT
+            echo "**Context**: Manual (HEAD)" >> $GITHUB_STEP_SUMMARY
+            echo "**Scan Type**: Full scan" >> $GITHUB_STEP_SUMMARY
+            echo "**Branch**: ${{ github.event.repository.default_branch }}" >> $GITHUB_STEP_SUMMARY
+            echo "**Revision**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "**Git Ref**: $(cat $GITHUB_OUTPUT | grep git_ref | head -1 | cut -d'=' -f2)" >> $GITHUB_STEP_SUMMARY
+
+      - name: Checkout code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ steps.context.outputs.git_ref }}
+
+      - name: Retrieve FOSSA API key from Vault
+        id: vault_secrets
+        if: inputs.use_vault == true
+        uses: hashicorp/vault-action@4c06c5ccf5c0761b6029f56cfb1dcf5565918a3b # v3.4.0
+        with:
+          url: ${{ inputs.vault_url }}
+          role: ${{ inputs.vault_role }}
+          method: jwt
+          path: jwt-github
+          jwtGithubAudience: https://github.com/${{ github.repository_owner }}
+          exportToken: true
+          secrets: |
+            ${{ inputs.vault_secret_path }} FOSSA_FULL_API_TOKEN | FOSSA_API_KEY
+
+      - name: Validate FOSSA API Key
+        id: fossa_key
+        shell: bash
+        run: |
+          if [[ "${{ inputs.use_vault }}" == "true" ]]; then
+            # Vault mode - key from Vault
+            if [[ -z "${{ steps.vault_secrets.outputs.FOSSA_API_KEY }}" ]]; then
+              echo "❌ Error: FOSSA_API_KEY not retrieved from Vault"
+              exit 1
+            fi
+            echo "FOSSA_KEY=${{ steps.vault_secrets.outputs.FOSSA_API_KEY }}" >> $GITHUB_OUTPUT
+            echo "✅ FOSSA API key retrieved from Vault"
+          else
+            # GitHub Secrets mode - key from secrets
+            if [[ -z "${{ secrets.FOSSA_API_KEY }}" ]]; then
+              echo "❌ Error: FOSSA_API_KEY secret not provided"
+              exit 1
+            fi
+            echo "FOSSA_KEY=${{ secrets.FOSSA_API_KEY }}" >> $GITHUB_OUTPUT
+            echo "✅ FOSSA API key retrieved from GitHub Secrets"
+          fi
+
+      - name: FOSSA Scan
+        uses: SolaceDev/solace-public-workflows/.github/actions/sca/sca-scan@main
+        with:
+          scanners: "fossa"
+          additional_scan_params: |
+            fossa.branch=${{ steps.context.outputs.branch }}
+            fossa.revision=${{ steps.context.outputs.revision }}
+          fossa_api_key: ${{ steps.fossa_key.outputs.FOSSA_KEY }}
+
+      - name: FOSSA Licensing Check
+        id: fossa_licensing
+        uses: SolaceDev/solace-public-workflows/.github/actions/fossa-guard@main
+        continue-on-error: true
+        with:
+          fossa_api_key: ${{ steps.fossa_key.outputs.FOSSA_KEY }}
+          fossa_project_id: "${{ github.repository_owner }}_${{ github.event.repository.name }}"
+          fossa_branch: ${{ steps.context.outputs.branch }}
+          fossa_revision: ${{ steps.context.outputs.revision }}
+          fossa_category: licensing
+          fossa_mode: ${{ inputs.fossa_licensing_mode }}
+          block_on: ${{ inputs.fossa_licensing_block_on }}
+          enable_diff_mode: ${{ github.event_name == 'pull_request' }}
+          enable_pr_comment: ${{ github.event_name == 'pull_request' }}
+          enable_status_check: ${{ github.event_name == 'pull_request' }}
+
+      - name: FOSSA Vulnerability Check
+        id: fossa_vulnerabilities
+        uses: SolaceDev/solace-public-workflows/.github/actions/fossa-guard@main
+        continue-on-error: true
+        with:
+          fossa_api_key: ${{ steps.fossa_key.outputs.FOSSA_KEY }}
+          fossa_project_id: "${{ github.repository_owner }}_${{ github.event.repository.name }}"
+          fossa_branch: ${{ steps.context.outputs.branch }}
+          fossa_revision: ${{ steps.context.outputs.revision }}
+          fossa_category: vulnerability
+          fossa_mode: ${{ inputs.fossa_vulnerability_mode }}
+          block_on: ${{ inputs.fossa_vulnerability_block_on }}
+          enable_diff_mode: ${{ github.event_name == 'pull_request' }}
+          enable_pr_comment: ${{ github.event_name == 'pull_request' }}
+          enable_status_check: ${{ github.event_name == 'pull_request' }}
+
+      - name: Report FOSSA Results
+        if: always()
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📊 FOSSA Scan Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Licensing Check Results
+          if [[ "${{ steps.fossa_licensing.outcome }}" == "success" ]]; then
+            echo "✅ **Licensing Check**: PASSED" >> $GITHUB_STEP_SUMMARY
+            echo "   _Mode: ${{ inputs.fossa_licensing_mode }}, Block on: ${{ inputs.fossa_licensing_block_on }}_" >> $GITHUB_STEP_SUMMARY
+          elif [[ "${{ steps.fossa_licensing.outcome }}" == "failure" ]]; then
+            if [[ "${{ inputs.fossa_licensing_mode }}" == "BLOCK" ]]; then
+              echo "❌ **Licensing Check**: FAILED (policy conflicts detected) - BLOCKING" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "⚠️ **Licensing Check**: FAILED (policy conflicts detected) - REPORT ONLY" >> $GITHUB_STEP_SUMMARY
+            fi
+            echo "   _Mode: ${{ inputs.fossa_licensing_mode }}, Block on: ${{ inputs.fossa_licensing_block_on }}_" >> $GITHUB_STEP_SUMMARY
+          elif [[ "${{ inputs.skip_fossa_gate }}" == "true" ]]; then
+            echo "⚠️ **Licensing Check**: SKIPPED (emergency bypass)" >> $GITHUB_STEP_SUMMARY
+            echo "**Justification**: ${{ inputs.bypass_justification }}" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ **Licensing Check**: UNKNOWN" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Vulnerability Check Results
+          if [[ "${{ steps.fossa_vulnerabilities.outcome }}" == "success" ]]; then
+            echo "✅ **Vulnerability Check**: PASSED" >> $GITHUB_STEP_SUMMARY
+            echo "   _Mode: ${{ inputs.fossa_vulnerability_mode }}, Block on: ${{ inputs.fossa_vulnerability_block_on }}_" >> $GITHUB_STEP_SUMMARY
+          elif [[ "${{ steps.fossa_vulnerabilities.outcome }}" == "failure" ]]; then
+            if [[ "${{ inputs.fossa_vulnerability_mode }}" == "BLOCK" ]]; then
+              echo "❌ **Vulnerability Check**: FAILED (${{ inputs.fossa_vulnerability_block_on }} vulnerabilities detected) - BLOCKING" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "⚠️ **Vulnerability Check**: ISSUES FOUND (${{ inputs.fossa_vulnerability_block_on }} vulnerabilities detected) - REPORT ONLY" >> $GITHUB_STEP_SUMMARY
+            fi
+            echo "   _Mode: ${{ inputs.fossa_vulnerability_mode }}, Block on: ${{ inputs.fossa_vulnerability_block_on }}_" >> $GITHUB_STEP_SUMMARY
+          elif [[ "${{ inputs.skip_fossa_gate }}" == "true" ]]; then
+            echo "⚠️ **Vulnerability Check**: SKIPPED (emergency bypass)" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ **Vulnerability Check**: UNKNOWN" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**FOSSA Project**: ${{ github.repository_owner }}_${{ github.event.repository.name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch**: ${{ steps.context.outputs.branch }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Revision**: ${{ steps.context.outputs.revision }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Scan Type**: ${{ steps.context.outputs.scan_type }}" >> $GITHUB_STEP_SUMMARY
+
+          # URL encode the revision for the dashboard link
+          ENCODED_REVISION=$(echo "${{ steps.context.outputs.revision }}" | jq -sRr @uri)
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Dashboard**: [View in FOSSA](https://app.fossa.com/projects/custom%2B1%2F${{ github.repository_owner }}_${{ github.event.repository.name }}/refs/branch/${{ steps.context.outputs.branch }}/${ENCODED_REVISION})" >> $GITHUB_STEP_SUMMARY
+
+      - name: Block on FOSSA Licensing Failures
+        if: |
+          always() && !inputs.skip_fossa_gate &&
+          steps.fossa_licensing.outcome == 'failure'
+        run: |
+          echo "❌ FOSSA licensing check failed. Licensing policy conflicts detected."
+          echo "Review the FOSSA dashboard for details and remediate policy violations."
+          exit 1
+
+      - name: Block on FOSSA Vulnerability Failures
+        if: |
+          always() && !inputs.skip_fossa_gate &&
+          steps.fossa_vulnerabilities.outcome == 'failure' &&
+          inputs.fossa_vulnerability_mode == 'BLOCK'
+        run: |
+          echo "❌ FOSSA vulnerability check failed. ${{ inputs.fossa_vulnerability_block_on }} severity vulnerabilities detected."
+          echo "Review the FOSSA dashboard for details and remediate vulnerabilities."
+          exit 1
+
+      - name: Log Emergency Bypass
+        if: inputs.skip_fossa_gate
+        run: |
+          echo "⚠️ EMERGENCY BYPASS USED"
+          echo "Justification: ${{ inputs.bypass_justification }}"
+          echo "Triggered by: ${{ github.actor }}"
+          echo "Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+      - name: Build Notification
+        if: failure()
+        uses: SolaceDev/maas-build-actions/.github/actions/build-finish-notifier@master
+        with:
+          workflow_title: "${{ github.event.repository.name }} SCA Scan"
+          run_url: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          notify_channel: ${{ inputs.slack_channel }}
+
+# ---
+# Usage Notes:
+#
+# This shareable workflow performs FOSSA-based SCA scanning with:
+# - Automatic context detection (PR vs Release vs Manual)
+# - Licensing policy enforcement (BLOCKING)
+# - Vulnerability reporting (NON-BLOCKING, informational)
+# - Emergency bypass capability for outages
+# - Flexible secret management (Vault or GitHub Secrets)
+#
+# Secret Management:
+# - Default: GitHub Secrets (use_vault: false) - for public repos
+# - Optional: Vault (use_vault: true) - for private repos with Vault access
+#
+# Context Detection:
+# - PR: Diff-based scan (only new issues), branch=PR, revision=head_ref
+# - Release: Full scan with semver, branch=develop, revision=<version>
+# - Manual: Full scan with SHA, branch=develop, revision=<sha>
+#
+# Gates:
+# - Licensing: BLOCKS on policy conflicts (e.g., GPL in proprietary code)
+# - Vulnerabilities: REPORTS critical/high CVEs (non-blocking)
+# - Emergency bypass available via workflow_dispatch/orchestrator
+#
+# Example usage in PUBLIC repos (GitHub Secrets):
+#
+# PR Scanning:
+#   fossa_scan:
+#     uses: SolaceDev/solace-public-workflows/.github/workflows/sca-scan-and-guard.yaml@main
+#     secrets:
+#       FOSSA_API_KEY: ${{ secrets.FOSSA_API_KEY }}
+#     # No other inputs needed - automatic PR detection
+#
+# Release Scanning:
+#   fossa_scan:
+#     uses: SolaceDev/solace-public-workflows/.github/workflows/sca-scan-and-guard.yaml@main
+#     secrets:
+#       FOSSA_API_KEY: ${{ secrets.FOSSA_API_KEY }}
+#     with:
+#       git_ref: ${{ needs.version_bump.outputs.version }}  # e.g., 0.0.269
+#
+# Example usage in PRIVATE repos (Vault):
+#
+# Release Scanning with Vault:
+#   fossa_scan:
+#     uses: SolaceDev/maas-build-actions/.github/workflows/sca-scan-and-guard.yaml@master
+#     with:
+#       git_ref: ${{ needs.version_bump.outputs.version }}
+#       use_vault: true
+#       vault_url: "https://vault.maas-vault-prod.solace.cloud:8200"
+#
+# With Emergency Bypass:
+#   fossa_scan:
+#     uses: SolaceDev/solace-public-workflows/.github/workflows/sca-scan-and-guard.yaml@main
+#     secrets:
+#       FOSSA_API_KEY: ${{ secrets.FOSSA_API_KEY }}
+#     with:
+#       git_ref: ${{ needs.version_bump.outputs.version }}
+#       skip_fossa_gate: true
+#       bypass_justification: "FOSSA service outage - INC12345"
+# ---
