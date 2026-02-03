@@ -41,6 +41,12 @@ outputs:
   fossa_project_id:
     description: 'FOSSA project ID override'
     value: ${{ steps.parse.outputs.fossa_project_id }}
+  fossa_team:
+    description: 'FOSSA team name'
+    value: ${{ steps.parse.outputs.fossa_team }}
+  fossa_labels:
+    description: 'Comma-separated FOSSA project labels'
+    value: ${{ steps.parse.outputs.fossa_labels }}
 
 runs:
   using: 'composite'
@@ -113,6 +119,14 @@ runs:
         FOSSA_PROJECT=$(echo "$CONFIG" | jq -r ".${CONFIG_TYPE}.fossa.project_id // \"\"")
         echo "fossa_project_id=${FOSSA_PROJECT}" >> $GITHUB_OUTPUT
 
+        # Parse FOSSA team
+        FOSSA_TEAM=$(echo "$CONFIG" | jq -r ".${CONFIG_TYPE}.fossa.team // \"\"")
+        echo "fossa_team=${FOSSA_TEAM}" >> $GITHUB_OUTPUT
+
+        # Parse FOSSA labels (convert array to comma-separated string)
+        FOSSA_LABELS=$(echo "$CONFIG" | jq -r ".${CONFIG_TYPE}.fossa.labels // [] | join(\",\")")
+        echo "fossa_labels=${FOSSA_LABELS}" >> $GITHUB_OUTPUT
+
         echo "✅ Configuration parsed successfully"
         echo ""
         echo "Parsed values:"
@@ -123,6 +137,8 @@ runs:
         echo "  - FOSSA licensing: ${FOSSA_LIC_MODE} (block on: ${FOSSA_LIC_BLOCK})"
         echo "  - FOSSA vulnerability: ${FOSSA_VULN_MODE} (block on: ${FOSSA_VULN_BLOCK})"
         echo "  - FOSSA project ID: ${FOSSA_PROJECT:-<default>}"
+        echo "  - FOSSA team: ${FOSSA_TEAM:-<not set>}"
+        echo "  - FOSSA labels: ${FOSSA_LABELS:-<not set>}"
 
 branding:
   icon: 'file-text'

@@ -184,6 +184,8 @@ jobs:
             echo "fossa_vulnerability_mode=${{ steps.config_loader.outputs.fossa_vulnerability_mode }}" >> $GITHUB_OUTPUT
             echo "fossa_vulnerability_block_on=${{ steps.config_loader.outputs.fossa_vulnerability_block_on }}" >> $GITHUB_OUTPUT
             echo "fossa_project_override=${{ steps.config_loader.outputs.fossa_project_id }}" >> $GITHUB_OUTPUT
+            echo "fossa_team=${{ steps.config_loader.outputs.fossa_team }}" >> $GITHUB_OUTPUT
+            echo "fossa_labels=${{ steps.config_loader.outputs.fossa_labels }}" >> $GITHUB_OUTPUT
           else
             echo "📝 Using configuration from workflow inputs"
             echo "vault_url=${{ inputs.vault_url }}" >> $GITHUB_OUTPUT
@@ -195,6 +197,8 @@ jobs:
             echo "fossa_vulnerability_mode=${{ inputs.fossa_vulnerability_mode }}" >> $GITHUB_OUTPUT
             echo "fossa_vulnerability_block_on=${{ inputs.fossa_vulnerability_block_on }}" >> $GITHUB_OUTPUT
             echo "fossa_project_override=${{ inputs.fossa_project_override }}" >> $GITHUB_OUTPUT
+            echo "fossa_team=" >> $GITHUB_OUTPUT
+            echo "fossa_labels=" >> $GITHUB_OUTPUT
           fi
 
       - name: Determine scan context
@@ -330,16 +334,44 @@ jobs:
           fi
           echo "FOSSA_PROJECT_ID=${FOSSA_PROJECT_ID}" >> $GITHUB_OUTPUT
 
+      - name: Build FOSSA Scan Parameters
+        id: fossa_params
+        run: |
+          # Build base parameters
+          PARAMS="fossa.image=${{ inputs.container_image }}"
+          PARAMS="${PARAMS}"$'\n'"fossa.project=${{ steps.fossa_project.outputs.FOSSA_PROJECT_ID }}"
+          PARAMS="${PARAMS}"$'\n'"fossa.branch=${{ steps.context.outputs.branch }}"
+          PARAMS="${PARAMS}"$'\n'"fossa.revision=${{ steps.context.outputs.revision }}"
+
+          # Add team if configured
+          if [[ -n "${{ steps.config.outputs.fossa_team }}" ]]; then
+            PARAMS="${PARAMS}"$'\n'"fossa.team=${{ steps.config.outputs.fossa_team }}"
+            echo "✓ Adding FOSSA team: ${{ steps.config.outputs.fossa_team }}"
+          fi
+
+          # Add labels if configured
+          if [[ -n "${{ steps.config.outputs.fossa_labels }}" ]]; then
+            PARAMS="${PARAMS}"$'\n'"fossa.project_label=${{ steps.config.outputs.fossa_labels }}"
+            echo "✓ Adding FOSSA labels: ${{ steps.config.outputs.fossa_labels }}"
+          fi
+
+          # Add user-provided additional params
+          if [[ -n "${{ inputs.additional_scan_params }}" ]]; then
+            PARAMS="${PARAMS}"$'\n'"${{ inputs.additional_scan_params }}"
+          fi
+
+          # Export to output
+          {
+            echo "params<<EOF"
+            echo "$PARAMS"
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
+
       - name: Container Scan - FOSSA
         uses: SolaceDev/solace-public-workflows/container/container-scan@feature/container-scan-action
         with:
           scanners: "fossa"
-          additional_scan_params: |
-            fossa.image=${{ inputs.container_image }}
-            fossa.project=${{ steps.fossa_project.outputs.FOSSA_PROJECT_ID }}
-            fossa.branch=${{ steps.context.outputs.branch }}
-            fossa.revision=${{ steps.context.outputs.revision }}
-            ${{ inputs.additional_scan_params }}
+          additional_scan_params: ${{ steps.fossa_params.outputs.params }}
           fossa_api_key: ${{ steps.fossa_key.outputs.FOSSA_KEY }}
 
       - name: FOSSA Licensing Check
