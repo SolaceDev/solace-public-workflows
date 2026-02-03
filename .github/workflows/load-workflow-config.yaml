@@ -1,0 +1,102 @@
+name: Load Workflow Configuration
+
+on:
+  workflow_call:
+    inputs:
+      config_file:
+        description: 'Path to JSON configuration file (relative to repository root)'
+        required: false
+        type: string
+        default: '.github/workflow-config.json'
+    outputs:
+      config_json:
+        description: 'Complete configuration as JSON string'
+        value: ${{ jobs.load_config.outputs.config_json }}
+
+permissions:
+  contents: read
+
+jobs:
+  load_config:
+    name: Load Configuration
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      config_json: ${{ steps.export_config.outputs.config_json }}
+
+    steps:
+      - name: Validate Config File Path
+        run: |
+          if [[ -z "${{ inputs.config_file }}" ]]; then
+            echo "❌ Error: config_file input is required"
+            exit 1
+          fi
+          echo "📂 Config file path: ${{ inputs.config_file }}"
+
+      - name: Checkout Repository (Sparse)
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          sparse-checkout: |
+            ${{ inputs.config_file }}
+          sparse-checkout-cone-mode: false
+
+      - name: Verify Config File Exists
+        id: verify
+        run: |
+          if [[ ! -f "${{ inputs.config_file }}" ]]; then
+            echo "❌ Error: Config file not found at path: ${{ inputs.config_file }}"
+            echo "💡 Please create the config file in your repository."
+            exit 1
+          fi
+          echo "✅ Config file found: ${{ inputs.config_file }}"
+          echo "📊 File size: $(wc -c < "${{ inputs.config_file }}") bytes"
+
+      - name: Validate JSON Syntax
+        id: validate
+        run: |
+          echo "🔍 Validating JSON syntax..."
+          if ! jq -e '.' "${{ inputs.config_file }}" > /dev/null 2>&1; then
+            echo "❌ Error: Invalid JSON syntax in config file"
+            echo "📄 Attempting to display file content for debugging:"
+            cat "${{ inputs.config_file }}" || true
+            echo ""
+            echo "🔧 JSON parsing error:"
+            jq '.' "${{ inputs.config_file }}" 2>&1 || true
+            exit 1
+          fi
+          echo "✅ JSON syntax is valid"
+
+      - name: Display Config Summary
+        run: |
+          echo "📋 Configuration Summary:"
+          echo "----------------------------------------"
+
+          # Display top-level keys
+          echo "Top-level keys:"
+          jq -r 'keys | .[]' "${{ inputs.config_file }}" | sed 's/^/  - /'
+
+          # Check if container_scanning section exists
+          if jq -e '.container_scanning' "${{ inputs.config_file }}" > /dev/null 2>&1; then
+            echo ""
+            echo "Container Scanning Configuration:"
+            echo "  Enabled: $(jq -r '.container_scanning.enabled // "not set"' "${{ inputs.config_file }}")"
+            echo "  Scanners: $(jq -r '.container_scanning.scanners // [] | join(", ")' "${{ inputs.config_file }}")"
+          fi
+
+          echo "----------------------------------------"
+
+      - name: Export Config to Output
+        id: export_config
+        run: |
+          echo "📤 Exporting configuration..."
+          CONFIG_JSON=$(jq -c '.' "${{ inputs.config_file }}")
+
+          # Use heredoc to safely handle multiline JSON
+          {
+            echo 'config_json<<EOF'
+            echo "$CONFIG_JSON"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+          echo "✅ Configuration exported successfully"
+          echo "📏 Config size: ${#CONFIG_JSON} characters"

@@ -1,0 +1,129 @@
+name: 'Workflow Config Loader (JSON)'
+description: 'Loads and parses JSON workflow configuration file'
+author: 'Solace'
+
+inputs:
+  config_file:
+    description: 'Path to JSON configuration file'
+    required: true
+  config_type:
+    description: 'Type of configuration to parse (container_scanning, sca_scanning, etc.)'
+    required: true
+
+outputs:
+  config_json:
+    description: 'Raw configuration JSON'
+    value: ${{ steps.load.outputs.config_json }}
+  vault_url:
+    description: 'Vault URL (from vars.GCP_VAULT_ADDR)'
+    value: ${{ steps.parse.outputs.vault_url }}
+  vault_secret_path:
+    description: 'Vault secret path'
+    value: ${{ steps.parse.outputs.vault_secret_path }}
+  vault_aws_role:
+    description: 'Vault AWS STS role path for ECR authentication'
+    value: ${{ steps.parse.outputs.vault_aws_role }}
+  slack_channel:
+    description: 'Slack notification channel'
+    value: ${{ steps.parse.outputs.slack_channel }}
+  fossa_licensing_mode:
+    description: 'FOSSA licensing check mode (BLOCK or REPORT)'
+    value: ${{ steps.parse.outputs.fossa_licensing_mode }}
+  fossa_licensing_block_on:
+    description: 'Comma-separated list of licensing issues to block on'
+    value: ${{ steps.parse.outputs.fossa_licensing_block_on }}
+  fossa_vulnerability_mode:
+    description: 'FOSSA vulnerability check mode (BLOCK or REPORT)'
+    value: ${{ steps.parse.outputs.fossa_vulnerability_mode }}
+  fossa_vulnerability_block_on:
+    description: 'Comma-separated list of vulnerability severities to block on'
+    value: ${{ steps.parse.outputs.fossa_vulnerability_block_on }}
+  fossa_project_id:
+    description: 'FOSSA project ID override'
+    value: ${{ steps.parse.outputs.fossa_project_id }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Load Configuration File
+      id: load
+      shell: bash
+      run: |
+        CONFIG_FILE="${{ inputs.config_file }}"
+        echo "📂 Loading configuration from: $CONFIG_FILE"
+
+        if [ ! -f "$CONFIG_FILE" ]; then
+          echo "❌ Configuration file not found: $CONFIG_FILE"
+          exit 1
+        fi
+
+        if ! CONFIG_JSON=$(jq -c '.' "$CONFIG_FILE" 2>&1); then
+          echo "❌ Invalid JSON syntax in $CONFIG_FILE"
+          echo "Error: $CONFIG_JSON"
+          exit 1
+        fi
+
+        {
+          echo "config_json<<EOF"
+          echo "$CONFIG_JSON"
+          echo "EOF"
+        } >> $GITHUB_OUTPUT
+
+        echo "✅ Configuration loaded successfully"
+
+    - name: Parse Configuration
+      id: parse
+      shell: bash
+      run: |
+        CONFIG='${{ steps.load.outputs.config_json }}'
+        CONFIG_TYPE="${{ inputs.config_type }}"
+
+        echo "📋 Parsing configuration for type: $CONFIG_TYPE"
+
+        # Parse vault URL from config (required in config file)
+        VAULT_URL=$(echo "$CONFIG" | jq -r ".secrets.vault.url // .${CONFIG_TYPE}.secrets.vault.url // \"\"")
+        echo "vault_url=${VAULT_URL}" >> $GITHUB_OUTPUT
+
+        # Parse vault secret path
+        VAULT_PATH=$(echo "$CONFIG" | jq -r ".secrets.vault.secret_path // .${CONFIG_TYPE}.secrets.vault.secret_path // \"secret/data/tools/githubactions\"")
+        echo "vault_secret_path=${VAULT_PATH}" >> $GITHUB_OUTPUT
+
+        # Parse vault AWS role (for ECR authentication)
+        VAULT_AWS_ROLE=$(echo "$CONFIG" | jq -r ".secrets.vault.aws_role // .${CONFIG_TYPE}.secrets.vault.aws_role // \"\"")
+        echo "vault_aws_role=${VAULT_AWS_ROLE}" >> $GITHUB_OUTPUT
+
+        # Parse slack channel (from root or default)
+        SLACK=$(echo "$CONFIG" | jq -r '.slack_channel // "#sc-deploy-cicd-activity"')
+        echo "slack_channel=${SLACK}" >> $GITHUB_OUTPUT
+
+        # Parse FOSSA configuration
+        FOSSA_LIC_MODE=$(echo "$CONFIG" | jq -r ".${CONFIG_TYPE}.fossa.policy.mode // \"REPORT\"")
+        echo "fossa_licensing_mode=${FOSSA_LIC_MODE}" >> $GITHUB_OUTPUT
+
+        FOSSA_LIC_BLOCK=$(echo "$CONFIG" | jq -r ".${CONFIG_TYPE}.fossa.policy.block_on // [\"policy_conflict\"] | join(\",\")")
+        echo "fossa_licensing_block_on=${FOSSA_LIC_BLOCK}" >> $GITHUB_OUTPUT
+
+        FOSSA_VULN_MODE=$(echo "$CONFIG" | jq -r ".${CONFIG_TYPE}.fossa.vulnerability.mode // \"REPORT\"")
+        echo "fossa_vulnerability_mode=${FOSSA_VULN_MODE}" >> $GITHUB_OUTPUT
+
+        FOSSA_VULN_BLOCK=$(echo "$CONFIG" | jq -r ".${CONFIG_TYPE}.fossa.vulnerability.block_on // [\"critical\",\"high\"] | join(\",\")")
+        echo "fossa_vulnerability_block_on=${FOSSA_VULN_BLOCK}" >> $GITHUB_OUTPUT
+
+        # Parse FOSSA project ID
+        FOSSA_PROJECT=$(echo "$CONFIG" | jq -r ".${CONFIG_TYPE}.fossa.project_id // \"\"")
+        echo "fossa_project_id=${FOSSA_PROJECT}" >> $GITHUB_OUTPUT
+
+        echo "✅ Configuration parsed successfully"
+        echo ""
+        echo "Parsed values:"
+        echo "  - Vault URL: ${VAULT_URL:-<not set>}"
+        echo "  - Vault secret path: ${VAULT_PATH}"
+        echo "  - Vault AWS role: ${VAULT_AWS_ROLE:-<not set>}"
+        echo "  - Slack channel: ${SLACK}"
+        echo "  - FOSSA licensing: ${FOSSA_LIC_MODE} (block on: ${FOSSA_LIC_BLOCK})"
+        echo "  - FOSSA vulnerability: ${FOSSA_VULN_MODE} (block on: ${FOSSA_VULN_BLOCK})"
+        echo "  - FOSSA project ID: ${FOSSA_PROJECT:-<default>}"
+
+branding:
+  icon: 'file-text'
+  color: 'blue'
