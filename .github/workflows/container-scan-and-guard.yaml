@@ -207,40 +207,40 @@ jobs:
           echo "### 🔍 Container Scan Context Detection" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
+          # Extract image tag from container_image (use as FOSSA revision)
+          CONTAINER_IMAGE="${{ inputs.container_image }}"
+          IMAGE_TAG="${CONTAINER_IMAGE##*:}"
+          echo "revision=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+
           # Detect if this is a PR, Release, or Manual scan
           if [[ -n "${{ github.event.pull_request.number }}" ]]; then
             # PR context - diff-based scan
             echo "branch=PR" >> $GITHUB_OUTPUT
-            echo "revision=${{ github.head_ref }}" >> $GITHUB_OUTPUT
             echo "git_ref=${{ github.ref }}" >> $GITHUB_OUTPUT
             echo "scan_type=PR" >> $GITHUB_OUTPUT
             echo "**Context**: Pull Request #${{ github.event.pull_request.number }}" >> $GITHUB_STEP_SUMMARY
             echo "**Scan Type**: Diff-based (new issues only)" >> $GITHUB_STEP_SUMMARY
             echo "**Branch**: PR" >> $GITHUB_STEP_SUMMARY
-            echo "**Revision**: ${{ github.head_ref }}" >> $GITHUB_STEP_SUMMARY
           elif [[ -n "${{ inputs.git_ref }}" ]]; then
             # Release context (called by orchestrator) - full scan
             echo "branch=${{ github.event.repository.default_branch }}" >> $GITHUB_OUTPUT
-            echo "revision=${{ inputs.git_ref }}" >> $GITHUB_OUTPUT
             echo "git_ref=${{ inputs.git_ref }}" >> $GITHUB_OUTPUT
-            echo "scan_type=Release" >> $GITHUB_OUTPUT
+            echo "scan_type=Release" >> $GITHUB_STEP_SUMMARY
             echo "**Context**: Release" >> $GITHUB_STEP_SUMMARY
             echo "**Scan Type**: Full scan (all dependencies)" >> $GITHUB_STEP_SUMMARY
             echo "**Branch**: ${{ github.event.repository.default_branch }}" >> $GITHUB_STEP_SUMMARY
-            echo "**Revision**: ${{ inputs.git_ref }}" >> $GITHUB_STEP_SUMMARY
           else
             # Manual trigger without git_ref
             echo "branch=${{ github.event.repository.default_branch }}" >> $GITHUB_OUTPUT
-            echo "revision=${{ github.sha }}" >> $GITHUB_OUTPUT
             echo "git_ref=${{ github.ref }}" >> $GITHUB_OUTPUT
             echo "scan_type=Manual" >> $GITHUB_OUTPUT
             echo "**Context**: Manual (HEAD)" >> $GITHUB_STEP_SUMMARY
             echo "**Scan Type**: Full scan" >> $GITHUB_STEP_SUMMARY
             echo "**Branch**: ${{ github.event.repository.default_branch }}" >> $GITHUB_STEP_SUMMARY
-            echo "**Revision**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
           fi
 
-          echo "**Container Image**: ${{ inputs.container_image }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Container Image**: ${CONTAINER_IMAGE}" >> $GITHUB_STEP_SUMMARY
+          echo "**Image Tag (FOSSA Revision)**: ${IMAGE_TAG}" >> $GITHUB_STEP_SUMMARY
           echo "**Git Ref**: $(cat $GITHUB_OUTPUT | grep git_ref | head -1 | cut -d'=' -f2)" >> $GITHUB_STEP_SUMMARY
 
       - name: Checkout code
