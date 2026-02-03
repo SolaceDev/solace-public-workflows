@@ -11,10 +11,6 @@ on:
         description: 'Container image to scan (registry/repository:tag format). Required.'
         required: true
         type: string
-      git_ref:
-        description: 'Git ref to checkout (e.g., 0.0.269 for releases). Leave empty for PR context.'
-        required: false
-        type: string
       skip_fossa_gate:
         description: 'EMERGENCY: Skip FOSSA gate (for outages or critical issues)'
         required: false
@@ -212,41 +208,25 @@ jobs:
           IMAGE_TAG="${CONTAINER_IMAGE##*:}"
           echo "revision=${IMAGE_TAG}" >> $GITHUB_OUTPUT
 
-          # Detect if this is a PR, Release, or Manual scan
+          # Detect if this is a PR or non-PR scan
           if [[ -n "${{ github.event.pull_request.number }}" ]]; then
             # PR context - diff-based scan
             echo "branch=PR" >> $GITHUB_OUTPUT
-            echo "git_ref=${{ github.ref }}" >> $GITHUB_OUTPUT
             echo "scan_type=PR" >> $GITHUB_OUTPUT
             echo "**Context**: Pull Request #${{ github.event.pull_request.number }}" >> $GITHUB_STEP_SUMMARY
             echo "**Scan Type**: Diff-based (new issues only)" >> $GITHUB_STEP_SUMMARY
             echo "**Branch**: PR" >> $GITHUB_STEP_SUMMARY
-          elif [[ -n "${{ inputs.git_ref }}" ]]; then
-            # Release context (called by orchestrator) - full scan
-            echo "branch=${{ github.event.repository.default_branch }}" >> $GITHUB_OUTPUT
-            echo "git_ref=${{ inputs.git_ref }}" >> $GITHUB_OUTPUT
-            echo "scan_type=Release" >> $GITHUB_STEP_SUMMARY
-            echo "**Context**: Release" >> $GITHUB_STEP_SUMMARY
-            echo "**Scan Type**: Full scan (all dependencies)" >> $GITHUB_STEP_SUMMARY
-            echo "**Branch**: ${{ github.event.repository.default_branch }}" >> $GITHUB_STEP_SUMMARY
           else
-            # Manual trigger without git_ref
+            # Non-PR context (push, workflow_dispatch, etc.) - full scan
             echo "branch=${{ github.event.repository.default_branch }}" >> $GITHUB_OUTPUT
-            echo "git_ref=${{ github.ref }}" >> $GITHUB_OUTPUT
-            echo "scan_type=Manual" >> $GITHUB_OUTPUT
-            echo "**Context**: Manual (HEAD)" >> $GITHUB_STEP_SUMMARY
-            echo "**Scan Type**: Full scan" >> $GITHUB_STEP_SUMMARY
+            echo "scan_type=Full" >> $GITHUB_OUTPUT
+            echo "**Context**: Full Scan" >> $GITHUB_STEP_SUMMARY
+            echo "**Scan Type**: Full scan (all dependencies)" >> $GITHUB_STEP_SUMMARY
             echo "**Branch**: ${{ github.event.repository.default_branch }}" >> $GITHUB_STEP_SUMMARY
           fi
 
           echo "**Container Image**: ${CONTAINER_IMAGE}" >> $GITHUB_STEP_SUMMARY
           echo "**Image Tag (FOSSA Revision)**: ${IMAGE_TAG}" >> $GITHUB_STEP_SUMMARY
-          echo "**Git Ref**: $(cat $GITHUB_OUTPUT | grep git_ref | head -1 | cut -d'=' -f2)" >> $GITHUB_STEP_SUMMARY
-
-      - name: Checkout code
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-        with:
-          ref: ${{ steps.context.outputs.git_ref }}
 
       - name: Retrieve FOSSA API key from Vault
         id: vault_secrets
@@ -504,9 +484,8 @@ jobs:
 # - Optional: Vault (use_vault: true) - for private repos with Vault access
 #
 # Context Detection:
-# - PR: Diff-based scan (only new issues), branch=PR, revision=head_ref
-# - Release: Full scan with semver, branch=develop, revision=<version>
-# - Manual: Full scan with SHA, branch=develop, revision=<sha>
+# - PR: Diff-based scan (only new issues), branch=PR, revision=<image_tag>
+# - Non-PR: Full scan, branch=default_branch, revision=<image_tag>
 #
 # Gates:
 # - Licensing: Configurable (BLOCK or REPORT) on policy conflicts
@@ -522,7 +501,6 @@ jobs:
 #       FOSSA_API_KEY: ${{ secrets.FOSSA_API_KEY }}
 #     with:
 #       container_image: ghcr.io/solacedev/my-app:${{ github.sha }}
-#       # No git_ref needed - automatic PR detection
 #
 # Release Scanning:
 #   container_scan:
@@ -531,7 +509,6 @@ jobs:
 #       FOSSA_API_KEY: ${{ secrets.FOSSA_API_KEY }}
 #     with:
 #       container_image: ghcr.io/solacedev/my-app:${{ needs.version_bump.outputs.version }}
-#       git_ref: ${{ needs.version_bump.outputs.version }}  # e.g., 0.0.269
 #
 # Example usage in PRIVATE repos (Vault):
 #
@@ -540,7 +517,6 @@ jobs:
 #     uses: SolaceDev/maas-build-actions/.github/workflows/container-scan-and-guard.yaml@master
 #     with:
 #       container_image: 123456789012.dkr.ecr.us-east-1.amazonaws.com/my-app:${{ needs.version_bump.outputs.version }}
-#       git_ref: ${{ needs.version_bump.outputs.version }}
 #       use_vault: true
 #       vault_url: "https://vault.maas-vault-prod.solace.cloud:8200"
 #
@@ -551,7 +527,6 @@ jobs:
 #       FOSSA_API_KEY: ${{ secrets.FOSSA_API_KEY }}
 #     with:
 #       container_image: ghcr.io/solacedev/my-app:v1.0.0
-#       git_ref: ${{ needs.version_bump.outputs.version }}
 #       skip_fossa_gate: true
 #       bypass_justification: "FOSSA service outage - INC12345"
 #
