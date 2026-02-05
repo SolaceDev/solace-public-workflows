@@ -1,55 +1,55 @@
-name: 'Workflow Config Loader (JSON)'
-description: 'Loads and parses JSON workflow configuration file'
-author: 'Solace'
+name: "Workflow Config Loader (JSON)"
+description: "Loads and parses JSON workflow configuration file"
+author: "Solace"
 
 inputs:
   config_file:
-    description: 'Path to JSON configuration file'
+    description: "Path to JSON configuration file"
     required: true
   config_type:
-    description: 'Type of configuration to parse (container_scanning, sca_scanning, etc.)'
+    description: "Type of configuration to parse (container_scanning, sca_scanning, etc.)"
     required: true
 
 outputs:
   config_json:
-    description: 'Raw configuration JSON'
+    description: "Raw configuration JSON"
     value: ${{ steps.load.outputs.config_json }}
   vault_url:
-    description: 'Vault URL (from vars.GCP_VAULT_ADDR)'
+    description: "Vault URL (from vars.GCP_VAULT_ADDR)"
     value: ${{ steps.parse.outputs.vault_url }}
   vault_secret_path:
-    description: 'Vault secret path'
+    description: "Vault secret path"
     value: ${{ steps.parse.outputs.vault_secret_path }}
   vault_aws_role:
-    description: 'Vault AWS STS role path for ECR authentication'
+    description: "Vault AWS STS role path for ECR authentication"
     value: ${{ steps.parse.outputs.vault_aws_role }}
   slack_channel:
-    description: 'Slack notification channel'
+    description: "Slack notification channel"
     value: ${{ steps.parse.outputs.slack_channel }}
   fossa_licensing_mode:
-    description: 'FOSSA licensing check mode (BLOCK or REPORT)'
+    description: "FOSSA licensing check mode (BLOCK or REPORT)"
     value: ${{ steps.parse.outputs.fossa_licensing_mode }}
   fossa_licensing_block_on:
-    description: 'Comma-separated list of licensing issues to block on'
+    description: "Comma-separated list of licensing issues to block on"
     value: ${{ steps.parse.outputs.fossa_licensing_block_on }}
   fossa_vulnerability_mode:
-    description: 'FOSSA vulnerability check mode (BLOCK or REPORT)'
+    description: "FOSSA vulnerability check mode (BLOCK or REPORT)"
     value: ${{ steps.parse.outputs.fossa_vulnerability_mode }}
   fossa_vulnerability_block_on:
-    description: 'Comma-separated list of vulnerability severities to block on'
+    description: "Comma-separated list of vulnerability severities to block on"
     value: ${{ steps.parse.outputs.fossa_vulnerability_block_on }}
   fossa_project_id:
-    description: 'FOSSA project ID override'
+    description: "FOSSA project ID override"
     value: ${{ steps.parse.outputs.fossa_project_id }}
   fossa_team:
-    description: 'FOSSA team name'
+    description: "FOSSA team name"
     value: ${{ steps.parse.outputs.fossa_team }}
   fossa_labels:
-    description: 'Comma-separated FOSSA project labels'
+    description: "Comma-separated FOSSA project labels"
     value: ${{ steps.parse.outputs.fossa_labels }}
 
 runs:
-  using: 'composite'
+  using: "composite"
   steps:
     - name: Load Configuration File
       id: load
@@ -139,7 +139,3 @@ runs:
         echo "  - FOSSA project ID: ${FOSSA_PROJECT:-<default>}"
         echo "  - FOSSA team: ${FOSSA_TEAM:-<not set>}"
         echo "  - FOSSA labels: ${FOSSA_LABELS:-<not set>}"
-
-branding:
-  icon: 'file-text'
-  color: 'blue'
