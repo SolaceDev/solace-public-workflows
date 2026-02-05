@@ -1,0 +1,201 @@
+{
+  "$schema": "fossa-container-params-schema",
+  "description": "FOSSA CLI container parameter mappings for the fossa-scan GitHub Action",
+  "version": "1.0.0",
+  "parameters": [
+    {
+      "env": "CONTAINER_FOSSA_IMAGE",
+      "flag": "",
+      "type": "image",
+      "commands": ["analyze", "test"],
+      "description": "Container image to scan (registry/repository:tag format)",
+      "example": "fossa.image=ghcr.io/solacedev/my-app:v1.0.0"
+    },
+    {
+      "env": "CONTAINER_FOSSA_SKIP_TEST",
+      "flag": "",
+      "type": "flag",
+      "commands": [],
+      "description": "Skip 'fossa container test' step after analyze (action-specific, not a CLI flag)",
+      "example": "fossa.skip_test=true"
+    },
+    {
+      "env": "CONTAINER_FOSSA_DEBUG",
+      "flag": "--debug",
+      "type": "flag",
+      "commands": ["analyze", "test"],
+      "description": "Enable debug logging during FOSSA container analysis",
+      "example": "fossa.debug=true"
+    },
+    {
+      "env": "CONTAINER_FOSSA_PROJECT",
+      "flag": "--project",
+      "type": "value",
+      "commands": ["analyze", "test"],
+      "description": "Override project name/ID for FOSSA tracking",
+      "example": "fossa.project=MyOrg_my-container"
+    },
+    {
+      "env": "CONTAINER_FOSSA_REVISION",
+      "flag": "--revision",
+      "type": "value",
+      "commands": ["analyze", "test"],
+      "description": "Git revision/commit SHA for FOSSA tracking",
+      "example": "fossa.revision=abc123"
+    },
+    {
+      "env": "CONTAINER_FOSSA_FOSSA_API_KEY",
+      "flag": "--fossa-api-key",
+      "type": "value",
+      "commands": ["analyze", "test"],
+      "description": "FOSSA API key (alternative to FOSSA_API_KEY env var)",
+      "example": "fossa.fossa_api_key=my-api-key"
+    },
+    {
+      "env": "CONTAINER_FOSSA_ENDPOINT",
+      "flag": "--endpoint",
+      "type": "value",
+      "commands": ["analyze", "test"],
+      "description": "Override the FOSSA API server base URL",
+      "example": "fossa.endpoint=https://example.com"
+    },
+    {
+      "env": "CONTAINER_FOSSA_TITLE",
+      "flag": "--title",
+      "type": "value",
+      "commands": ["analyze"],
+      "description": "Set the title of the FOSSA project",
+      "example": "fossa.title=My Container Image"
+    },
+    {
+      "env": "CONTAINER_FOSSA_BRANCH",
+      "flag": "--branch",
+      "type": "value",
+      "commands": ["analyze"],
+      "description": "Override the detected FOSSA project branch",
+      "example": "fossa.branch=main"
+    },
+    {
+      "env": "CONTAINER_FOSSA_PROJECT_URL",
+      "flag": "--project-url",
+      "type": "value",
+      "commands": ["analyze"],
+      "description": "Add a URL to the FOSSA project",
+      "example": "fossa.project_url=https://github.com/myorg/myrepo"
+    },
+    {
+      "env": "CONTAINER_FOSSA_JIRA_PROJECT_KEY",
+      "flag": "--jira-project-key",
+      "type": "value",
+      "commands": ["analyze"],
+      "description": "Add a Jira project key to the FOSSA project",
+      "example": "fossa.jira_project_key=PROJ-123"
+    },
+    {
+      "env": "CONTAINER_FOSSA_LINK",
+      "flag": "--link",
+      "type": "value",
+      "commands": ["analyze"],
+      "description": "Attach a link to the current FOSSA build",
+      "example": "fossa.link=https://ci.example.com/build/123"
+    },
+    {
+      "env": "CONTAINER_FOSSA_TEAM",
+      "flag": "--team",
+      "type": "value",
+      "commands": ["analyze"],
+      "description": "Specify a team within your FOSSA organization",
+      "example": "fossa.team=Platform Team"
+    },
+    {
+      "env": "CONTAINER_FOSSA_POLICY",
+      "flag": "--policy",
+      "type": "value",
+      "commands": ["analyze"],
+      "description": "Assign a specific FOSSA policy",
+      "example": "fossa.policy=Default Policy"
+    },
+    {
+      "env": "CONTAINER_FOSSA_POLICY_ID",
+      "flag": "--policy-id",
+      "type": "value",
+      "commands": ["analyze"],
+      "description": "Assign a specific FOSSA policy by ID",
+      "example": "fossa.policy_id=12345"
+    },
+    {
+      "env": "CONTAINER_FOSSA_PROJECT_LABEL",
+      "flag": "--project-label",
+      "type": "multi_value",
+      "commands": ["analyze"],
+      "description": "Assign up to 5 labels to the project (comma-separated)",
+      "example": "fossa.project_label=label1,label2,label3"
+    },
+    {
+      "env": "CONTAINER_FOSSA_RELEASE_GROUP_NAME",
+      "flag": "--release-group-name",
+      "type": "value",
+      "commands": ["analyze"],
+      "description": "Add project to release group",
+      "example": "fossa.release_group_name=Q4-2024"
+    },
+    {
+      "env": "CONTAINER_FOSSA_RELEASE_GROUP_RELEASE",
+      "flag": "--release-group-release",
+      "type": "value",
+      "commands": ["analyze"],
+      "description": "Add project to release version within release group",
+      "example": "fossa.release_group_release=v1.2.0"
+    },
+    {
+      "env": "CONTAINER_FOSSA_OUTPUT",
+      "flag": "--output",
+      "type": "flag",
+      "commands": ["analyze"],
+      "description": "Print container analysis to stdout instead of uploading",
+      "example": "fossa.output=true"
+    },
+    {
+      "env": "CONTAINER_FOSSA_JSON",
+      "flag": "--json",
+      "type": "flag",
+      "commands": ["analyze"],
+      "description": "Print project metadata as JSON after analysis",
+      "example": "fossa.json=true"
+    },
+    {
+      "env": "CONTAINER_FOSSA_TIMEOUT",
+      "flag": "--timeout",
+      "type": "value",
+      "commands": ["test"],
+      "description": "Maximum seconds to wait for issue scan results (default: 3600)",
+      "example": "fossa.timeout=1800"
+    },
+    {
+      "env": "CONTAINER_FOSSA_FORMAT",
+      "flag": "--format",
+      "type": "value",
+      "commands": ["test"],
+      "description": "Output format for issues (json or default human-readable)",
+      "example": "fossa.format=json"
+    },
+    {
+      "env": "CONTAINER_FOSSA_DIFF",
+      "flag": "--diff",
+      "type": "value",
+      "commands": ["test"],
+      "description": "Only report new issues compared to specified revision",
+      "example": "fossa.diff=abc123"
+    }
+  ],
+  "notes": [
+    "Parameters are mapped from additional_scan_params (e.g., 'fossa.image=ghcr.io/repo:tag') to environment variables (e.g., 'CONTAINER_FOSSA_IMAGE')",
+    "Type 'flag' means boolean - only added if set to 'true'",
+    "Type 'value' means the parameter requires a value and is added if non-empty",
+    "Type 'image' is special - sets environment variable but image is passed as positional argument to fossa container commands",
+    "Type 'multi_value' means the parameter can be specified multiple times with comma-separated values",
+    "The 'commands' field specifies which FOSSA container commands support this parameter: 'analyze' and/or 'test'",
+    "The CONTAINER_FOSSA_IMAGE parameter is required and must be in registry/repository:tag format",
+    "Example: fossa.image=ghcr.io/solacedev/my-app:v1.0.0"
+  ]
+}

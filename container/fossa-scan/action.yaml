@@ -1,0 +1,64 @@
+name: "FOSSA Container Scan"
+description: "Scans container images using FOSSA CLI with FOSSA_API_KEY and CONTAINER_FOSSA_* env vars."
+
+inputs: {}
+runs:
+  using: "composite"
+  steps:
+    - name: FOSSA Container - Preparation step
+      shell: bash
+      run: |
+        echo "::group::⚙️ FOSSA Container Scan Preparation"
+
+        # Check if FOSSA CLI is already installed
+        if command -v fossa &> /dev/null; then
+          FOSSA_VERSION=$(fossa --version 2>&1 | head -n1 || echo "unknown")
+          echo "✓ FOSSA CLI already installed: $FOSSA_VERSION"
+        else
+          echo "Installing FOSSA CLI..."
+          curl -H 'Cache-Control: no-cache' https://raw.githubusercontent.com/fossas/fossa-cli/master/install-latest.sh | bash
+        fi
+
+        # Use the parameter parser script for container analyze command
+        export FOSSA_PARAMS_CONFIG="${GITHUB_ACTION_PATH}/fossa-container-params.json"
+        source "${GITHUB_ACTION_PATH}/parse-fossa-container-params.sh"
+
+        # Build analyze args
+        build_fossa_args "container" "analyze"
+        echo "CONTAINER_FOSSA_ADDITIONAL_ARGS=${FOSSA_CLI_ARGS}" >> "$GITHUB_ENV"
+
+        # Build test args
+        build_fossa_args "container" "test"
+        echo "CONTAINER_FOSSA_TEST_ARGS=${FOSSA_CLI_ARGS}" >> "$GITHUB_ENV"
+
+        echo "::endgroup::"
+
+    - name: FOSSA Container - Scan
+      shell: bash
+      run: |
+        echo "::group::🔍 FOSSA Container Scan"
+
+        # Validate required parameters
+        if [ -z "$CONTAINER_FOSSA_IMAGE" ]; then
+          echo "❌ Error: CONTAINER_FOSSA_IMAGE is required for container scanning"
+          echo "   Set via environment variable or use additional_scan_params: 'fossa.image=registry/repo:tag'"
+          exit 1
+        fi
+
+        echo "Scanning container image: $CONTAINER_FOSSA_IMAGE"
+
+        FOSSA_CMD="fossa container analyze"
+
+        echo "Running: $FOSSA_CMD $CONTAINER_FOSSA_IMAGE $CONTAINER_FOSSA_ADDITIONAL_ARGS"
+        $FOSSA_CMD $CONTAINER_FOSSA_IMAGE $CONTAINER_FOSSA_ADDITIONAL_ARGS
+        echo "::endgroup::"
+
+    - name: FOSSA Container - Wait For Results
+      if: ${{ env.CONTAINER_FOSSA_SKIP_TEST != 'true' }}
+      continue-on-error: true
+      shell: bash
+      run: |
+        echo "::group::⏳ FOSSA Container Test - Wait For Results"
+        echo "Running: fossa container test $CONTAINER_FOSSA_IMAGE $CONTAINER_FOSSA_TEST_ARGS"
+        fossa container test $CONTAINER_FOSSA_IMAGE $CONTAINER_FOSSA_TEST_ARGS
+        echo "::endgroup::"

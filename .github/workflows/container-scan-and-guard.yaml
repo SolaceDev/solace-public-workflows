@@ -1,0 +1,624 @@
+name: Container Scan and Guard
+
+# Shareable workflow for Container Image Security Scanning
+# Runs FOSSA container scan with licensing and vulnerability checks
+# Supports both PR (diff-based) and Release (full scan) contexts
+
+on:
+  workflow_call:
+    inputs:
+      container_image:
+        description: 'Container image to scan (registry/repository:tag format). Required.'
+        required: true
+        type: string
+      skip_fossa_gate:
+        description: 'EMERGENCY: Skip FOSSA gate (for outages or critical issues)'
+        required: false
+        type: boolean
+        default: false
+      bypass_justification:
+        description: 'REQUIRED: Justification for bypassing FOSSA gate'
+        required: false
+        type: string
+        default: ''
+      slack_channel:
+        description: 'Slack channel for failure notifications'
+        required: false
+        type: string
+        default: '#your-slack-channel'
+      fossa_licensing_mode:
+        description: 'FOSSA licensing check mode: BLOCK (fail on violations) or REPORT (report only)'
+        required: false
+        type: string
+        default: 'REPORT'
+      fossa_licensing_block_on:
+        description: 'What to block on for licensing: policy_conflict, policy_flag, etc.'
+        required: false
+        type: string
+        default: 'policy_conflict'
+      fossa_vulnerability_mode:
+        description: 'FOSSA vulnerability check mode: BLOCK (fail on vulnerabilities) or REPORT (report only)'
+        required: false
+        type: string
+        default: 'REPORT'
+      fossa_vulnerability_block_on:
+        description: 'Vulnerability severities to block on (comma-separated): critical,high,medium,low'
+        required: false
+        type: string
+        default: 'critical,high'
+      use_vault:
+        description: 'Retrieve FOSSA API key from Vault (for private repos). If false, expects FOSSA_API_KEY from secrets.'
+        required: false
+        type: boolean
+        default: false
+      fossa_project_override:
+        description: 'Override FOSSA project ID (default: repository_owner_repository_name)'
+        required: false
+        type: string
+        default: ''
+      additional_scan_params:
+        description: |
+          Additional scanner-specific parameters (one per line):
+            fossa.debug=true
+            fossa.team=Platform Team
+        required: false
+        type: string
+        default: ''
+      config_file:
+        description: 'Path to workflow configuration file (overrides individual inputs if provided)'
+        required: false
+        type: string
+        default: ''
+      skip_policy_gate:
+        description: 'EMERGENCY: Skip policy/licensing gate (requires admin)'
+        required: false
+        type: boolean
+        default: false
+      skip_vulnerability_gate:
+        description: 'EMERGENCY: Skip vulnerability gate (requires admin)'
+        required: false
+        type: boolean
+        default: false
+
+    secrets:
+      FOSSA_API_KEY:
+        description: 'FOSSA API key (required if use_vault is false)'
+        required: false
+      VAULT_ROLE:
+        description: 'Vault role for JWT authentication (passed as secret)'
+        required: false
+      VAULT_AWS_ROLE:
+        description: 'Vault AWS STS role path for ECR authentication'
+        required: false
+      AWS_ACCESS_KEY_ID:
+        description: 'AWS Access Key ID for ECR authentication (required if use_vault is false and scanning ECR images)'
+        required: false
+      AWS_SECRET_ACCESS_KEY:
+        description: 'AWS Secret Access Key for ECR authentication (required if use_vault is false and scanning ECR images)'
+        required: false
+
+permissions:
+  contents: read
+  pull-requests: write
+  id-token: write
+  checks: write
+
+jobs:
+  container_scan:
+    name: 'Container Scan'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Load Workflow Configuration
+        if: inputs.config_file != ''
+        id: config_loader
+        uses: SolaceDev/solace-public-workflows/workflow-config-loader@main
+        with:
+          config_file: ${{ inputs.config_file }}
+          config_type: container_scanning
+      - name: Check Admin Permissions for Bypass
+        if: inputs.skip_fossa_gate == true
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+        with:
+          script: |
+            const actor = context.actor;
+            const repo = context.repo;
+
+            try {
+              const { data: permission } = await github.rest.repos.getCollaboratorPermissionLevel({
+                owner: repo.owner,
+                repo: repo.repo,
+                username: actor
+              });
+
+              console.log(`User ${actor} has permission: ${permission.permission}`);
+
+              if (permission.permission !== 'admin') {
+                core.setFailed(`❌ FOSSA bypass denied: User ${actor} does not have admin permissions. Only repository admins can bypass FOSSA gate.`);
+              } else {
+                console.log(`✅ Admin permission verified for ${actor}`);
+              }
+            } catch (error) {
+              core.setFailed(`Failed to check permissions: ${error.message}`);
+            }
+
+      - name: Validate Container Image Input
+        env:
+          CONTAINER_IMAGE: ${{ inputs.container_image }}
+        run: |
+          if [[ -z "$CONTAINER_IMAGE" ]]; then
+            echo "❌ Error: container_image input is required"
+            exit 1
+          fi
+          echo "✅ Container image: $CONTAINER_IMAGE"
+
+      - name: Merge Configuration and Inputs
+        id: config
+        env:
+          CONFIG_FILE: ${{ inputs.config_file }}
+          CONFIG_VAULT_URL: ${{ steps.config_loader.outputs.vault_url }}
+          CONFIG_VAULT_SECRET_PATH: ${{ steps.config_loader.outputs.vault_secret_path }}
+          CONFIG_VAULT_AWS_ROLE: ${{ steps.config_loader.outputs.vault_aws_role }}
+          CONFIG_SLACK_CHANNEL: ${{ steps.config_loader.outputs.slack_channel }}
+          CONFIG_FOSSA_LICENSING_MODE: ${{ steps.config_loader.outputs.fossa_licensing_mode }}
+          CONFIG_FOSSA_LICENSING_BLOCK_ON: ${{ steps.config_loader.outputs.fossa_licensing_block_on }}
+          CONFIG_FOSSA_VULNERABILITY_MODE: ${{ steps.config_loader.outputs.fossa_vulnerability_mode }}
+          CONFIG_FOSSA_VULNERABILITY_BLOCK_ON: ${{ steps.config_loader.outputs.fossa_vulnerability_block_on }}
+          CONFIG_FOSSA_PROJECT_ID: ${{ steps.config_loader.outputs.fossa_project_id }}
+          CONFIG_FOSSA_TEAM: ${{ steps.config_loader.outputs.fossa_team }}
+          CONFIG_FOSSA_LABELS: ${{ steps.config_loader.outputs.fossa_labels }}
+          INPUT_VAULT_URL: ${{ inputs.vault_url }}
+          INPUT_VAULT_SECRET_PATH: ${{ inputs.vault_secret_path }}
+          INPUT_SLACK_CHANNEL: ${{ inputs.slack_channel }}
+          INPUT_FOSSA_LICENSING_MODE: ${{ inputs.fossa_licensing_mode }}
+          INPUT_FOSSA_LICENSING_BLOCK_ON: ${{ inputs.fossa_licensing_block_on }}
+          INPUT_FOSSA_VULNERABILITY_MODE: ${{ inputs.fossa_vulnerability_mode }}
+          INPUT_FOSSA_VULNERABILITY_BLOCK_ON: ${{ inputs.fossa_vulnerability_block_on }}
+          INPUT_FOSSA_PROJECT_OVERRIDE: ${{ inputs.fossa_project_override }}
+        run: |
+          # Use config values if config_file was provided, otherwise use inputs
+          if [[ -n "$CONFIG_FILE" ]]; then
+            echo "📝 Using configuration from file: $CONFIG_FILE"
+            echo "vault_url=$CONFIG_VAULT_URL" >> $GITHUB_OUTPUT
+            echo "vault_secret_path=$CONFIG_VAULT_SECRET_PATH" >> $GITHUB_OUTPUT
+            echo "vault_aws_role=$CONFIG_VAULT_AWS_ROLE" >> $GITHUB_OUTPUT
+            echo "slack_channel=$CONFIG_SLACK_CHANNEL" >> $GITHUB_OUTPUT
+            echo "fossa_licensing_mode=$CONFIG_FOSSA_LICENSING_MODE" >> $GITHUB_OUTPUT
+            echo "fossa_licensing_block_on=$CONFIG_FOSSA_LICENSING_BLOCK_ON" >> $GITHUB_OUTPUT
+            echo "fossa_vulnerability_mode=$CONFIG_FOSSA_VULNERABILITY_MODE" >> $GITHUB_OUTPUT
+            echo "fossa_vulnerability_block_on=$CONFIG_FOSSA_VULNERABILITY_BLOCK_ON" >> $GITHUB_OUTPUT
+            echo "fossa_project_override=$CONFIG_FOSSA_PROJECT_ID" >> $GITHUB_OUTPUT
+            echo "fossa_team=$CONFIG_FOSSA_TEAM" >> $GITHUB_OUTPUT
+            echo "fossa_labels=$CONFIG_FOSSA_LABELS" >> $GITHUB_OUTPUT
+          else
+            echo "📝 Using configuration from workflow inputs"
+            echo "vault_url=$INPUT_VAULT_URL" >> $GITHUB_OUTPUT
+            echo "vault_secret_path=$INPUT_VAULT_SECRET_PATH" >> $GITHUB_OUTPUT
+            echo "vault_aws_role=" >> $GITHUB_OUTPUT
+            echo "slack_channel=$INPUT_SLACK_CHANNEL" >> $GITHUB_OUTPUT
+            echo "fossa_licensing_mode=$INPUT_FOSSA_LICENSING_MODE" >> $GITHUB_OUTPUT
+            echo "fossa_licensing_block_on=$INPUT_FOSSA_LICENSING_BLOCK_ON" >> $GITHUB_OUTPUT
+            echo "fossa_vulnerability_mode=$INPUT_FOSSA_VULNERABILITY_MODE" >> $GITHUB_OUTPUT
+            echo "fossa_vulnerability_block_on=$INPUT_FOSSA_VULNERABILITY_BLOCK_ON" >> $GITHUB_OUTPUT
+            echo "fossa_project_override=$INPUT_FOSSA_PROJECT_OVERRIDE" >> $GITHUB_OUTPUT
+            echo "fossa_team=" >> $GITHUB_OUTPUT
+            echo "fossa_labels=" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Determine scan context
+        id: context
+        env:
+          CONTAINER_IMAGE: ${{ inputs.container_image }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          echo "### 🔍 Container Scan Context Detection" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Extract image tag from container_image (use as FOSSA revision)
+          IMAGE_TAG="${CONTAINER_IMAGE##*:}"
+          echo "revision=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+
+          # Detect if this is a PR or non-PR scan
+          if [[ -n "$PR_NUMBER" ]]; then
+            # PR context - diff-based scan
+            echo "branch=PR" >> $GITHUB_OUTPUT
+            echo "scan_type=PR" >> $GITHUB_OUTPUT
+            echo "**Context**: Pull Request #$PR_NUMBER" >> $GITHUB_STEP_SUMMARY
+            echo "**Scan Type**: Diff-based (new issues only)" >> $GITHUB_STEP_SUMMARY
+            echo "**Branch**: PR" >> $GITHUB_STEP_SUMMARY
+          else
+            # Non-PR context (push, workflow_dispatch, etc.) - full scan
+            echo "branch=$DEFAULT_BRANCH" >> $GITHUB_OUTPUT
+            echo "scan_type=Full" >> $GITHUB_OUTPUT
+            echo "**Context**: Full Scan" >> $GITHUB_STEP_SUMMARY
+            echo "**Scan Type**: Full scan (all dependencies)" >> $GITHUB_STEP_SUMMARY
+            echo "**Branch**: $DEFAULT_BRANCH" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "**Container Image**: ${CONTAINER_IMAGE}" >> $GITHUB_STEP_SUMMARY
+          echo "**Image Tag (FOSSA Revision)**: ${IMAGE_TAG}" >> $GITHUB_STEP_SUMMARY
+
+      - name: Retrieve FOSSA API key from Vault
+        id: vault_secrets
+        if: inputs.use_vault == true
+        uses: hashicorp/vault-action@4c06c5ccf5c0761b6029f56cfb1dcf5565918a3b # v3.4.0
+        with:
+          url: ${{ steps.config.outputs.vault_url }}
+          role: ${{ inputs.vault_role }}
+          method: jwt
+          path: jwt-github
+          jwtGithubAudience: https://github.com/${{ github.repository_owner }}
+          exportToken: true
+          secrets: |
+            ${{ steps.config.outputs.vault_secret_path }} FOSSA_FULL_API_TOKEN | FOSSA_API_KEY
+
+      - name: Determine Vault AWS Role
+        id: vault_aws_role
+        if: inputs.use_vault == true
+        env:
+          CONFIG_VAULT_AWS_ROLE: ${{ steps.config.outputs.vault_aws_role }}
+          SECRET_VAULT_AWS_ROLE: ${{ secrets.VAULT_AWS_ROLE }}
+        run: |
+          # Use config value first, fallback to secret if config is empty
+          if [[ -n "$CONFIG_VAULT_AWS_ROLE" ]]; then
+            echo "aws_role=$CONFIG_VAULT_AWS_ROLE" >> $GITHUB_OUTPUT
+            echo "✅ Using Vault AWS role from config"
+          elif [[ -n "$SECRET_VAULT_AWS_ROLE" ]]; then
+            echo "aws_role=$SECRET_VAULT_AWS_ROLE" >> $GITHUB_OUTPUT
+            echo "✅ Using Vault AWS role from secret"
+          else
+            echo "⚠️ No Vault AWS role configured - ECR authentication will be skipped"
+            echo "aws_role=" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Generate AWS Credentials from Vault
+        id: aws_creds
+        if: inputs.use_vault == true && steps.vault_aws_role.outputs.aws_role != ''
+        continue-on-error: true
+        uses: hashicorp/vault-action@4c06c5ccf5c0761b6029f56cfb1dcf5565918a3b # v3.4.0
+        with:
+          url: ${{ steps.config.outputs.vault_url }}
+          role: ${{ inputs.vault_role }}
+          method: jwt
+          path: jwt-github
+          jwtGithubAudience: https://github.com/${{ github.repository_owner }}
+          secrets: |
+            ${{ steps.vault_aws_role.outputs.aws_role }} access_key | AWS_ACCESS_KEY_ID ;
+            ${{ steps.vault_aws_role.outputs.aws_role }} secret_key | AWS_SECRET_ACCESS_KEY ;
+            ${{ steps.vault_aws_role.outputs.aws_role }} security_token | AWS_SESSION_TOKEN
+
+      - name: Configure AWS Credentials (Vault)
+        if: inputs.use_vault == true && steps.aws_creds.outcome == 'success'
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          aws-access-key-id: ${{ steps.aws_creds.outputs.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ steps.aws_creds.outputs.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ steps.aws_creds.outputs.AWS_SESSION_TOKEN }}
+          aws-region: us-east-1
+
+      - name: Configure AWS Credentials (GitHub Secrets)
+        if: inputs.use_vault == false
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2.0.1
+
+      - name: Validate FOSSA API Key
+        id: fossa_key
+        shell: bash
+        env:
+          USE_VAULT: ${{ inputs.use_vault }}
+          VAULT_FOSSA_KEY: ${{ steps.vault_secrets.outputs.FOSSA_API_KEY }}
+          SECRET_FOSSA_KEY: ${{ secrets.FOSSA_API_KEY }}
+        run: |
+          if [[ "$USE_VAULT" == "true" ]]; then
+            # Vault mode - key from Vault
+            if [[ -z "$VAULT_FOSSA_KEY" ]]; then
+              echo "❌ Error: FOSSA_API_KEY not retrieved from Vault"
+              exit 1
+            fi
+            echo "FOSSA_KEY=$VAULT_FOSSA_KEY" >> $GITHUB_OUTPUT
+            echo "✅ FOSSA API key retrieved from Vault"
+          else
+            # GitHub Secrets mode - key from secrets
+            if [[ -z "$SECRET_FOSSA_KEY" ]]; then
+              echo "❌ Error: FOSSA_API_KEY secret not provided"
+              exit 1
+            fi
+            echo "FOSSA_KEY=$SECRET_FOSSA_KEY" >> $GITHUB_OUTPUT
+            echo "✅ FOSSA API key retrieved from GitHub Secrets"
+          fi
+
+      - name: Determine FOSSA Project ID
+        id: fossa_project
+        env:
+          FOSSA_PROJECT_OVERRIDE: ${{ steps.config.outputs.fossa_project_override }}
+          REPO_OWNER: ${{ github.repository_owner }}
+          REPO_NAME: ${{ github.event.repository.name }}
+        run: |
+          if [[ -n "$FOSSA_PROJECT_OVERRIDE" ]]; then
+            FOSSA_PROJECT_ID="$FOSSA_PROJECT_OVERRIDE"
+            echo "Using override project ID: $FOSSA_PROJECT_ID"
+          else
+            FOSSA_PROJECT_ID="${REPO_OWNER}_${REPO_NAME}"
+            echo "Using default project ID: $FOSSA_PROJECT_ID"
+          fi
+          echo "FOSSA_PROJECT_ID=${FOSSA_PROJECT_ID}" >> $GITHUB_OUTPUT
+
+      - name: Build FOSSA Scan Parameters
+        id: fossa_params
+        env:
+          CONTAINER_IMAGE: ${{ inputs.container_image }}
+          FOSSA_PROJECT_ID: ${{ steps.fossa_project.outputs.FOSSA_PROJECT_ID }}
+          FOSSA_BRANCH: ${{ steps.context.outputs.branch }}
+          FOSSA_REVISION: ${{ steps.context.outputs.revision }}
+          FOSSA_TEAM: ${{ steps.config.outputs.fossa_team }}
+          FOSSA_LABELS: ${{ steps.config.outputs.fossa_labels }}
+          ADDITIONAL_PARAMS: ${{ inputs.additional_scan_params }}
+        run: |
+          # Build base parameters
+          PARAMS="fossa.image=$CONTAINER_IMAGE"
+          PARAMS="${PARAMS}"$'\n'"fossa.project=$FOSSA_PROJECT_ID"
+          PARAMS="${PARAMS}"$'\n'"fossa.branch=$FOSSA_BRANCH"
+          PARAMS="${PARAMS}"$'\n'"fossa.revision=$FOSSA_REVISION"
+
+          # Add team if configured
+          if [[ -n "$FOSSA_TEAM" ]]; then
+            PARAMS="${PARAMS}"$'\n'"fossa.team=$FOSSA_TEAM"
+            echo "✓ Adding FOSSA team: $FOSSA_TEAM"
+          fi
+
+          # Add labels if configured
+          if [[ -n "$FOSSA_LABELS" ]]; then
+            PARAMS="${PARAMS}"$'\n'"fossa.project_label=$FOSSA_LABELS"
+            echo "✓ Adding FOSSA labels: $FOSSA_LABELS"
+          fi
+
+          # Add user-provided additional params
+          if [[ -n "$ADDITIONAL_PARAMS" ]]; then
+            PARAMS="${PARAMS}"$'\n'"$ADDITIONAL_PARAMS"
+          fi
+
+          # Export to output
+          {
+            echo "params<<EOF"
+            echo "$PARAMS"
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
+
+      - name: Container Scan - FOSSA
+        uses: SolaceDev/solace-public-workflows/container/container-scan@main
+        with:
+          scanners: "fossa"
+          additional_scan_params: ${{ steps.fossa_params.outputs.params }}
+          fossa_api_key: ${{ steps.fossa_key.outputs.FOSSA_KEY }}
+
+      - name: FOSSA Licensing Check
+        id: fossa_licensing
+        uses: SolaceDev/solace-public-workflows/.github/actions/fossa-guard@main
+        continue-on-error: true
+        with:
+          fossa_api_key: ${{ steps.fossa_key.outputs.FOSSA_KEY }}
+          fossa_project_id: ${{ steps.fossa_project.outputs.FOSSA_PROJECT_ID }}
+          fossa_branch: ${{ steps.context.outputs.branch }}
+          fossa_revision: ${{ steps.context.outputs.revision }}
+          fossa_category: licensing
+          fossa_mode: ${{ steps.config.outputs.fossa_licensing_mode }}
+          block_on: ${{ steps.config.outputs.fossa_licensing_block_on }}
+          enable_diff_mode: ${{ github.event_name == 'pull_request' }}
+          enable_pr_comment: ${{ github.event_name == 'pull_request' }}
+          enable_status_check: ${{ github.event_name == 'pull_request' }}
+          status_check_name: "FOSSA Container Licensing"
+
+      - name: FOSSA Vulnerability Check
+        id: fossa_vulnerabilities
+        uses: SolaceDev/solace-public-workflows/.github/actions/fossa-guard@main
+        continue-on-error: true
+        with:
+          fossa_api_key: ${{ steps.fossa_key.outputs.FOSSA_KEY }}
+          fossa_project_id: ${{ steps.fossa_project.outputs.FOSSA_PROJECT_ID }}
+          fossa_branch: ${{ steps.context.outputs.branch }}
+          fossa_revision: ${{ steps.context.outputs.revision }}
+          fossa_category: vulnerability
+          fossa_mode: ${{ steps.config.outputs.fossa_vulnerability_mode }}
+          block_on: ${{ steps.config.outputs.fossa_vulnerability_block_on }}
+          enable_diff_mode: ${{ github.event_name == 'pull_request' }}
+          enable_pr_comment: ${{ github.event_name == 'pull_request' }}
+          enable_status_check: ${{ github.event_name == 'pull_request' }}
+          status_check_name: "FOSSA Container Vulnerabilities"
+
+      - name: Report Container Scan Results
+        if: always()
+        env:
+          LICENSING_OUTCOME: ${{ steps.fossa_licensing.outcome }}
+          LICENSING_MODE: ${{ steps.config.outputs.fossa_licensing_mode }}
+          LICENSING_BLOCK_ON: ${{ steps.config.outputs.fossa_licensing_block_on }}
+          VULNERABILITY_OUTCOME: ${{ steps.fossa_vulnerabilities.outcome }}
+          VULNERABILITY_MODE: ${{ steps.config.outputs.fossa_vulnerability_mode }}
+          VULNERABILITY_BLOCK_ON: ${{ steps.config.outputs.fossa_vulnerability_block_on }}
+          SKIP_FOSSA_GATE: ${{ inputs.skip_fossa_gate }}
+          BYPASS_JUSTIFICATION: ${{ inputs.bypass_justification }}
+          CONTAINER_IMAGE: ${{ inputs.container_image }}
+          FOSSA_PROJECT_ID: ${{ steps.fossa_project.outputs.FOSSA_PROJECT_ID }}
+          FOSSA_BRANCH: ${{ steps.context.outputs.branch }}
+          FOSSA_REVISION: ${{ steps.context.outputs.revision }}
+          SCAN_TYPE: ${{ steps.context.outputs.scan_type }}
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📊 Container Scan Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Licensing Check Results
+          if [[ "$LICENSING_OUTCOME" == "success" ]]; then
+            echo "✅ **Licensing Check**: PASSED" >> $GITHUB_STEP_SUMMARY
+            echo "   _Mode: $LICENSING_MODE, Block on: $LICENSING_BLOCK_ON_" >> $GITHUB_STEP_SUMMARY
+          elif [[ "$LICENSING_OUTCOME" == "failure" ]]; then
+            if [[ "$LICENSING_MODE" == "BLOCK" ]]; then
+              echo "❌ **Licensing Check**: FAILED (policy conflicts detected) - BLOCKING" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "⚠️ **Licensing Check**: FAILED (policy conflicts detected) - REPORT ONLY" >> $GITHUB_STEP_SUMMARY
+            fi
+            echo "   _Mode: $LICENSING_MODE, Block on: $LICENSING_BLOCK_ON_" >> $GITHUB_STEP_SUMMARY
+          elif [[ "$SKIP_FOSSA_GATE" == "true" ]]; then
+            echo "⚠️ **Licensing Check**: SKIPPED (emergency bypass)" >> $GITHUB_STEP_SUMMARY
+            echo "**Justification**: $BYPASS_JUSTIFICATION" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ **Licensing Check**: UNKNOWN" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Vulnerability Check Results
+          if [[ "$VULNERABILITY_OUTCOME" == "success" ]]; then
+            echo "✅ **Vulnerability Check**: PASSED" >> $GITHUB_STEP_SUMMARY
+            echo "   _Mode: $VULNERABILITY_MODE, Block on: $VULNERABILITY_BLOCK_ON_" >> $GITHUB_STEP_SUMMARY
+          elif [[ "$VULNERABILITY_OUTCOME" == "failure" ]]; then
+            if [[ "$VULNERABILITY_MODE" == "BLOCK" ]]; then
+              echo "❌ **Vulnerability Check**: FAILED ($VULNERABILITY_BLOCK_ON vulnerabilities detected) - BLOCKING" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "⚠️ **Vulnerability Check**: ISSUES FOUND ($VULNERABILITY_BLOCK_ON vulnerabilities detected) - REPORT ONLY" >> $GITHUB_STEP_SUMMARY
+            fi
+            echo "   _Mode: $VULNERABILITY_MODE, Block on: $VULNERABILITY_BLOCK_ON_" >> $GITHUB_STEP_SUMMARY
+          elif [[ "$SKIP_FOSSA_GATE" == "true" ]]; then
+            echo "⚠️ **Vulnerability Check**: SKIPPED (emergency bypass)" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ **Vulnerability Check**: UNKNOWN" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Container Image**: $CONTAINER_IMAGE" >> $GITHUB_STEP_SUMMARY
+          echo "**FOSSA Project**: $FOSSA_PROJECT_ID" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch**: $FOSSA_BRANCH" >> $GITHUB_STEP_SUMMARY
+          echo "**Revision**: $FOSSA_REVISION" >> $GITHUB_STEP_SUMMARY
+          echo "**Scan Type**: $SCAN_TYPE" >> $GITHUB_STEP_SUMMARY
+
+          # URL encode the revision for the dashboard link
+          ENCODED_REVISION=$(echo "$FOSSA_REVISION" | jq -sRr @uri)
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Dashboard**: [View in FOSSA](https://app.fossa.com/projects/custom%2B1%2F$FOSSA_PROJECT_ID/refs/branch/$FOSSA_BRANCH/${ENCODED_REVISION})" >> $GITHUB_STEP_SUMMARY
+
+      - name: Block on FOSSA Licensing Failures
+        if: |
+          always() && !inputs.skip_fossa_gate &&
+          steps.fossa_licensing.outcome == 'failure'
+        run: |
+          echo "❌ FOSSA licensing check failed. Licensing policy conflicts detected in container image."
+          echo "Review the FOSSA dashboard for details and remediate policy violations."
+          exit 1
+
+      - name: Block on FOSSA Vulnerability Failures
+        if: |
+          always() && !inputs.skip_fossa_gate &&
+          steps.fossa_vulnerabilities.outcome == 'failure' &&
+          steps.config.outputs.fossa_vulnerability_mode == 'BLOCK'
+        env:
+          VULNERABILITY_BLOCK_ON: ${{ steps.config.outputs.fossa_vulnerability_block_on }}
+        run: |
+          echo "❌ FOSSA vulnerability check failed. $VULNERABILITY_BLOCK_ON severity vulnerabilities detected in container image."
+          echo "Review the FOSSA dashboard for details and remediate vulnerabilities."
+          exit 1
+
+      - name: Log Emergency Bypass
+        if: inputs.skip_fossa_gate
+        env:
+          BYPASS_JUSTIFICATION: ${{ inputs.bypass_justification }}
+          ACTOR: ${{ github.actor }}
+          SERVER_URL: ${{ github.server_url }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          echo "⚠️ EMERGENCY BYPASS USED"
+          echo "Justification: $BYPASS_JUSTIFICATION"
+          echo "Triggered by: $ACTOR"
+          echo "Workflow run: $SERVER_URL/$REPOSITORY/actions/runs/$RUN_ID"
+
+      - name: Build Notification
+        if: failure()
+        uses: SolaceDev/maas-build-actions/.github/actions/build-finish-notifier@master
+        with:
+          workflow_title: "${{ github.event.repository.name }} Container Scan"
+          run_url: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          notify_channel: ${{ steps.config.outputs.slack_channel }}
+
+# ---
+# Usage Notes:
+#
+# This shareable workflow performs FOSSA-based container image scanning with:
+# - Automatic context detection (PR vs Release vs Manual)
+# - Licensing policy enforcement (configurable BLOCK/REPORT)
+# - Vulnerability reporting (configurable BLOCK/REPORT)
+# - Emergency bypass capability for outages
+# - Flexible secret management (Vault or GitHub Secrets)
+#
+# Secret Management:
+# - Default: GitHub Secrets (use_vault: false) - for public repos
+# - Optional: Vault (use_vault: true) - for private repos with Vault access
+#
+# Context Detection:
+# - PR: Diff-based scan (only new issues), branch=PR, revision=<image_tag>
+# - Non-PR: Full scan, branch=default_branch, revision=<image_tag>
+#
+# Gates:
+# - Licensing: Configurable (BLOCK or REPORT) on policy conflicts
+# - Vulnerabilities: Configurable (BLOCK or REPORT) on critical/high CVEs
+# - Emergency bypass available via workflow_dispatch/orchestrator
+#
+# Example usage in PUBLIC repos (GitHub Secrets):
+#
+# PR Scanning:
+#   container_scan:
+#     uses: SolaceDev/solace-public-workflows/.github/workflows/container-scan-and-guard.yaml@main
+#     secrets:
+#       FOSSA_API_KEY: ${{ secrets.FOSSA_API_KEY }}
+#     with:
+#       container_image: ghcr.io/solacedev/my-app:${{ github.sha }}
+#
+# Release Scanning:
+#   container_scan:
+#     uses: SolaceDev/solace-public-workflows/.github/workflows/container-scan-and-guard.yaml@main
+#     secrets:
+#       FOSSA_API_KEY: ${{ secrets.FOSSA_API_KEY }}
+#     with:
+#       container_image: ghcr.io/solacedev/my-app:${{ needs.version_bump.outputs.version }}
+#
+# Example usage in PRIVATE repos (Vault):
+#
+# Release Scanning with Vault:
+#   container_scan:
+#     uses: SolaceDev/maas-build-actions/.github/workflows/container-scan-and-guard.yaml@master
+#     with:
+#       container_image: 123456789012.dkr.ecr.us-east-1.amazonaws.com/my-app:${{ needs.version_bump.outputs.version }}
+#       use_vault: true
+#       vault_url: ${{ vars.GCP_VAULT_ADDR }}
+#
+# With Emergency Bypass:
+#   container_scan:
+#     uses: SolaceDev/solace-public-workflows/.github/workflows/container-scan-and-guard.yaml@main
+#     secrets:
+#       FOSSA_API_KEY: ${{ secrets.FOSSA_API_KEY }}
+#     with:
+#       container_image: ghcr.io/solacedev/my-app:v1.0.0
+#       skip_fossa_gate: true
+#       bypass_justification: "FOSSA service outage - INC12345"
+#
+# Blocking on Vulnerabilities:
+#   container_scan:
+#     uses: SolaceDev/solace-public-workflows/.github/workflows/container-scan-and-guard.yaml@main
+#     secrets:
+#       FOSSA_API_KEY: ${{ secrets.FOSSA_API_KEY }}
+#     with:
+#       container_image: ghcr.io/solacedev/my-app:v1.0.0
+#       fossa_vulnerability_mode: "BLOCK"
+#       fossa_vulnerability_block_on: "critical,high"
+# ---

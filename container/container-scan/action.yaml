@@ -1,0 +1,100 @@
+name: "Container Scan"
+description: "Container image scan orchestrator supporting multiple scanners (FOSSA, Prisma Cloud)."
+
+inputs:
+  scanners:
+    description: "Comma-separated list of scanners to run (fossa, prisma)."
+    required: false
+    default: "fossa"
+
+  additional_scan_params:
+    description: |
+      Optional scanner-specific parameters, one per line:
+        fossa.key=value
+        prisma.key=value
+      Example:
+        fossa.image=ghcr.io/solacedev/my-app:v1.0.0
+        fossa.project=MyOrg_my-app
+        fossa.branch=main
+        prisma.image_registry=ghcr.io
+        prisma.image_repo=solacedev/my-app
+        prisma.image_tag=v1.0.0
+    required: false
+    default: ""
+
+  fossa_api_key:
+    description: "API Key for FOSSA"
+    required: false
+    default: ""
+
+  prisma_console_url:
+    description: "Prisma Cloud Console URL"
+    required: false
+    default: ""
+
+  prisma_user:
+    description: "Prisma Cloud Access Key"
+    required: false
+    default: ""
+
+  prisma_pass:
+    description: "Prisma Cloud Secret Key"
+    required: false
+    default: ""
+
+runs:
+  using: "composite"
+  steps:
+    - name: Parse additional_scan_params into env vars
+      if: ${{ inputs.additional_scan_params != '' }}
+      shell: bash
+      run: |
+        echo "::group::⚙️ Container Scan - Parsing additional_scan_params..."
+
+        # Read multiline input safely
+        while IFS= read -r line; do
+          # Skip empty lines or comment lines
+          if [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]]; then
+            continue
+          fi
+
+          # Must be key=value format
+          if [[ "$line" != *"="* ]]; then
+            echo "❌ Invalid additional_scan_params line (missing '='): $line"
+            exit 1
+          fi
+
+          key="${line%%=*}"
+          value="${line#*=}"
+
+          # Remove whitespace
+          key="$(echo "$key" | tr -d '[:space:]')"
+          value="$(echo "$value" | tr -d '\r')"
+
+          # Convert "fossa.image" → "CONTAINER_FOSSA_IMAGE"
+          # Convert "prisma.image_registry" → "CONTAINER_PRISMA_IMAGE_REGISTRY"
+          env_key="CONTAINER_$(echo "$key" \
+            | sed 's/\./_/g' \
+            | tr '[:lower:]' '[:upper:]')"
+
+          echo "Exporting: $env_key=$value"
+
+          # Export to GITHUB_ENV so all scanner actions see it
+          echo "${env_key}=${value}" >> "$GITHUB_ENV"
+
+        done <<< "${{ inputs.additional_scan_params }}"
+        echo "::endgroup::"
+
+    - name: Container Scan - Run FOSSA scan
+      if: contains(inputs.scanners, 'fossa')
+      uses: SolaceDev/solace-public-workflows/container/fossa-scan@main
+      env:
+        FOSSA_API_KEY: ${{ inputs.fossa_api_key }}
+
+    - name: Container Scan - Run Prisma scan
+      if: contains(inputs.scanners, 'prisma')
+      uses: SolaceDev/solace-public-workflows/container/prisma-scan@main
+      env:
+        PRISMA_CONSOLE_URL: ${{ inputs.prisma_console_url }}
+        PRISMA_USER: ${{ inputs.prisma_user }}
+        PRISMA_PASS: ${{ inputs.prisma_pass }}
