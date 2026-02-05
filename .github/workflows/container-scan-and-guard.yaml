@@ -131,7 +131,7 @@ jobs:
       - name: Load Workflow Configuration
         if: inputs.config_file != ''
         id: config_loader
-        uses: SolaceDev/solace-public-workflows/workflow-config-loader@feature/container-scan-action
+        uses: SolaceDev/solace-public-workflows/workflow-config-loader@main
         with:
           config_file: ${{ inputs.config_file }}
           config_type: container_scanning
@@ -411,7 +411,7 @@ jobs:
           } >> $GITHUB_OUTPUT
 
       - name: Container Scan - FOSSA
-        uses: SolaceDev/solace-public-workflows/container/container-scan@feature/container-scan-action
+        uses: SolaceDev/solace-public-workflows/container/container-scan@main
         with:
           scanners: "fossa"
           additional_scan_params: ${{ steps.fossa_params.outputs.params }}
@@ -419,7 +419,7 @@ jobs:
 
       - name: FOSSA Licensing Check
         id: fossa_licensing
-        uses: SolaceDev/solace-public-workflows/.github/actions/fossa-guard@feature/container-scan-action
+        uses: SolaceDev/solace-public-workflows/.github/actions/fossa-guard@main
         continue-on-error: true
         with:
           fossa_api_key: ${{ steps.fossa_key.outputs.FOSSA_KEY }}
@@ -436,7 +436,7 @@ jobs:
 
       - name: FOSSA Vulnerability Check
         id: fossa_vulnerabilities
-        uses: SolaceDev/solace-public-workflows/.github/actions/fossa-guard@feature/container-scan-action
+        uses: SolaceDev/solace-public-workflows/.github/actions/fossa-guard@main
         continue-on-error: true
         with:
           fossa_api_key: ${{ steps.fossa_key.outputs.FOSSA_KEY }}

@@ -87,13 +87,13 @@ runs:
 
     - name: Container Scan - Run FOSSA scan
       if: contains(inputs.scanners, 'fossa')
-      uses: SolaceDev/solace-public-workflows/container/fossa-scan@feature/container-scan-action
+      uses: SolaceDev/solace-public-workflows/container/fossa-scan@main
       env:
         FOSSA_API_KEY: ${{ inputs.fossa_api_key }}
 
     - name: Container Scan - Run Prisma scan
       if: contains(inputs.scanners, 'prisma')
-      uses: SolaceDev/solace-public-workflows/container/prisma-scan@feature/container-scan-action
+      uses: SolaceDev/solace-public-workflows/container/prisma-scan@main
       env:
         PRISMA_CONSOLE_URL: ${{ inputs.prisma_console_url }}
         PRISMA_USER: ${{ inputs.prisma_user }}
