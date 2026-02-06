@@ -90,6 +90,9 @@ on:
       VAULT_ROLE:
         description: 'Vault role for JWT authentication (optional - defaults to config file value)'
         required: false
+      VAULT_SECRET_PATH:
+        description: 'Vault secret path for FOSSA API key (optional - defaults to config file value)'
+        required: false
       VAULT_AWS_ROLE:
         description: 'Vault AWS STS role path for ECR authentication'
         required: false

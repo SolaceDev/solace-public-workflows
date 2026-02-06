@@ -12,7 +12,7 @@ This file may already exist in your repository for other build configuration. Th
 
 ### Root Level
 
-```json
+```jsonc
 {
   "squad": "string",
   "service_name": "string",

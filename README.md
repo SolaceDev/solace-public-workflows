@@ -20,9 +20,9 @@ Container image security scanning with FOSSA and optional Prisma Cloud integrati
 
 ### SCA Actions
 
-- [sca-scan](`.github/actions/sca/sca-scan/`) - Generic SCA scan entrypoint with parameter routing
-- [fossa-scan](`.github/actions/sca/fossa-scan/`) - FOSSA CLI integration with 48+ configurable parameters
-- [fossa-guard](`.github/actions/fossa-guard/`) - Policy and vulnerability enforcement
+- [sca-scan](.github/actions/sca/sca-scan/) - Generic SCA scan entrypoint with parameter routing
+- [fossa-scan](.github/actions/sca/fossa-scan/) - FOSSA CLI integration with 48+ configurable parameters
+- [fossa-guard](.github/actions/fossa-guard/) - Policy and vulnerability enforcement
 
 ### Container Actions
 
@@ -33,8 +33,8 @@ Container image security scanning with FOSSA and optional Prisma Cloud integrati
 ### Utility Actions
 
 - [workflow-config-loader](workflow-config-loader/) - Centralized JSON config file parser
-- [cicd-helper](`.github/actions/cicd-helper/`) - Common CI/CD utilities
-- [pr-size-check](`.github/actions/pr-size-check/`) - Pull request size validation
+- [cicd-helper](.github/actions/cicd-helper/) - Common CI/CD utilities
+- [pr-size-check](.github/actions/pr-size-check/) - Pull request size validation
 
 ## Configuration
 

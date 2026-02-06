@@ -112,6 +112,13 @@ Create `.github/workflow-config.json`:
 
 ```json
 {
+  "secrets": {
+    "vault": {
+      "url": "https://vault.example.com:8200",
+      "role": "github-actions-role",
+      "secret_path": "secret/data/path/to/secrets"
+    }
+  },
   "sca_scanning": {
     "enabled": true,
     "fossa": {
@@ -126,12 +133,6 @@ Create `.github/workflow-config.json`:
       "project_id": "SolaceDev_my-project",
       "team": "Platform Team",
       "labels": ["production", "critical"]
-    },
-    "secrets": {
-      "vault": {
-        "url": "https://vault.example.com:8200",
-        "secret_path": "secret/data/path/to/secrets"
-      }
     }
   }
 }
