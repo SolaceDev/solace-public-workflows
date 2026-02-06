@@ -274,6 +274,43 @@ jobs:
           echo "**Container Image**: ${CONTAINER_IMAGE}" >> $GITHUB_STEP_SUMMARY
           echo "**Image Tag (FOSSA Revision)**: ${IMAGE_TAG}" >> $GITHUB_STEP_SUMMARY
 
+      - name: Validate Vault Configuration
+        if: inputs.use_vault == true
+        shell: bash
+        env:
+          SECRET_VAULT_URL: ${{ secrets.VAULT_URL }}
+          SECRET_VAULT_ROLE: ${{ secrets.VAULT_ROLE }}
+          CONFIG_VAULT_URL: ${{ steps.config.outputs.vault_url }}
+          CONFIG_VAULT_ROLE: ${{ steps.config.outputs.vault_role }}
+        run: |
+          # Determine effective Vault URL and role
+          vault_url="${SECRET_VAULT_URL:-${CONFIG_VAULT_URL}}"
+          vault_role="${SECRET_VAULT_ROLE:-${CONFIG_VAULT_ROLE}}"
+
+          # Fail fast if URL is empty
+          if [[ -z "${vault_url}" ]]; then
+            echo "❌ Error: Vault URL is not configured for use_vault=true."
+            echo ""
+            echo "Troubleshooting:"
+            echo "1. Set 'VAULT_URL' as a repository or organization secret, or"
+            echo "2. Provide 'secrets.vault.url' in your workflow configuration file"
+            exit 1
+          fi
+
+          # Fail fast if role is empty
+          if [[ -z "${vault_role}" ]]; then
+            echo "❌ Error: Vault role is not configured for use_vault=true."
+            echo ""
+            echo "Troubleshooting:"
+            echo "1. Set 'VAULT_ROLE' as a repository or organization secret, or"
+            echo "2. Provide 'secrets.vault.role' in your workflow configuration file"
+            exit 1
+          fi
+
+          echo "✅ Vault configuration validated"
+          echo "   URL: ${vault_url}"
+          echo "   Role: ${vault_role}"
+
       - name: Retrieve FOSSA API key from Vault
         id: vault_secrets
         if: inputs.use_vault == true
