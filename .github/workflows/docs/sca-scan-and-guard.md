@@ -197,7 +197,7 @@ Triggered when `git_ref` is provided:
 
 ### Manual Context
 
-Triggered via `workflow_dispatch`:
+Run when a caller workflow is manually triggered via `workflow_dispatch`:
 - Branch: Current branch
 - Full scan
 
