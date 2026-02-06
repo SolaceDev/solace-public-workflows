@@ -23,7 +23,7 @@ The `fossa-guard` GitHub Action integrates with the FOSSA API to fetch and proce
 | Name                  | Required | Description                                                                 |
 |-----------------------|----------|-----------------------------------------------------------------------------|
 | `fossa_api_key`       | Yes      | API key for FOSSA.                                                          |
-| `fossa_project_id`    | Yes      | Project ID in FOSSA. Can be specified in `.fossa.yml`. If not, use the format `custom+48578/SolaceDev_solace-agent-mesh-enterprise` and drop the `custom+48578/` prefix. |
+| `fossa_project_id`    | Yes      | Project ID in FOSSA. Can be specified in `.fossa.yml`. If not, use the format `custom+{org_id}/SolaceDev_solace-agent-mesh-enterprise` and drop the `custom+{org_id}/` prefix. |
 | `fossa_category`      | Yes      | Issue category: `licensing` or `vulnerability`.                             |
 | `fossa_mode`          | No       | Comma-separated list of actions: `BLOCK`, `REPORT`, or both (e.g., `BLOCK,REPORT`). Default: `BLOCK`.|
 | `block_on`            | No       | Comma-separated list of issue types to block on. For licensing: `policy_conflict,policy_flag`. For vulnerability: `critical,high,medium,low`. Default: `policy_conflict`.|
@@ -51,13 +51,14 @@ The `fossa-guard` GitHub Action integrates with the FOSSA API to fetch and proce
 | `enable_diff_mode` | `false` | Enable diff mode to show only new issues (`true`/`false`) |
 | `diff_base_revision_sha` | (auto-detect) | Base revision SHA to compare against (optional - auto-detects default branch) |
 | `enable_license_enrichment` | `true` | Show declared/discovered license indicators (`true`/`false`) |
+| `enable_privacy_mode` | `false` | Hide detailed violation information in GitHub step summary (`true`/`false`) |
 
 ### Issue Types Explained
 - **policy_conflict**: There is a known explicit policy violation (FOSSA terminology). This means the license or dependency is denied in your FOSSA policy and should block the build.
 - **policy_flag**: The license needs to be reviewed or is unknown (FOSSA terminology). This means the license or dependency is flagged for review or is uncategorized in your FOSSA policy and may require manual attention.
 
 > **Note:**
-> The FOSSA project ID can be specified in your `.fossa.yml` file. If not present, use the format `custom+48578/SolaceDev_solace-agent-mesh-enterprise` and drop the `custom+48578/` prefix, so the project ID is just `SolaceDev_solace-agent-mesh-enterprise`.
+> The FOSSA project ID can be specified in your `.fossa.yml` file. If not present, use the format `custom+{org_id}/SolaceDev_solace-agent-mesh-enterprise` and drop the `custom+{org_id}/` prefix, so the project ID is just `SolaceDev_solace-agent-mesh-enterprise`.
 
 ---
 
@@ -272,6 +273,70 @@ with:
   # Optional - will auto-detect if not provided
   diff_base_revision_sha: ${{ github.event.pull_request.base.sha }}
 ```
+
+---
+
+## Privacy Mode
+
+Privacy mode allows you to hide detailed violation information from the GitHub step summary while still enforcing compliance checks. This is particularly useful for public repositories where you want to avoid exposing security or compliance details publicly.
+
+### How It Works
+
+- When enabled, the GitHub step summary shows only summary counts and a link to the FOSSA dashboard
+- Full violation details are still written to report files (`.md` and `.json`) for authorized access
+- Works with both licensing and vulnerability scans
+- PR comments and status checks behavior is unaffected
+- Exit codes remain the same (blocks in BLOCK mode, passes in REPORT mode)
+
+### Use Cases
+
+- **Public Repositories**: Prevent exposure of security vulnerabilities or license compliance issues
+- **Compliance Requirements**: Keep detailed violation information private while maintaining transparency about compliance status
+- **Internal Review**: Allow team members with repository access to view full details in report files
+
+### Usage
+
+```yaml
+with:
+  enable_privacy_mode: true
+```
+
+### Example
+
+```yaml
+- name: FOSSA Guard (Privacy Mode)
+  uses: SolaceDev/solace-public-workflows/.github/actions/fossa-guard@main
+  with:
+    fossa_api_key: ${{ secrets.FOSSA_API_KEY }}
+    fossa_project_id: ${{ secrets.FOSSA_PROJECT_ID }}
+    fossa_category: vulnerability
+    fossa_mode: BLOCK
+    block_on: critical,high
+    enable_privacy_mode: true  # Hide details in public summary
+    github_token: ${{ github.token }}
+    enable_pr_comment: true
+    enable_status_check: true
+```
+
+### What's Hidden vs What's Visible
+
+**Hidden in GitHub Step Summary:**
+- Specific package names with violations
+- CVE IDs and vulnerability details
+- License conflict details
+- Direct violation counts per issue type
+
+**Still Visible:**
+- Overall compliance status (pass/fail)
+- Link to FOSSA dashboard
+- Summary message about violations being found
+- Report file locations for authorized access
+
+**Unaffected:**
+- Full details in report files (`fossa-guard-report.md`, `fossa-guard-report.json`)
+- Exit codes and build status
+- PR comments (if enabled)
+- Status checks (if enabled)
 
 ---
 

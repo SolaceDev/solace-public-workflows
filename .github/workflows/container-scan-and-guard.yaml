@@ -84,8 +84,11 @@ on:
       FOSSA_API_KEY:
         description: 'FOSSA API key (required if use_vault is false)'
         required: false
+      VAULT_URL:
+        description: 'Vault URL (optional - defaults to config file value)'
+        required: false
       VAULT_ROLE:
-        description: 'Vault role for JWT authentication (passed as secret)'
+        description: 'Vault role for JWT authentication (optional - defaults to config file value)'
         required: false
       VAULT_AWS_ROLE:
         description: 'Vault AWS STS role path for ECR authentication'
@@ -113,10 +116,31 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
+      - name: Detect Repository Visibility and Set Privacy Mode
+        id: privacy_mode
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          # Check if repository is public using gh CLI
+          IS_PUBLIC=$(gh repo view "$REPO" --json isPrivate --jq '.isPrivate == false')
+
+          # Auto-enable privacy mode for public repositories
+          if [[ "$IS_PUBLIC" == "true" ]]; then
+            ENABLE_PRIVACY="true"
+            echo "✅ Public repository detected - auto-enabling privacy mode for FOSSA output"
+          else
+            ENABLE_PRIVACY="false"
+            echo "🔒 Private repository - privacy mode disabled"
+          fi
+
+          echo "enable_privacy_mode=$ENABLE_PRIVACY" >> $GITHUB_OUTPUT
+          echo "is_public=$IS_PUBLIC" >> $GITHUB_OUTPUT
+
       - name: Load Workflow Configuration
         if: inputs.config_file != ''
         id: config_loader
-        uses: SolaceDev/solace-public-workflows/workflow-config-loader@main
+        uses: SolaceDev/solace-public-workflows/workflow-config-loader@mono_repo_fossa_guard
         with:
           config_file: ${{ inputs.config_file }}
           config_type: container_scanning
@@ -161,6 +185,7 @@ jobs:
         env:
           CONFIG_FILE: ${{ inputs.config_file }}
           CONFIG_VAULT_URL: ${{ steps.config_loader.outputs.vault_url }}
+          CONFIG_VAULT_ROLE: ${{ steps.config_loader.outputs.vault_role }}
           CONFIG_VAULT_SECRET_PATH: ${{ steps.config_loader.outputs.vault_secret_path }}
           CONFIG_VAULT_AWS_ROLE: ${{ steps.config_loader.outputs.vault_aws_role }}
           CONFIG_SLACK_CHANNEL: ${{ steps.config_loader.outputs.slack_channel }}
@@ -171,8 +196,9 @@ jobs:
           CONFIG_FOSSA_PROJECT_ID: ${{ steps.config_loader.outputs.fossa_project_id }}
           CONFIG_FOSSA_TEAM: ${{ steps.config_loader.outputs.fossa_team }}
           CONFIG_FOSSA_LABELS: ${{ steps.config_loader.outputs.fossa_labels }}
-          INPUT_VAULT_URL: ${{ inputs.vault_url }}
-          INPUT_VAULT_SECRET_PATH: ${{ inputs.vault_secret_path }}
+          INPUT_VAULT_URL: ${{ secrets.VAULT_URL }}
+          INPUT_VAULT_ROLE: ${{ secrets.VAULT_ROLE }}
+          INPUT_VAULT_SECRET_PATH: ${{ secrets.VAULT_SECRET_PATH }}
           INPUT_SLACK_CHANNEL: ${{ inputs.slack_channel }}
           INPUT_FOSSA_LICENSING_MODE: ${{ inputs.fossa_licensing_mode }}
           INPUT_FOSSA_LICENSING_BLOCK_ON: ${{ inputs.fossa_licensing_block_on }}
@@ -184,6 +210,7 @@ jobs:
           if [[ -n "$CONFIG_FILE" ]]; then
             echo "📝 Using configuration from file: $CONFIG_FILE"
             echo "vault_url=$CONFIG_VAULT_URL" >> $GITHUB_OUTPUT
+            echo "vault_role=$CONFIG_VAULT_ROLE" >> $GITHUB_OUTPUT
             echo "vault_secret_path=$CONFIG_VAULT_SECRET_PATH" >> $GITHUB_OUTPUT
             echo "vault_aws_role=$CONFIG_VAULT_AWS_ROLE" >> $GITHUB_OUTPUT
             echo "slack_channel=$CONFIG_SLACK_CHANNEL" >> $GITHUB_OUTPUT
@@ -197,6 +224,7 @@ jobs:
           else
             echo "📝 Using configuration from workflow inputs"
             echo "vault_url=$INPUT_VAULT_URL" >> $GITHUB_OUTPUT
+            echo "vault_role=$INPUT_VAULT_ROLE" >> $GITHUB_OUTPUT
             echo "vault_secret_path=$INPUT_VAULT_SECRET_PATH" >> $GITHUB_OUTPUT
             echo "vault_aws_role=" >> $GITHUB_OUTPUT
             echo "slack_channel=$INPUT_SLACK_CHANNEL" >> $GITHUB_OUTPUT
@@ -248,8 +276,8 @@ jobs:
         if: inputs.use_vault == true
         uses: hashicorp/vault-action@4c06c5ccf5c0761b6029f56cfb1dcf5565918a3b # v3.4.0
         with:
-          url: ${{ steps.config.outputs.vault_url }}
-          role: ${{ inputs.vault_role }}
+          url: ${{ secrets.VAULT_URL != '' && secrets.VAULT_URL || steps.config.outputs.vault_url }}
+          role: ${{ secrets.VAULT_ROLE != '' && secrets.VAULT_ROLE || steps.config.outputs.vault_role }}
           method: jwt
           path: jwt-github
           jwtGithubAudience: https://github.com/${{ github.repository_owner }}
@@ -282,8 +310,8 @@ jobs:
         continue-on-error: true
         uses: hashicorp/vault-action@4c06c5ccf5c0761b6029f56cfb1dcf5565918a3b # v3.4.0
         with:
-          url: ${{ steps.config.outputs.vault_url }}
-          role: ${{ inputs.vault_role }}
+          url: ${{ secrets.VAULT_URL != '' && secrets.VAULT_URL || steps.config.outputs.vault_url }}
+          role: ${{ secrets.VAULT_ROLE != '' && secrets.VAULT_ROLE || steps.config.outputs.vault_role }}
           method: jwt
           path: jwt-github
           jwtGithubAudience: https://github.com/${{ github.repository_owner }}
@@ -404,7 +432,7 @@ jobs:
 
       - name: FOSSA Licensing Check
         id: fossa_licensing
-        uses: SolaceDev/solace-public-workflows/.github/actions/fossa-guard@main
+        uses: SolaceDev/solace-public-workflows/.github/actions/fossa-guard@mono_repo_fossa_guard
         continue-on-error: true
         with:
           fossa_api_key: ${{ steps.fossa_key.outputs.FOSSA_KEY }}
@@ -418,10 +446,11 @@ jobs:
           enable_pr_comment: ${{ github.event_name == 'pull_request' }}
           enable_status_check: ${{ github.event_name == 'pull_request' }}
           status_check_name: "FOSSA Container Licensing"
+          enable_privacy_mode: ${{ steps.privacy_mode.outputs.enable_privacy_mode }}
 
       - name: FOSSA Vulnerability Check
         id: fossa_vulnerabilities
-        uses: SolaceDev/solace-public-workflows/.github/actions/fossa-guard@main
+        uses: SolaceDev/solace-public-workflows/.github/actions/fossa-guard@mono_repo_fossa_guard
         continue-on-error: true
         with:
           fossa_api_key: ${{ steps.fossa_key.outputs.FOSSA_KEY }}
@@ -435,6 +464,7 @@ jobs:
           enable_pr_comment: ${{ github.event_name == 'pull_request' }}
           enable_status_check: ${{ github.event_name == 'pull_request' }}
           status_check_name: "FOSSA Container Vulnerabilities"
+          enable_privacy_mode: ${{ steps.privacy_mode.outputs.enable_privacy_mode }}
 
       - name: Report Container Scan Results
         if: always()

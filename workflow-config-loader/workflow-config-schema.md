@@ -17,6 +17,11 @@ This file may already exist in your repository for other build configuration. Th
   "squad": "string",
   "service_name": "string",
   "slack_channel": "string",
+  "secrets": {
+    "vault": {
+      // Vault configuration (optional, for private repos)
+    }
+  },
   "container_scanning": {
     // Container scanning configuration (optional)
   }
@@ -44,6 +49,8 @@ This file may already exist in your repository for other build configuration. Th
     },
     "secrets": {
       "vault": {
+        "url": "https://vault.example.com:8200",
+        "role": "github-actions-role",
         "secret_path": "/path/to/secret",
         "aws_role": "/path/to/aws/role"
       }
@@ -61,6 +68,7 @@ This file may already exist in your repository for other build configuration. Th
 | `squad` | string | No | Team or squad name |
 | `service_name` | string | No | Service identifier |
 | `slack_channel` | string | No | Slack channel for notifications (e.g., `#team-alerts`) |
+| `secrets` | object | No | Secret management configuration (Vault) - Required for private repos |
 | `container_scanning` | object | No | Container scanning configuration |
 
 ### Container Scanning Fields
@@ -96,8 +104,12 @@ This file may already exist in your repository for other build configuration. Th
 
 ### Secrets Configuration (Vault)
 
+**Note**: The `secrets` section is defined at the **root level** of the configuration file, not under `container_scanning`. It is shared across all workflows that use this configuration.
+
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
+| `secrets.vault.url` | string | Yes | - | Vault server URL (e.g., `https://vault.example.com:8200`) |
+| `secrets.vault.role` | string | Yes | - | Vault JWT authentication role for GitHub Actions (e.g., `github-actions-role`) |
 | `secrets.vault.secret_path` | string | No | `/path/to/secret` | Vault path for FOSSA_API_KEY |
 | `secrets.vault.aws_role` | string | No | `""` | Vault AWS STS role path for ECR authentication |
 
@@ -169,30 +181,32 @@ This file may already exist in your repository for other build configuration. Th
 
 **Result**: Assigns FOSSA project to "Backend Engineering" team with labels, blocks only on critical vulnerabilities.
 
-### Example 4: Custom Vault Paths
+### Example 4: Custom Vault Configuration (Private Repos)
 
 ```json
 {
   "squad": "platform-team",
   "service_name": "auth-service",
   "slack_channel": "#platform-alerts",
+  "secrets": {
+    "vault": {
+      "url": "https://vault.example.com:8200",
+      "role": "github-actions-role",
+      "secret_path": "secret/data/team/secrets",
+      "aws_role": "aws-development/sts/team-role"
+    }
+  },
   "container_scanning": {
     "enabled": true,
     "fossa": {
       "team": "Platform Team",
       "labels": ["production"]
-    },
-    "secrets": {
-      "vault": {
-        "secret_path": "secret/data/teams/platform/githubactions",
-        "aws_role": "secret/data/cloud/aws/sts/platform-ecr-readonly"
-      }
     }
   }
 }
 ```
 
-**Result**: Uses custom Vault paths for team-specific secrets.
+**Result**: Uses custom Vault configuration for team-specific secrets. The `secrets` section is defined at the **root level** and is shared across all workflows.
 
 ### Example 5: Custom Project ID
 
