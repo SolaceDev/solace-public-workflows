@@ -89,6 +89,7 @@ This file may already exist in your repository for other build configuration. Th
 
 **Policy Block On Options**:
 - `policy_conflict` - License policy violations
+- `unlicensed_dependency` - Dependencies without identified licenses
 - `policy_flag` - Flagged licenses
 - `deny` - Denied licenses
 
