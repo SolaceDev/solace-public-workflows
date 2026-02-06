@@ -80,6 +80,10 @@ inputs:
     description: "Show declared/discovered license indicators (true/false)"
     required: false
     default: "true"
+  enable_privacy_mode:
+    description: "Hide detailed violation information in GitHub step summary (true/false)"
+    required: false
+    default: "false"
 
 runs:
   using: docker
@@ -112,6 +116,7 @@ runs:
       if [ -n "$INPUT_ENABLE_DIFF_MODE" ]; then export ENABLE_DIFF_MODE="$INPUT_ENABLE_DIFF_MODE"; fi
       if [ -n "$INPUT_DIFF_BASE_REVISION_SHA" ]; then export DIFF_BASE_REVISION_SHA="$INPUT_DIFF_BASE_REVISION_SHA"; fi
       if [ -n "$INPUT_ENABLE_LICENSE_ENRICHMENT" ]; then export ENABLE_LICENSE_ENRICHMENT="$INPUT_ENABLE_LICENSE_ENRICHMENT"; fi
+      if [ -n "$INPUT_ENABLE_PRIVACY_MODE" ]; then export ENABLE_PRIVACY_MODE="$INPUT_ENABLE_PRIVACY_MODE"; fi
       echo "Debug: Inputs:"
       echo "FOSSA_API_KEY: [REDACTED]"
       echo "FOSSA_PROJECT_ID: $FOSSA_PROJECT_ID"
@@ -137,6 +142,7 @@ runs:
       echo "ENABLE_DIFF_MODE: $ENABLE_DIFF_MODE"
       echo "DIFF_BASE_REVISION_SHA: $DIFF_BASE_REVISION_SHA"
       echo "ENABLE_LICENSE_ENRICHMENT: $ENABLE_LICENSE_ENRICHMENT"
+      echo "ENABLE_PRIVACY_MODE: $ENABLE_PRIVACY_MODE"
       echo "GITHUB_EVENT_NAME: $GITHUB_EVENT_NAME"
       echo "GITHUB_REF: $GITHUB_REF"
       echo "GITHUB_SHA: $GITHUB_SHA"

@@ -20,6 +20,9 @@ outputs:
   vault_secret_path:
     description: "Vault secret path"
     value: ${{ steps.parse.outputs.vault_secret_path }}
+  vault_role:
+    description: "Vault JWT authentication role"
+    value: ${{ steps.parse.outputs.vault_role }}
   vault_aws_role:
     description: "Vault AWS STS role path for ECR authentication"
     value: ${{ steps.parse.outputs.vault_aws_role }}
@@ -94,6 +97,10 @@ runs:
         VAULT_PATH=$(echo "$CONFIG" | jq -r ".secrets.vault.secret_path // .${CONFIG_TYPE}.secrets.vault.secret_path // \"/path/to/secret\"")
         echo "vault_secret_path=${VAULT_PATH}" >> $GITHUB_OUTPUT
 
+        # Parse vault JWT authentication role
+        VAULT_ROLE=$(echo "$CONFIG" | jq -r ".secrets.vault.role // .${CONFIG_TYPE}.secrets.vault.role // \"\"")
+        echo "vault_role=${VAULT_ROLE}" >> $GITHUB_OUTPUT
+
         # Parse vault AWS role (for ECR authentication)
         VAULT_AWS_ROLE=$(echo "$CONFIG" | jq -r ".secrets.vault.aws_role // .${CONFIG_TYPE}.secrets.vault.aws_role // \"\"")
         echo "vault_aws_role=${VAULT_AWS_ROLE}" >> $GITHUB_OUTPUT
@@ -132,6 +139,7 @@ runs:
         echo "Parsed values:"
         echo "  - Vault URL: ${VAULT_URL:-<not set>}"
         echo "  - Vault secret path: ${VAULT_PATH}"
+        echo "  - Vault role: ${VAULT_ROLE:-<not set>}"
         echo "  - Vault AWS role: ${VAULT_AWS_ROLE:-<not set>}"
         echo "  - Slack channel: ${SLACK}"
         echo "  - FOSSA licensing: ${FOSSA_LIC_MODE} (block on: ${FOSSA_LIC_BLOCK})"
