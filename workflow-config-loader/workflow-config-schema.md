@@ -20,6 +20,10 @@ This file may already exist in your repository for other build configuration. Th
   "secrets": {
     "vault": {
       // Vault configuration (optional, for private repos)
+      "url": "https://vault.example.com:8200",
+      "role": "github-actions-role",
+      "secret_path": "/path/to/secret",
+      "aws_role": "/path/to/aws/role"
     }
   },
   "container_scanning": {
@@ -46,14 +50,6 @@ This file may already exist in your repository for other build configuration. Th
       "project_id": "string or null",
       "team": "string",
       "labels": ["string"]
-    },
-    "secrets": {
-      "vault": {
-        "url": "https://vault.example.com:8200",
-        "role": "github-actions-role",
-        "secret_path": "/path/to/secret",
-        "aws_role": "/path/to/aws/role"
-      }
     }
   }
 }
