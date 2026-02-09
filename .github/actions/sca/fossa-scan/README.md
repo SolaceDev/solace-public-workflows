@@ -128,6 +128,7 @@ These parameters control the GitHub Action behavior and are not FOSSA CLI flags.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `fossa.skip_test` | flag | Skip the `fossa test` step after analyze (useful for container scans or when extending other FOSSA commands) |
+| `fossa.fail_on_issue` | flag | Allow `fossa test` to throw errors on policy violations |
 
 ### Common Parameters (analyze & test)
 

@@ -50,7 +50,7 @@ runs:
 
     - name: FOSSA - Scan Wait For Results
       if: ${{ env.SCA_FOSSA_SKIP_TEST != 'true' }}
-      continue-on-error: true
+      continue-on-error: ${{ env.SCA_FOSSA_FAIL_ON_ISSUE != 'true' }}
       shell: bash
       working-directory: ${{ env.SCA_FOSSA_PATH || '.' }}
       run: |
