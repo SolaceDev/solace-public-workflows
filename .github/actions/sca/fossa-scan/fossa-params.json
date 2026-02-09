@@ -12,6 +12,14 @@
       "example": "fossa.skip_test=true"
     },
     {
+      "env": "SCA_FOSSA_FAIL_ON_ISSUE",
+      "flag": "", 
+      "type": "flag",
+      "commands": [],
+      "description": "Allow 'fossa test' to throw errors on policy violations (action-specific, not a CLI flag; commands array intentionally left empty because this parameter does not map to any FOSSA CLI commands)",
+      "example": "fossa.fail_on_issue=true"
+    },
+    {
       "env": "SCA_FOSSA_DEBUG",
       "flag": "--debug",
       "type": "flag",
