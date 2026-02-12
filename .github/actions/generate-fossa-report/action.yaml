@@ -9,8 +9,12 @@ inputs:
     required: false
     default: "custom+48578"
   project_locator:
-    description: "The project locator for the FOSSA project (e.g., SolaceDev_solace-dotnet-serdes). This will be combined with org-id."
-    required: true
+    description: "The project locator for the FOSSA project (e.g., SolaceDev_solace-dotnet-serdes). This will be combined with org-id. If not provided, will be read from fossa_config_file."
+    required: false
+  fossa_config_file:
+    description: "Path to FOSSA config file to read project locator from (default: .fossa.yml). Used only if project_locator is not provided."
+    required: false
+    default: ".fossa.yml"
   revision_id:
     description: "The revision for the FOSSA project (e.g., latest, or a specific commit hash). The final revision ID sent to FOSSA will be in the format 'org-id/project-locator$revision-id'."
     required: true
@@ -39,7 +43,8 @@ runs:
     - |
       export FOSSA_API_KEY="$INPUT_FOSSA_API_KEY"
       export ORG_ID="$INPUT_ORG_ID"
-      export PROJECT_LOCATOR="$INPUT_PROJECT_LOCATOR"
+      if [ -n "$INPUT_PROJECT_LOCATOR" ]; then export PROJECT_LOCATOR="$INPUT_PROJECT_LOCATOR"; fi
+      export FOSSA_CONFIG_FILE="$INPUT_FOSSA_CONFIG_FILE"
       export REVISION_ID="$INPUT_REVISION_ID"
       export FORMAT="$INPUT_FORMAT"
       export OUTPUT_FILE="$INPUT_OUTPUT_FILE"
