@@ -36,7 +36,7 @@ inputs:
 
 runs:
   using: docker
-  image: docker://ghcr.io/solacedev/maas-build-actions:datago-120282_b
+  image: docker://ghcr.io/solacedev/maas-build-actions:latest
   entrypoint: /bin/sh
   args:
     - -c
