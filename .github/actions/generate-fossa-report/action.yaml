@@ -1,0 +1,56 @@
+name: Generate FOSSA Report
+description: Generate FOSSA attribution reports using the maas-build-actions Docker container.
+inputs:
+  fossa_api_key:
+    description: "FOSSA API Key"
+    required: true
+  org_id:
+    description: "The organization ID for FOSSA (e.g., custom+48578). Defaults to custom+48578 if not provided."
+    required: false
+    default: "custom+48578"
+  project_locator:
+    description: "The project locator for the FOSSA project (e.g., SolaceDev_solace-dotnet-serdes). This will be combined with org-id."
+    required: true
+  revision_id:
+    description: "The revision for the FOSSA project (e.g., latest, or a specific commit hash). The final revision ID sent to FOSSA will be in the format 'org-id/project-locator$revision-id'."
+    required: true
+  format:
+    description: "The format of the report to generate ('txt' or 'csv')."
+    required: true
+    default: "txt"
+  output_file:
+    description: "The output file path for the generated report."
+    required: true
+    default: "fossa-report.txt"
+  report_profile:
+    description: "Preset report profile: 'full' (default, comprehensive), 'standard' (common fields), or 'minimal' (basic info only)."
+    required: false
+    default: "full"
+  report_parameters:
+    description: "A JSON object of FOSSA report parameters for advanced customization. Overrides report-profile if provided."
+    required: false
+
+runs:
+  using: docker
+  image: docker://ghcr.io/solacedev/maas-build-actions:latest
+  entrypoint: /bin/sh
+  args:
+    - -c
+    - |
+      export FOSSA_API_KEY="$INPUT_FOSSA_API_KEY"
+      export ORG_ID="$INPUT_ORG_ID"
+      export PROJECT_LOCATOR="$INPUT_PROJECT_LOCATOR"
+      export REVISION_ID="$INPUT_REVISION_ID"
+      export FORMAT="$INPUT_FORMAT"
+      export OUTPUT_FILE="$INPUT_OUTPUT_FILE"
+      export REPORT_PROFILE="$INPUT_REPORT_PROFILE"
+      if [ -n "$INPUT_REPORT_PARAMETERS" ]; then export REPORT_PARAMETERS="$INPUT_REPORT_PARAMETERS"; fi
+
+      echo "Generating FOSSA report..."
+      echo "Project: $ORG_ID/$PROJECT_LOCATOR"
+      echo "Revision: $REVISION_ID"
+      echo "Format: $FORMAT"
+      echo "Profile: $REPORT_PROFILE"
+      echo "Output: $OUTPUT_FILE"
+
+      bash /maas-build-actions/actions/generate-fossa-report/generate-report.sh
