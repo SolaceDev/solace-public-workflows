@@ -1,6 +1,6 @@
 # Generate FOSSA Report Action
 
-This action generates and downloads FOSSA attribution reports using the `maas-build-actions` Docker container.
+This action generates and downloads FOSSA attribution reports.
 
 ## Usage
 
@@ -9,7 +9,7 @@ This action generates and downloads FOSSA attribution reports using the `maas-bu
   uses: ./.github/actions/generate-fossa-report
   with:
     fossa_api_key: ${{ secrets.FOSSA_API_KEY }}
-    project_locator: "SolaceDev_my-project"
+    project_locator: "my-project"
     revision_id: "1.0.0"
     format: "txt"
     output_file: "licenses/fossa-report.txt"
@@ -20,8 +20,8 @@ This action generates and downloads FOSSA attribution reports using the `maas-bu
 | Input               | Description                                                                                                                                        | Required | Default                                                |
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | ------------------------------------------------------ |
 | `fossa_api_key`     | Your FOSSA API Key. It is recommended to store this as a secret.                                                                                   | `true`   | N/A                                                  |
-| `org_id`            | The organization ID for FOSSA (e.g., `custom+48578`). This will be combined with `project_locator`.                                               | `false`  | `custom+48578`                                       |
-| `project_locator`   | The project locator for the FOSSA project (e.g., `SolaceDev_solace-dotnet-serdes`). If not provided, will be read from `fossa_config_file`.      | `false`  | N/A (reads from config if omitted)                  |
+| `org_id`            | The organization ID for FOSSA. This will be combined with `project_locator`.                                                                       | `false`  | (organization default)                               |
+| `project_locator`   | The project locator for the FOSSA project. If not provided, will be read from `fossa_config_file`.                                                | `false`  | N/A (reads from config if omitted)                  |
 | `fossa_config_file` | Path to FOSSA config file to read project locator from. Used only if `project_locator` is not provided.                                           | `false`  | `.fossa.yml`                                         |
 | `revision_id`       | The revision for the FOSSA project (e.g., `latest`, or a specific commit hash).                                                                    | `true`   | N/A                                                  |
 | `format`            | The format of the report to generate (`txt` or `csv`).                                                                                             | `true`   | `txt`                                                |
@@ -52,11 +52,11 @@ This action generates and downloads FOSSA attribution reports using the `maas-bu
 ### Basic Usage
 
 ```yaml
-- name: Generate Production License Report
+- name: Generate License Report
   uses: ./.github/actions/generate-fossa-report
   with:
     fossa_api_key: ${{ secrets.FOSSA_API_KEY }}
-    project_locator: "SolaceDev_solace-messaging-java-client"
+    project_locator: "my-java-client"
     revision_id: ${{ github.ref_name }}
     output_file: "licenses/LICENSE.txt"
 ```
@@ -79,14 +79,9 @@ If you have a `.fossa.yml` file in your repository, you can omit the `project_lo
 version: 3
 
 project:
-  name: "Solace Messaging API for Java"
-  locator: SolaceDev_solace-messaging-java-client
-  id: SolaceDev_solace-messaging-java-client
-
-  labels:
-    - EBP-API
-  teams:
-    - EBP-API
+  name: "My Project"
+  locator: my-project-name
+  id: my-project-name
 ```
 
 The action will look for `project.id` or `project.locator` in the FOSSA config file.
@@ -112,7 +107,7 @@ If your FOSSA config file is in a different location or has a different name:
   uses: ./.github/actions/generate-fossa-report
   with:
     fossa_api_key: ${{ secrets.FOSSA_API_KEY }}
-    project_locator: "SolaceDev_my-project"
+    project_locator: "my-project"
     revision_id: "1.0.0"
     report_profile: "minimal"
 
@@ -121,23 +116,11 @@ If your FOSSA config file is in a different location or has a different name:
   uses: ./.github/actions/generate-fossa-report
   with:
     fossa_api_key: ${{ secrets.FOSSA_API_KEY }}
-    project_locator: "SolaceDev_my-project"
+    project_locator: "my-project"
     revision_id: "1.0.0"
     format: "csv"
     output_file: "licenses/report.csv"
     report_profile: "standard"
-```
-
-### Custom Organization ID
-
-```yaml
-- name: Generate Report for Different Org
-  uses: ./.github/actions/generate-fossa-report
-  with:
-    fossa_api_key: ${{ secrets.FOSSA_API_KEY }}
-    org_id: "custom+99999"
-    project_locator: "my-project"
-    revision_id: "1.0.0"
 ```
 
 ### Advanced Customization with JSON
@@ -147,7 +130,7 @@ If your FOSSA config file is in a different location or has a different name:
   uses: ./.github/actions/generate-fossa-report
   with:
     fossa_api_key: ${{ secrets.FOSSA_API_KEY }}
-    project_locator: "SolaceDev_my-project"
+    project_locator: "my-project"
     revision_id: "1.0.0"
     report_parameters: |
       {
@@ -162,30 +145,6 @@ If your FOSSA config file is in a different location or has a different name:
         ]
       }
 ```
-
-### Backward Compatibility
-
-The action supports both old and new project locator formats:
-
-```yaml
-# Old format (still works)
-- uses: ./.github/actions/generate-fossa-report
-  with:
-    fossa_api_key: ${{ secrets.FOSSA_API_KEY }}
-    project_locator: "custom+48578/SolaceDev_my-project"
-    revision_id: "1.0.0"
-
-# New format (recommended)
-- uses: ./.github/actions/generate-fossa-report
-  with:
-    fossa_api_key: ${{ secrets.FOSSA_API_KEY }}
-    project_locator: "SolaceDev_my-project"
-    revision_id: "1.0.0"
-```
-
-## Docker Image
-
-This action uses the `ghcr.io/solacedev/maas-build-actions:latest` Docker image which contains all necessary dependencies and scripts.
 
 ## API Reference
 
