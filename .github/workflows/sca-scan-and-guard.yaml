@@ -260,6 +260,7 @@ jobs:
           CONFIG_VAULT_URL: ${{ steps.config_loader.outputs.vault_url }}
           CONFIG_VAULT_SECRET_PATH: ${{ steps.config_loader.outputs.vault_secret_path }}
           CONFIG_VAULT_ROLE: ${{ steps.config_loader.outputs.vault_role }}
+          CONFIG_VAULT_SECRET_MAPPINGS: ${{ steps.config_loader.outputs.vault_secret_mappings }}
           CONFIG_SLACK_CHANNEL: ${{ steps.config_loader.outputs.slack_channel }}
           CONFIG_FOSSA_LICENSING_MODE: ${{ steps.config_loader.outputs.fossa_licensing_mode }}
           CONFIG_FOSSA_LICENSING_BLOCK_ON: ${{ steps.config_loader.outputs.fossa_licensing_block_on }}
@@ -276,10 +277,14 @@ jobs:
             echo "vault_secret_path=${CONFIG_VAULT_SECRET_PATH}" >> $GITHUB_OUTPUT
             echo "vault_role=${CONFIG_VAULT_ROLE}" >> $GITHUB_OUTPUT
 
-            # Pass through vault_secret_mappings directly (already URL-encoded from config_loader)
+            # Debug: Show what we received from config_loader
+            echo "🔍 DEBUG: CONFIG_VAULT_SECRET_MAPPINGS length: ${#CONFIG_VAULT_SECRET_MAPPINGS}"
+            echo "🔍 DEBUG: First 100 chars: ${CONFIG_VAULT_SECRET_MAPPINGS:0:100}"
+
+            # Pass through vault_secret_mappings (already URL-encoded from config_loader)
             {
               echo "vault_secret_mappings<<EOF"
-              echo "${{ steps.config_loader.outputs.vault_secret_mappings }}"
+              echo "${CONFIG_VAULT_SECRET_MAPPINGS}"
               echo "EOF"
             } >> $GITHUB_OUTPUT
 
