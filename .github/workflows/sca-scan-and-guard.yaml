@@ -247,7 +247,7 @@ jobs:
       - name: Load Workflow Configuration
         if: inputs.config_file != ''
         id: config_loader
-        uses: SolaceDev/solace-public-workflows/workflow-config-loader@main
+        uses: SolaceDev/solace-public-workflows/workflow-config-loader@sca_setup
         with:
           config_file: ${{ inputs.config_file }}
           config_type: sca_scanning
