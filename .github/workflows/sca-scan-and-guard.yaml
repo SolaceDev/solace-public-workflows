@@ -344,6 +344,14 @@ jobs:
           echo "   URL: ${vault_url}"
           echo "   Role: ${vault_role}"
 
+      - name: Debug - Check vault_secret_mappings
+        shell: bash
+        run: |
+          echo "🔍 Debugging vault_secret_mappings:"
+          echo "inputs.vault_secrets: '${{ inputs.vault_secrets }}'"
+          echo "steps.config.outputs.vault_secret_mappings: '${{ steps.config.outputs.vault_secret_mappings }}'"
+          echo "Expression result: '${{ inputs.vault_secrets != '' && inputs.vault_secrets || steps.config.outputs.vault_secret_mappings }}'"
+
       - name: Retrieve Secrets from Vault
         id: vault_secrets
         if: inputs.use_vault == true
