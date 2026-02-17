@@ -23,7 +23,11 @@ This file may already exist in your repository for other build configuration. Th
       "url": "https://vault.example.com:8200",
       "role": "github-actions-role",
       "secret_path": "/path/to/secret",
-      "aws_role": "/path/to/aws/role"
+      "aws_role": "/path/to/aws/role",
+      "secret_mappings": [
+          "secret/data/project/maven username | MAVEN_USERNAME",
+          "secret/data/project/npm token | NPM_TOKEN"
+      ]
     }
   },
   "container_scanning": {
