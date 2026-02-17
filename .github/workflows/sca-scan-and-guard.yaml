@@ -281,8 +281,12 @@ jobs:
             echo "🔍 DEBUG: CONFIG_VAULT_SECRET_MAPPINGS length: ${#CONFIG_VAULT_SECRET_MAPPINGS}"
             echo "🔍 DEBUG: First 100 chars: ${CONFIG_VAULT_SECRET_MAPPINGS:0:100}"
 
-            # Pass through vault_secret_mappings (semicolon-separated format for vault-action)
-            echo "vault_secret_mappings=${CONFIG_VAULT_SECRET_MAPPINGS}" >> $GITHUB_OUTPUT
+            # Pass through vault_secret_mappings (multiline format with semicolons)
+            {
+              echo "vault_secret_mappings<<EOF"
+              echo "${CONFIG_VAULT_SECRET_MAPPINGS}"
+              echo "EOF"
+            } >> $GITHUB_OUTPUT
 
             echo "slack_channel=${CONFIG_SLACK_CHANNEL}" >> $GITHUB_OUTPUT
             echo "fossa_licensing_mode=${CONFIG_FOSSA_LICENSING_MODE}" >> $GITHUB_OUTPUT
@@ -365,7 +369,7 @@ jobs:
           jwtGithubAudience: https://github.com/${{ github.repository_owner }}
           exportToken: true
           secrets: |
-            ${{ steps.config.outputs.vault_secret_path }} FOSSA_FULL_API_TOKEN | FOSSA_API_KEY
+            ${{ steps.config.outputs.vault_secret_path }} FOSSA_FULL_API_TOKEN | FOSSA_API_KEY;
             ${{ inputs.vault_secrets != '' && inputs.vault_secrets || steps.config.outputs.vault_secret_mappings }}
 
       - name: Setup SCA Dependencies
