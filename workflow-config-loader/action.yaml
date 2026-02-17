@@ -115,8 +115,8 @@ runs:
         if [ -n "$SECRET_MAPPINGS" ] && [ "$SECRET_MAPPINGS" != "null" ]; then
           # Check if it's an array
           if echo "$SECRET_MAPPINGS" | jq -e 'type == "array"' > /dev/null; then
-             # Join array elements with semicolon + newline (vault-action format)
-             MAPPINGS_STRING=$(echo "$SECRET_MAPPINGS" | jq -r 'join(";\n")')
+             # Join array elements with space + semicolon + newline (vault-action format)
+             MAPPINGS_STRING=$(echo "$SECRET_MAPPINGS" | jq -r 'join(" ;\n")')
 
              # Use heredoc to preserve newlines in GitHub Actions output
              {

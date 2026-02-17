@@ -369,7 +369,7 @@ jobs:
           jwtGithubAudience: https://github.com/${{ github.repository_owner }}
           exportToken: true
           secrets: |
-            ${{ steps.config.outputs.vault_secret_path }} FOSSA_FULL_API_TOKEN | FOSSA_API_KEY;
+            ${{ steps.config.outputs.vault_secret_path }} FOSSA_FULL_API_TOKEN | FOSSA_API_KEY ;
             ${{ inputs.vault_secrets != '' && inputs.vault_secrets || steps.config.outputs.vault_secret_mappings }}
 
       - name: Setup SCA Dependencies
