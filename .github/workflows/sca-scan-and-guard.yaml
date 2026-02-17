@@ -281,12 +281,8 @@ jobs:
             echo "🔍 DEBUG: CONFIG_VAULT_SECRET_MAPPINGS length: ${#CONFIG_VAULT_SECRET_MAPPINGS}"
             echo "🔍 DEBUG: First 100 chars: ${CONFIG_VAULT_SECRET_MAPPINGS:0:100}"
 
-            # Pass through vault_secret_mappings (already URL-encoded from config_loader)
-            {
-              echo "vault_secret_mappings<<EOF"
-              echo "${CONFIG_VAULT_SECRET_MAPPINGS}"
-              echo "EOF"
-            } >> $GITHUB_OUTPUT
+            # Pass through vault_secret_mappings (semicolon-separated format for vault-action)
+            echo "vault_secret_mappings=${CONFIG_VAULT_SECRET_MAPPINGS}" >> $GITHUB_OUTPUT
 
             echo "slack_channel=${CONFIG_SLACK_CHANNEL}" >> $GITHUB_OUTPUT
             echo "fossa_licensing_mode=${CONFIG_FOSSA_LICENSING_MODE}" >> $GITHUB_OUTPUT
