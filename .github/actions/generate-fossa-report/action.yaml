@@ -9,15 +9,21 @@ inputs:
     required: false
     default: "custom+48578"
   project_locator:
-    description: "The project locator for the FOSSA project (e.g., SolaceDev_solace-dotnet-serdes). This will be combined with org-id. If not provided, will be read from fossa_config_file."
+    description: "The project locator for the FOSSA project (e.g., SolaceDev_solace-dotnet-serdes). This will be combined with org-id. Not used when release_group_id is provided."
     required: false
   fossa_config_file:
     description: "Path to FOSSA config file to read project locator from (default: .fossa.yml). Used only if project_locator is not provided."
     required: false
     default: ".fossa.yml"
   revision_id:
-    description: "The revision for the FOSSA project (e.g., latest, or a specific commit hash). The final revision ID sent to FOSSA will be in the format 'org-id/project-locator$revision-id'."
-    required: true
+    description: "The revision for the FOSSA project (e.g., latest, or a specific commit hash). Not used when release_group_id is provided."
+    required: false
+  release_group_id:
+    description: "FOSSA release group ID. When provided, generates a release group attribution report instead of a per-project report."
+    required: false
+  release_id:
+    description: "FOSSA release ID within the release group. Required when release_group_id is provided."
+    required: false
   format:
     description: "The format of the report to generate ('txt' or 'csv')."
     required: true
@@ -45,15 +51,22 @@ runs:
       export ORG_ID="$INPUT_ORG_ID"
       if [ -n "$INPUT_PROJECT_LOCATOR" ]; then export PROJECT_LOCATOR="$INPUT_PROJECT_LOCATOR"; fi
       export FOSSA_CONFIG_FILE="$INPUT_FOSSA_CONFIG_FILE"
-      export REVISION_ID="$INPUT_REVISION_ID"
+      if [ -n "$INPUT_REVISION_ID" ]; then export REVISION_ID="$INPUT_REVISION_ID"; fi
+      if [ -n "$INPUT_RELEASE_GROUP_ID" ]; then export RELEASE_GROUP_ID="$INPUT_RELEASE_GROUP_ID"; fi
+      if [ -n "$INPUT_RELEASE_ID" ]; then export RELEASE_ID="$INPUT_RELEASE_ID"; fi
       export FORMAT="$INPUT_FORMAT"
       export OUTPUT_FILE="$INPUT_OUTPUT_FILE"
       export REPORT_PROFILE="$INPUT_REPORT_PROFILE"
       if [ -n "$INPUT_REPORT_PARAMETERS" ]; then export REPORT_PARAMETERS="$INPUT_REPORT_PARAMETERS"; fi
 
       echo "Generating FOSSA report..."
-      echo "Project: $ORG_ID/$PROJECT_LOCATOR"
-      echo "Revision: $REVISION_ID"
+      if [ -n "$RELEASE_GROUP_ID" ]; then
+        echo "Release Group ID: $RELEASE_GROUP_ID"
+        echo "Release ID: $RELEASE_ID"
+      else
+        echo "Project: $ORG_ID/$PROJECT_LOCATOR"
+        echo "Revision: $REVISION_ID"
+      fi
       echo "Format: $FORMAT"
       echo "Profile: $REPORT_PROFILE"
       echo "Output: $OUTPUT_FILE"
