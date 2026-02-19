@@ -277,10 +277,6 @@ jobs:
             echo "vault_secret_path=${CONFIG_VAULT_SECRET_PATH}" >> $GITHUB_OUTPUT
             echo "vault_role=${CONFIG_VAULT_ROLE}" >> $GITHUB_OUTPUT
 
-            # Debug: Show what we received from config_loader
-            echo "🔍 DEBUG: CONFIG_VAULT_SECRET_MAPPINGS length: ${#CONFIG_VAULT_SECRET_MAPPINGS}"
-            echo "🔍 DEBUG: First 100 chars: ${CONFIG_VAULT_SECRET_MAPPINGS:0:100}"
-
             # Pass through vault_secret_mappings (multiline format with semicolons)
             {
               echo "vault_secret_mappings<<EOF"
@@ -348,14 +344,6 @@ jobs:
           echo "✅ Vault configuration validated"
           echo "   URL: ${vault_url}"
           echo "   Role: ${vault_role}"
-
-      - name: Debug - Check vault_secret_mappings
-        shell: bash
-        run: |
-          echo "🔍 Debugging vault_secret_mappings:"
-          echo "inputs.vault_secrets: '${{ inputs.vault_secrets }}'"
-          echo "steps.config.outputs.vault_secret_mappings: '${{ steps.config.outputs.vault_secret_mappings }}'"
-          echo "Expression result: '${{ inputs.vault_secrets != '' && inputs.vault_secrets || steps.config.outputs.vault_secret_mappings }}'"
 
       - name: Retrieve Secrets from Vault
         id: vault_secrets
