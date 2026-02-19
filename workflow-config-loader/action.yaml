@@ -26,6 +26,9 @@ outputs:
   vault_aws_role:
     description: "Vault AWS STS role path for ECR authentication"
     value: ${{ steps.parse.outputs.vault_aws_role }}
+  vault_secret_mappings:
+    description: "Formatted string of Vault secret mappings for hashicorp/vault-action"
+    value: ${{ steps.parse.outputs.vault_secret_mappings }}
   slack_channel:
     description: "Slack notification channel"
     value: ${{ steps.parse.outputs.slack_channel }}
@@ -104,6 +107,30 @@ runs:
         # Parse vault AWS role (for ECR authentication)
         VAULT_AWS_ROLE=$(echo "$CONFIG" | jq -r ".secrets.vault.aws_role // .${CONFIG_TYPE}.secrets.vault.aws_role // \"\"")
         echo "vault_aws_role=${VAULT_AWS_ROLE}" >> $GITHUB_OUTPUT
+
+        # Parse vault secret mappings
+        # Extract secret_mappings array
+        SECRET_MAPPINGS=$(echo "$CONFIG" | jq -c ".secrets.vault.secret_mappings // .${CONFIG_TYPE}.secrets.vault.secret_mappings // empty")
+
+        if [ -n "$SECRET_MAPPINGS" ] && [ "$SECRET_MAPPINGS" != "null" ]; then
+          # Check if it's an array
+          if echo "$SECRET_MAPPINGS" | jq -e 'type == "array"' > /dev/null; then
+             # Join array elements with space + semicolon + newline (vault-action format)
+             MAPPINGS_STRING=$(echo "$SECRET_MAPPINGS" | jq -r 'join(" ;\n")')
+
+             # Use heredoc to preserve newlines in GitHub Actions output
+             {
+               echo "vault_secret_mappings<<EOF"
+               echo "$MAPPINGS_STRING"
+               echo "EOF"
+             } >> $GITHUB_OUTPUT
+          else
+             echo "⚠️ secret_mappings found but not an array, ignoring."
+             echo "vault_secret_mappings=" >> $GITHUB_OUTPUT
+          fi
+        else
+          echo "vault_secret_mappings=" >> $GITHUB_OUTPUT
+        fi
 
         # Parse slack channel (from root or default)
         SLACK=$(echo "$CONFIG" | jq -r '.slack_channel // "#your-slack-channel"')

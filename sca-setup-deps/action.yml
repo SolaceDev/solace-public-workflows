@@ -1,0 +1,177 @@
+name: "Setup SCA Dependencies"
+description: "Centralized setup engine for SCA builds configuring environment, authentication, and dependencies."
+inputs:
+  setup_actions:
+    description: "JSON array of setup actions to perform (e.g., ['setup-java', 'maven-settings', 'setup-node'])"
+    required: false
+    default: '["setup-java", "maven-settings"]'
+
+  # Java/Maven Configuration
+  java_version:
+    description: "Java version"
+    required: false
+    default: "17"
+  java_distribution:
+    description: "Java distribution"
+    required: false
+    default: "temurin"
+  maven_settings_repositories:
+    description: "Maven repositories configuration (JSON)"
+    required: false
+  maven_settings_servers:
+    description: "Maven servers configuration (JSON)"
+    required: false
+  maven_build_command:
+    description: "Maven build command to run"
+    required: false
+    default: "mvn clean install -DskipTests"
+
+  # Node/NPM Configuration
+  node_version:
+    description: "Node version"
+    required: false
+    default: "20"
+  npm_registry_url:
+    description: "NPM registry URL"
+    required: false
+    default: "https://npm.pkg.github.com"
+  npm_auth_token:
+    description: "NPM auth token (Actual value, not env var name)"
+    required: false
+  npm_install_command:
+    description: "NPM install command to run"
+    required: false
+    default: "npm install"
+
+  # Python Configuration
+  python_version:
+    description: "Python version"
+    required: false
+    default: "3.10"
+  python_install_command:
+    description: "Python install command to run"
+    required: false
+    default: "pip install -r requirements.txt"
+
+  # .NET Configuration
+  dotnet_versions:
+    description: ".NET versions"
+    required: false
+    default: "6.0.x"
+  nuget_source_url:
+    description: "NuGet source URL"
+    required: false
+  nuget_auth_token:
+    description: "NuGet auth token"
+    required: false
+  dotnet_restore_command:
+    description: ".NET restore command to run"
+    required: false
+    default: "dotnet restore"
+
+  # Custom Script
+  custom_setup_script:
+    description: "Custom setup script content to execute"
+    required: false
+
+runs:
+  using: "composite"
+  steps:
+    # 1. Java/Maven
+    - name: Setup Java
+      if: contains(inputs.setup_actions, 'setup-java')
+      uses: actions/setup-java@17f84c3641ba7b8f6deff6309fc4c864478f5d62 # v3.14.1
+      with:
+        java-version: ${{ inputs.java_version }}
+        distribution: ${{ inputs.java_distribution }}
+        overwrite-settings: false
+
+    - name: Setup Maven Settings
+      if: contains(inputs.setup_actions, 'maven-settings')
+      uses: whelk-io/maven-settings-xml-action@9dc09b23833fa9aa7f27b63db287951856f3433d # v22
+      with:
+        repositories: ${{ inputs.maven_settings_repositories }}
+        servers: ${{ inputs.maven_settings_servers }}
+
+    - name: Maven Build
+      if: contains(inputs.setup_actions, 'maven-build')
+      shell: bash
+      run: |
+        echo "::group::Run Maven Build"
+        ${{ inputs.maven_build_command }}
+        echo "::endgroup::"
+
+    # 2. Node/NPM
+    - name: Setup Node.js
+      if: contains(inputs.setup_actions, 'setup-node')
+      uses: actions/setup-node@3235b876344d2a9aa001b8d1453c930bba69e610 # v3.9.1
+      with:
+        node-version: ${{ inputs.node_version }}
+        registry-url: ${{ inputs.npm_registry_url }}
+
+    - name: Configure NPM Auth
+      if: contains(inputs.setup_actions, 'npm-config') && inputs.npm_auth_token != ''
+      shell: bash
+      run: |
+        echo "::group::Configure NPM Auth"
+        echo "//npm.pkg.github.com/:_authToken=${{ inputs.npm_auth_token }}" >> .npmrc
+        echo "::endgroup::"
+
+    - name: Run NPM Install
+      if: contains(inputs.setup_actions, 'npm-config')
+      shell: bash
+      run: |
+        echo "::group::Run NPM Install"
+        ${{ inputs.npm_install_command }}
+        echo "::endgroup::"
+
+    # 3. Python
+    - name: Setup Python
+      if: contains(inputs.setup_actions, 'setup-python')
+      uses: actions/setup-python@7f4fc3e22c37d6ff65e88745f38bd3157c663f7c # v4.9.1
+      with:
+        python-version: ${{ inputs.python_version }}
+
+    - name: Python Install
+      if: contains(inputs.setup_actions, 'python-install')
+      shell: bash
+      run: |
+        echo "::group::Run Python Install"
+        ${{ inputs.python_install_command }}
+        echo "::endgroup::"
+
+    # 4. .NET
+    - name: Setup .NET
+      if: contains(inputs.setup_actions, 'setup-dotnet')
+      uses: actions/setup-dotnet@55ec9447dda3d1cf6bd587150f3262f30ee10815 # v3.4.2
+      with:
+        dotnet-version: ${{ inputs.dotnet_versions }}
+
+    - name: Add NuGet Source
+      if: contains(inputs.setup_actions, 'dotnet-nuget-config') && inputs.nuget_source_url != ''
+      shell: bash
+      run: |
+        echo "::group::Add NuGet Source"
+        if [ -n "${{ inputs.nuget_auth_token }}" ]; then
+           dotnet nuget add source "${{ inputs.nuget_source_url }}" -n "CustomSource" -u "user" -p "${{ inputs.nuget_auth_token }}" --store-password-in-clear-text
+        else
+           dotnet nuget add source "${{ inputs.nuget_source_url }}" -n "CustomSource"
+        fi
+        echo "::endgroup::"
+
+    - name: .NET Restore
+      if: contains(inputs.setup_actions, 'dotnet-restore')
+      shell: bash
+      run: |
+        echo "::group::Run .NET Restore"
+        ${{ inputs.dotnet_restore_command }}
+        echo "::endgroup::"
+
+    # 5. Custom Script
+    - name: Run Custom Setup Script
+      if: contains(inputs.setup_actions, 'custom-script') && inputs.custom_setup_script != ''
+      shell: bash
+      run: |
+        echo "::group::Run Custom Setup Script"
+        ${{ inputs.custom_setup_script }}
+        echo "::endgroup::"

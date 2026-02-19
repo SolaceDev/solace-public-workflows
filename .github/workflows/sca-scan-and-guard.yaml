@@ -45,6 +45,79 @@ on:
         type: string
         default: ''
 
+      # Dependency Setup Configuration
+      setup_actions:
+        description: "JSON array of setup actions to perform (e.g., ['setup-java', 'maven-settings'])"
+        required: false
+        type: string
+        default: ''
+      vault_secrets:
+        description: "Multiline string of secrets to retrieve from Vault (format: secret/path KEY | ENV_VAR)"
+        required: false
+        type: string
+        default: ''
+      custom_setup_script:
+        description: "Custom setup script to execute before scan"
+        required: false
+        type: string
+        default: ''
+
+      # Language Versions
+      java_version:
+        description: "Java version"
+        required: false
+        type: string
+        default: "17"
+      node_version:
+        description: "Node version"
+        required: false
+        type: string
+        default: "20"
+      python_version:
+        description: "Python version"
+        required: false
+        type: string
+        default: "3.10"
+      dotnet_versions:
+        description: ".NET versions (e.g. 6.0.x)"
+        required: false
+        type: string
+        default: "6.0.x"
+
+      # Build/Install Commands
+      maven_build_command:
+        description: "Maven build command"
+        required: false
+        type: string
+        default: "mvn clean install -DskipTests"
+      npm_install_command:
+        description: "NPM install command"
+        required: false
+        type: string
+        default: "npm install"
+      python_install_command:
+        description: "Python install command"
+        required: false
+        type: string
+        default: "pip install -r requirements.txt"
+      dotnet_restore_command:
+        description: ".NET restore command"
+        required: false
+        type: string
+        default: "dotnet restore"
+
+      # Maven Configuration
+      maven_settings_repositories:
+        description: "Maven repositories configuration (JSON)"
+        required: false
+        type: string
+        default: ''
+      maven_settings_servers:
+        description: "Maven servers configuration (JSON)"
+        required: false
+        type: string
+        default: ''
+
     secrets:
       FOSSA_API_KEY:
         description: 'FOSSA API key (required if use_vault is false)'
@@ -174,7 +247,7 @@ jobs:
       - name: Load Workflow Configuration
         if: inputs.config_file != ''
         id: config_loader
-        uses: SolaceDev/solace-public-workflows/workflow-config-loader@main
+        uses: SolaceDev/solace-public-workflows/workflow-config-loader@sca_setup
         with:
           config_file: ${{ inputs.config_file }}
           config_type: sca_scanning
@@ -187,6 +260,7 @@ jobs:
           CONFIG_VAULT_URL: ${{ steps.config_loader.outputs.vault_url }}
           CONFIG_VAULT_SECRET_PATH: ${{ steps.config_loader.outputs.vault_secret_path }}
           CONFIG_VAULT_ROLE: ${{ steps.config_loader.outputs.vault_role }}
+          CONFIG_VAULT_SECRET_MAPPINGS: ${{ steps.config_loader.outputs.vault_secret_mappings }}
           CONFIG_SLACK_CHANNEL: ${{ steps.config_loader.outputs.slack_channel }}
           CONFIG_FOSSA_LICENSING_MODE: ${{ steps.config_loader.outputs.fossa_licensing_mode }}
           CONFIG_FOSSA_LICENSING_BLOCK_ON: ${{ steps.config_loader.outputs.fossa_licensing_block_on }}
@@ -202,6 +276,14 @@ jobs:
             echo "vault_url=${CONFIG_VAULT_URL}" >> $GITHUB_OUTPUT
             echo "vault_secret_path=${CONFIG_VAULT_SECRET_PATH}" >> $GITHUB_OUTPUT
             echo "vault_role=${CONFIG_VAULT_ROLE}" >> $GITHUB_OUTPUT
+
+            # Pass through vault_secret_mappings (multiline format with semicolons)
+            {
+              echo "vault_secret_mappings<<EOF"
+              echo "${CONFIG_VAULT_SECRET_MAPPINGS}"
+              echo "EOF"
+            } >> $GITHUB_OUTPUT
+
             echo "slack_channel=${CONFIG_SLACK_CHANNEL}" >> $GITHUB_OUTPUT
             echo "fossa_licensing_mode=${CONFIG_FOSSA_LICENSING_MODE}" >> $GITHUB_OUTPUT
             echo "fossa_licensing_block_on=${CONFIG_FOSSA_LICENSING_BLOCK_ON}" >> $GITHUB_OUTPUT
@@ -215,6 +297,7 @@ jobs:
             echo "vault_url=" >> $GITHUB_OUTPUT
             echo "vault_secret_path=" >> $GITHUB_OUTPUT
             echo "vault_role=" >> $GITHUB_OUTPUT
+            echo "vault_secret_mappings=" >> $GITHUB_OUTPUT
             echo "slack_channel=" >> $GITHUB_OUTPUT
             echo "fossa_licensing_mode=REPORT" >> $GITHUB_OUTPUT
             echo "fossa_licensing_block_on=policy_conflict" >> $GITHUB_OUTPUT
@@ -262,7 +345,7 @@ jobs:
           echo "   URL: ${vault_url}"
           echo "   Role: ${vault_role}"
 
-      - name: Retrieve FOSSA API key from Vault
+      - name: Retrieve Secrets from Vault
         id: vault_secrets
         if: inputs.use_vault == true
         uses: hashicorp/vault-action@4c06c5ccf5c0761b6029f56cfb1dcf5565918a3b # v3.4.0
@@ -274,8 +357,27 @@ jobs:
           jwtGithubAudience: https://github.com/${{ github.repository_owner }}
           exportToken: true
           secrets: |
-            ${{ steps.config.outputs.vault_secret_path }} FOSSA_FULL_API_TOKEN | FOSSA_API_KEY
+            ${{ steps.config.outputs.vault_secret_path }} FOSSA_FULL_API_TOKEN | FOSSA_API_KEY ;
+            ${{ inputs.vault_secrets != '' && inputs.vault_secrets || steps.config.outputs.vault_secret_mappings }}
 
+      - name: Setup SCA Dependencies
+        id: setup_deps
+        uses: SolaceDev/solace-public-workflows/sca-setup-deps@sca_setup
+        with:
+          setup_actions: ${{ inputs.setup_actions }}
+          java_version: ${{ inputs.java_version }}
+          maven_settings_repositories: ${{ inputs.maven_settings_repositories }}
+          maven_settings_servers: ${{ inputs.maven_settings_servers }}
+          maven_build_command: ${{ inputs.maven_build_command }}
+          node_version: ${{ inputs.node_version }}
+          npm_auth_token: ${{ secrets.GITHUB_TOKEN }}
+          npm_install_command: ${{ inputs.npm_install_command }}
+          python_version: ${{ inputs.python_version }}
+          python_install_command: ${{ inputs.python_install_command }}
+          dotnet_versions: ${{ inputs.dotnet_versions }}
+          nuget_auth_token: ${{ secrets.GITHUB_TOKEN }}
+          dotnet_restore_command: ${{ inputs.dotnet_restore_command }}
+          custom_setup_script: ${{ inputs.custom_setup_script }}
       - name: Validate FOSSA API Key
         id: fossa_key
         shell: bash
