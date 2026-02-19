@@ -50,7 +50,7 @@ on:
         description: "JSON array of setup actions to perform (e.g., ['setup-java', 'maven-settings'])"
         required: false
         type: string
-        default: '["setup-java", "maven-settings"]'
+        default: ''
       vault_secrets:
         description: "Multiline string of secrets to retrieve from Vault (format: secret/path KEY | ENV_VAR)"
         required: false
