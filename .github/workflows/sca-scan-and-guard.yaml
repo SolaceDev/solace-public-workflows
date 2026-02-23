@@ -362,7 +362,7 @@ jobs:
 
       - name: Setup SCA Dependencies
         id: setup_deps
-        uses: SolaceDev/solace-public-workflows/sca-setup-deps@sca_setup
+        uses: SolaceDev/solace-public-workflows/sca-setup-deps@main
         with:
           setup_actions: ${{ inputs.setup_actions }}
           java_version: ${{ inputs.java_version }}
