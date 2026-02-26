@@ -42,7 +42,7 @@ runs:
 
     - name: Install Hatch
       shell: bash
-      run: uv tool install hatch
+      run: uv tool install --with virtualenv==20.26.6 hatch
 
     - name: Create Hatch Environment
       shell: bash
