@@ -26,6 +26,14 @@ inputs:
     description: "Whether to publish scan results to Prisma Cloud Console"
     required: false
     default: "true"
+  block_on_compliance:
+    description: "Block release on compliance issues (high/critical)"
+    required: false
+    default: "false"
+  vulnerability_grace_period_days:
+    description: "Grace period in days for new vulnerabilities before blocking (0 to block immediately)"
+    required: false
+    default: "7"
 
 outputs:
   scan_passed:
@@ -160,6 +168,16 @@ runs:
       run: |
         echo "📊 Analyzing Prisma Cloud scan results..."
 
+        # Configuration
+        BLOCK_ON_COMPLIANCE="${{ inputs.block_on_compliance }}"
+        GRACE_PERIOD_DAYS="${{ inputs.vulnerability_grace_period_days }}"
+        GRACE_PERIOD_SECONDS=$((GRACE_PERIOD_DAYS * 86400))
+        CURRENT_TIMESTAMP=$(date +%s)
+
+        echo "Configuration:"
+        echo "  Block on compliance: $BLOCK_ON_COMPLIANCE"
+        echo "  Vulnerability grace period: $GRACE_PERIOD_DAYS days"
+
         # Check if JSON is valid
         if ! jq empty pcc_scan_results.json 2>/dev/null; then
           echo "❌ Error: Invalid JSON in scan results file"
@@ -206,33 +224,87 @@ runs:
         COMPLIANCE_MEDIUM=${COMPLIANCE_MEDIUM:-0}
         COMPLIANCE_LOW=${COMPLIANCE_LOW:-0}
 
+        # Count vulnerabilities that are past the grace period
+        # Filter by published date - only block on vulnerabilities older than grace period
+        BLOCKING_VULN_CRITICAL=0
+        BLOCKING_VULN_HIGH=0
+        
+        if [ "$GRACE_PERIOD_DAYS" -gt 0 ]; then
+          # Count critical vulnerabilities past grace period
+          BLOCKING_VULN_CRITICAL=$(jq --arg grace "$GRACE_PERIOD_SECONDS" --arg now "$CURRENT_TIMESTAMP" '
+            [.results[0].vulnerabilities[]? | 
+              select((.severity == "critical" or .severity == "Critical") and 
+                     ((.publishedDate // 0) | if type == "number" then . else (. | split("T")[0] | strptime("%Y-%m-%d") | mktime) end) < ($now | tonumber) - ($grace | tonumber))
+            ] | length' pcc_scan_results.json 2>/dev/null || echo "$VULN_CRITICAL")
+          
+          # Count high vulnerabilities past grace period
+          BLOCKING_VULN_HIGH=$(jq --arg grace "$GRACE_PERIOD_SECONDS" --arg now "$CURRENT_TIMESTAMP" '
+            [.results[0].vulnerabilities[]? | 
+              select((.severity == "high" or .severity == "High") and 
+                     ((.publishedDate // 0) | if type == "number" then . else (. | split("T")[0] | strptime("%Y-%m-%d") | mktime) end) < ($now | tonumber) - ($grace | tonumber))
+            ] | length' pcc_scan_results.json 2>/dev/null || echo "$VULN_HIGH")
+          
+          GRACE_VULN_CRITICAL=$((VULN_CRITICAL - BLOCKING_VULN_CRITICAL))
+          GRACE_VULN_HIGH=$((VULN_HIGH - BLOCKING_VULN_HIGH))
+        else
+          BLOCKING_VULN_CRITICAL=$VULN_CRITICAL
+          BLOCKING_VULN_HIGH=$VULN_HIGH
+          GRACE_VULN_CRITICAL=0
+          GRACE_VULN_HIGH=0
+        fi
+
         # Display summary
         echo "=========================================="
         echo "Prisma Cloud Scan Results Summary"
         echo "=========================================="
         echo "Vulnerabilities:"
-        echo "  Critical: $VULN_CRITICAL"
-        echo "  High:     $VULN_HIGH"
+        echo "  Critical: $VULN_CRITICAL (blocking: $BLOCKING_VULN_CRITICAL, in grace period: $GRACE_VULN_CRITICAL)"
+        echo "  High:     $VULN_HIGH (blocking: $BLOCKING_VULN_HIGH, in grace period: $GRACE_VULN_HIGH)"
         echo "  Medium:   $VULN_MEDIUM"
         echo "  Low:      $VULN_LOW"
         echo ""
-        echo "Compliance Issues:"
+        echo "Compliance Issues (block_on_compliance=$BLOCK_ON_COMPLIANCE):"
         echo "  Critical: $COMPLIANCE_CRITICAL"
         echo "  High:     $COMPLIANCE_HIGH"
         echo "  Medium:   $COMPLIANCE_MEDIUM"
         echo "  Low:      $COMPLIANCE_LOW"
         echo "=========================================="
 
-        # Block on critical or high severity issues
+        # Block on critical or high severity vulnerabilities (past grace period only)
         BLOCKING_ISSUES=0
-        if [ "$VULN_CRITICAL" -gt 0 ] || [ "$COMPLIANCE_CRITICAL" -gt 0 ]; then
-          echo "❌ BLOCKING: Found $VULN_CRITICAL critical vulnerabilities and $COMPLIANCE_CRITICAL critical compliance issues"
+        
+        if [ "$BLOCKING_VULN_CRITICAL" -gt 0 ]; then
+          echo "❌ BLOCKING: Found $BLOCKING_VULN_CRITICAL critical vulnerabilities past ${GRACE_PERIOD_DAYS}-day grace period"
           BLOCKING_ISSUES=1
         fi
 
-        if [ "$VULN_HIGH" -gt 0 ] || [ "$COMPLIANCE_HIGH" -gt 0 ]; then
-          echo "❌ BLOCKING: Found $VULN_HIGH high severity vulnerabilities and $COMPLIANCE_HIGH high severity compliance issues"
+        if [ "$BLOCKING_VULN_HIGH" -gt 0 ]; then
+          echo "❌ BLOCKING: Found $BLOCKING_VULN_HIGH high severity vulnerabilities past ${GRACE_PERIOD_DAYS}-day grace period"
           BLOCKING_ISSUES=1
+        fi
+
+        # Only block on compliance if explicitly enabled
+        if [ "$BLOCK_ON_COMPLIANCE" = "true" ]; then
+          if [ "$COMPLIANCE_CRITICAL" -gt 0 ]; then
+            echo "❌ BLOCKING: Found $COMPLIANCE_CRITICAL critical compliance issues"
+            BLOCKING_ISSUES=1
+          fi
+
+          if [ "$COMPLIANCE_HIGH" -gt 0 ]; then
+            echo "❌ BLOCKING: Found $COMPLIANCE_HIGH high severity compliance issues"
+            BLOCKING_ISSUES=1
+          fi
+        else
+          if [ "$COMPLIANCE_CRITICAL" -gt 0 ] || [ "$COMPLIANCE_HIGH" -gt 0 ]; then
+            echo "⚠️ WARNING: Found compliance issues but blocking is disabled (block_on_compliance=false)"
+          fi
+        fi
+
+        # Report vulnerabilities in grace period
+        if [ "$GRACE_VULN_CRITICAL" -gt 0 ] || [ "$GRACE_VULN_HIGH" -gt 0 ]; then
+          echo ""
+          echo "ℹ️ INFO: $GRACE_VULN_CRITICAL critical and $GRACE_VULN_HIGH high vulnerabilities are within the ${GRACE_PERIOD_DAYS}-day grace period"
+          echo "   These will become blocking after the grace period expires."
         fi
 
         if [ "$BLOCKING_ISSUES" -eq 1 ]; then

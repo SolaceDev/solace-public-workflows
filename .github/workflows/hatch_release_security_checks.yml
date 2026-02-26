@@ -3,16 +3,6 @@ name: Release Security Checks
 on:
   workflow_call:
     inputs:
-      whitesource_product_name:
-        type: string
-        required: false
-        default: ""
-        description: "Whitesource product name"
-      whitesource_project_name:
-        type: string
-        required: false
-        default: ""
-        description: "Whitesource project name"
       prisma_check:
         type: boolean
         required: false
@@ -29,9 +19,6 @@ on:
         default: false
         description: "Run FOSSA Check"
     secrets:
-      WHITESOURCE_API_KEY:
-        description: "Whitesource API key"
-        required: false
       MANIFEST_AWS_REGION:
         description: "AWS region for the manifest"
         required: false
@@ -107,59 +94,6 @@ jobs:
           fossa_category: vulnerability
           fossa_mode: BLOCK
           block_on: critical,high
-
-      - name: Run WhiteSource Policy Gate
-        if: ${{ inputs.whitesource_product_name != '' && inputs.whitesource_project_name != '' }}
-        uses: docker://ghcr.io/solacedev/maas-build-actions:latest
-        env:
-          WS_API_KEY: ${{ secrets.WHITESOURCE_API_KEY }}
-          WS_PRODUCT_NAME: ${{ inputs.whitesource_product_name }}
-          WS_PROJECT_NAME: ${{ inputs.whitesource_project_name }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.MANIFEST_AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.MANIFEST_AWS_SECRET_ACCESS_KEY }}
-          WS_BLOCKING_POLICY_VIOLATION_LEVELS: "Major,Minor"
-          FAIL_IF_POLICY_VIOLATIONS_FOUND: "True"
-          AWS_REGION: ${{ secrets.MANIFEST_AWS_REGION }}
-          STATUS_CHECK: "True"
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_ORG: ${{ github.repository_owner }}
-          GH_REPO: ${{ github.event.repository.name }}
-          GITHUB_SHA: ${{ github.sha }}
-        with:
-          entrypoint: /bin/sh
-          args: >
-            -c "
-            . $VIRTUAL_ENV/bin/activate &&
-            cd $ACTIONS_PATH/whitesource-policy-violation-checker &&
-            python whitesource_policy_violation_checker.py
-            "
-
-      - name: Run WhiteSource Vulnerability Gate
-        if: ${{ inputs.whitesource_product_name != '' && inputs.whitesource_project_name != '' }}
-        uses: docker://ghcr.io/solacedev/maas-build-actions:latest
-        env:
-          WS_API_KEY: ${{ secrets.WHITESOURCE_API_KEY }}
-          WS_PRODUCT_NAME: ${{ inputs.whitesource_product_name }}
-          WS_PROJECT_NAME: ${{ inputs.whitesource_project_name }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.MANIFEST_AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.MANIFEST_AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: ${{ secrets.MANIFEST_AWS_REGION }}
-          WS_JIRA_CHECK: "True"
-          JIRA_ONLY: "True"
-          STATUS_CHECK: "True"
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_ORG: ${{ github.repository_owner }}
-          GH_REPO: ${{ github.event.repository.name }}
-          GITHUB_SHA: ${{ github.sha }}
-        with:
-          entrypoint: /bin/sh
-          args: >
-            -c ". $VIRTUAL_ENV/bin/activate &&
-            cd $ACTIONS_PATH/whitesource-vulnerability-checker &&
-            python whitesource_vulnerability_checker.py
-            "
 
       - name: Run Prisma Check
         if: ${{ fromJson(inputs.prisma_check) }}
