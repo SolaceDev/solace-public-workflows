@@ -35,7 +35,7 @@ inputs:
   report_profile:
     description: "Preset report profile: 'full' (default, comprehensive), 'standard' (common fields), or 'minimal' (basic info only)."
     required: false
-    default: "full"
+    default: "standard"
   report_parameters:
     description: "A JSON object of FOSSA report parameters for advanced customization. Overrides report-profile if provided."
     required: false
