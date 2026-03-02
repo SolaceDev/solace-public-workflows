@@ -18,37 +18,28 @@ runs:
   steps:
     - name: Check if PR creator is in team
       id: check-team
-      uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
-      with:
-        github-token: ${{ inputs.github-token }}
-        script: |
-          const teamSlug = '${{ inputs.github_team_slug }}';
-          const org = context.repo.owner;
-          const prCreator = context.payload.pull_request.user.login;
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        echo "🔍 Checking team membership for PR creator..."
 
-          console.log(`🔍 Checking team membership for PR creator...`);
-          console.log(`  - Team slug: ${teamSlug}`);
-          console.log(`  - PR creator: ${prCreator}`);
-          console.log(`  - Organization: ${org}`);
+        TEAM_SLUG="${{ inputs.github_team_slug }}"
+        PR_CREATOR="${{ github.event.pull_request.user.login }}"
+        ORG="${{ github.repository_owner }}"
 
-          try {
-            const { data } = await github.rest.teams.getMembershipForUserInOrg({
-              org: org,
-              team_slug: teamSlug,
-              username: prCreator
-            });
+        echo "  - Team slug: $TEAM_SLUG"
+        echo "  - PR creator: $PR_CREATOR"
+        echo "  - Organization: $ORG"
 
-            core.setOutput('is_member', 'true');
-            console.log(`✅ PR creator is a member of the team`);
-          } catch (error) {
-            if (error.status === 404) {
-              core.setOutput('is_member', 'false');
-              console.log(`⚠️  PR creator is not a member of the team`);
-            } else {
-              console.log(`⚠️  Could not verify team membership (${error.message}), assuming external contributor`);
-              core.setOutput('is_member', 'false');
-            }
-          }
+        # Check if user is a member of the team
+        if gh api orgs/$ORG/teams/$TEAM_SLUG/memberships/$PR_CREATOR -q '.state' > /dev/null 2>&1; then
+          echo "is_member=true" >> $GITHUB_OUTPUT
+          echo "✅ PR creator is a member of the team"
+        else
+          echo "is_member=false" >> $GITHUB_OUTPUT
+          echo "⚠️  PR creator is not a member of the team"
+        fi
 
     - name: Add external contributor label
       if: steps.check-team.outputs.is_member == 'false'
