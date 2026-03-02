@@ -53,6 +53,12 @@ inputs:
     required: false
     default: "pip install -r requirements.txt"
 
+  # uv Configuration
+  uv_version:
+    description: "uv version to install (leave empty for latest)"
+    required: false
+    default: ""
+
   # .NET Configuration
   dotnet_versions:
     description: ".NET versions"
@@ -140,7 +146,14 @@ runs:
         ${{ inputs.python_install_command }}
         echo "::endgroup::"
 
-    # 4. .NET
+    # 4. uv
+    - name: Setup uv
+      if: contains(inputs.setup_actions, 'setup-uv')
+      uses: astral-sh/setup-uv@1e862dfacbd1d6d858c55d9b792c756523627244 # v7.1.4
+      with:
+        version: ${{ inputs.uv_version != '' && inputs.uv_version || 'latest' }}
+
+    # 5. .NET
     - name: Setup .NET
       if: contains(inputs.setup_actions, 'setup-dotnet')
       uses: actions/setup-dotnet@55ec9447dda3d1cf6bd587150f3262f30ee10815 # v3.4.2
@@ -167,7 +180,7 @@ runs:
         ${{ inputs.dotnet_restore_command }}
         echo "::endgroup::"
 
-    # 5. Custom Script
+    # 6. Custom Script
     - name: Run Custom Setup Script
       if: contains(inputs.setup_actions, 'custom-script') && inputs.custom_setup_script != ''
       shell: bash

@@ -313,6 +313,7 @@ jobs:
 
 ## Related Documentation
 
+- [SCA Setup Dependencies](../../../sca-setup-deps/README.md) — Set up build environments (Java, Node, Python, .NET) before source-code SCA scanning
 - [Workflow Config Loader](../../../workflow-config-loader/README.md)
 - [Container Scan Action](../../../container/container-scan/README.md)
 - [Container FOSSA Scan](../../../container/fossa-scan/README.md)

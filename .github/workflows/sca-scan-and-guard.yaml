@@ -86,25 +86,25 @@ on:
 
       # Build/Install Commands
       maven_build_command:
-        description: "Maven build command"
+        description: "Maven build command (default: 'mvn clean install -DskipTests')"
         required: false
         type: string
-        default: "mvn clean install -DskipTests"
+        default: ''
       npm_install_command:
-        description: "NPM install command"
+        description: "NPM install command (default: 'npm install')"
         required: false
         type: string
-        default: "npm install"
+        default: ''
       python_install_command:
-        description: "Python install command"
+        description: "Python install command (default: 'pip install -r requirements.txt')"
         required: false
         type: string
-        default: "pip install -r requirements.txt"
+        default: ''
       dotnet_restore_command:
-        description: ".NET restore command"
+        description: ".NET restore command (default: 'dotnet restore')"
         required: false
         type: string
-        default: "dotnet restore"
+        default: ''
 
       # Maven Configuration
       maven_settings_repositories:
