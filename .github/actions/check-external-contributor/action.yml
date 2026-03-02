@@ -1,0 +1,61 @@
+name: Check External Contributor
+description: Checks if PR creator is in a GitHub team and adds a label if not
+
+inputs:
+  github_team_slug:
+    description: "GitHub team slug to check membership against (e.g., 'solace-ai')"
+    required: true
+  label_name:
+    description: "Label to add to PR if creator is not in the team"
+    required: false
+    default: "external contributor"
+  github-token:
+    description: "GitHub token for API access"
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Check if PR creator is in team
+      id: check-team
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        echo "🔍 Checking team membership for PR creator..."
+
+        TEAM_SLUG="${{ inputs.github_team_slug }}"
+        PR_CREATOR="${{ github.event.pull_request.user.login }}"
+        ORG="${{ github.repository_owner }}"
+
+        echo "  - Team slug: $TEAM_SLUG"
+        echo "  - PR creator: $PR_CREATOR"
+        echo "  - Organization: $ORG"
+
+        # Check if user is a member of the team
+        if gh api orgs/$ORG/teams/$TEAM_SLUG/memberships/$PR_CREATOR -q '.state' > /dev/null 2>&1; then
+          echo "is_member=true" >> $GITHUB_OUTPUT
+          echo "✅ PR creator is a member of the team"
+        else
+          echo "is_member=false" >> $GITHUB_OUTPUT
+          echo "⚠️  PR creator is not a member of the team"
+        fi
+
+    - name: Add external contributor label
+      if: steps.check-team.outputs.is_member == 'false'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        LABEL_NAME: ${{ inputs.label_name }}
+      run: |
+        LABEL_NAME="${{ inputs.label_name }}"
+        REPO="${{ github.repository }}"
+        PR_NUMBER="${{ github.event.pull_request.number }}"
+
+        echo "🏷️  Adding label '$LABEL_NAME' to PR #$PR_NUMBER..."
+
+        gh issue edit $PR_NUMBER \
+          --repo "$REPO" \
+          --add-label "$LABEL_NAME"
+
+        echo "✅ Added label '$LABEL_NAME' to PR #$PR_NUMBER"
