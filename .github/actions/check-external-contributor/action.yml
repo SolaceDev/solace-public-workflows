@@ -43,19 +43,20 @@ runs:
 
     - name: Add external contributor label
       if: steps.check-team.outputs.is_member == 'false'
-      shell: bash
-      env:
-        GH_TOKEN: ${{ inputs.github-token }}
-        LABEL_NAME: ${{ inputs.label_name }}
-      run: |
-        LABEL_NAME="${{ inputs.label_name }}"
-        REPO="${{ github.repository }}"
-        PR_NUMBER="${{ github.event.pull_request.number }}"
+      uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const labelName = '${{ inputs.label_name }}';
+          const prNumber = context.issue.number;
 
-        echo "🏷️  Adding label '$LABEL_NAME' to PR #$PR_NUMBER..."
+          console.log(`🏷️  Adding label "${labelName}" to PR #${prNumber}...`);
 
-        gh issue edit $PR_NUMBER \
-          --repo "$REPO" \
-          --add-label "$LABEL_NAME"
+          await github.rest.issues.addLabels({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: prNumber,
+            labels: [labelName]
+          });
 
-        echo "✅ Added label '$LABEL_NAME' to PR #$PR_NUMBER"
+          console.log(`✅ Added label "${labelName}" to PR #${prNumber}`);
