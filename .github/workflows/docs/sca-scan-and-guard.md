@@ -109,24 +109,27 @@ These inputs configure the build environment before FOSSA runs. See [SCA Setup D
 |-------|----------|---------|-------------|
 | `setup_actions` | No | `'["setup-java", "maven-settings"]'` | JSON array of setup steps to run |
 | `vault_secrets` | No | (empty) | Multiline Vault secret mappings (`secret/path KEY \| ENV_VAR`) |
-| `custom_setup_script` | No | (empty) | Custom bash script to run before the scan |
+| `custom_setup_script` | No | (empty) | Bash script for build/install commands (e.g. `mvn clean install -DskipTests`, `npm ci`, `pip install -r requirements.txt`, `dotnet restore`) |
 | `java_version` | No | `"17"` | Java version |
+| `java_distribution` | No | `"temurin"` | Java distribution |
 | `node_version` | No | `"20"` | Node.js version |
+| `npm_registry_url` | No | `"https://npm.pkg.github.com"` | NPM registry URL |
 | `python_version` | No | `"3.10"` | Python version |
+| `uv_version` | No | latest | uv version to install |
 | `dotnet_versions` | No | `"6.0.x"` | .NET SDK versions |
-| `maven_build_command` | No | `"mvn clean install -DskipTests"` | Maven build command |
+| `nuget_source_url` | No | (empty) | NuGet source URL to add |
 | `maven_settings_repositories` | No | (empty) | Maven repositories configuration (JSON) |
 | `maven_settings_servers` | No | (empty) | Maven servers configuration (JSON) |
-| `npm_install_command` | No | `"npm install"` | NPM install command |
-| `python_install_command` | No | `"pip install -r requirements.txt"` | Python install command |
-| `dotnet_restore_command` | No | `"dotnet restore"` | .NET restore command |
 
 ## Secrets
 
 | Secret | Required | Description |
 |--------|----------|-------------|
 | `FOSSA_API_KEY` | Conditional | Required if `use_vault` is `false` |
-| `VAULT_ROLE` | No | Vault role for JWT authentication (defaults to `cicd-workflows-secret-read-role`) |
+| `VAULT_URL` | No | Vault URL (defaults to config file value) |
+| `VAULT_ROLE` | No | Vault role for JWT authentication (defaults to config file value) |
+| `NPM_AUTH_TOKEN` | No | Auth token for private NPM registry (defaults to `GITHUB_TOKEN`) |
+| `NUGET_AUTH_TOKEN` | No | Auth token for private NuGet feed (defaults to `GITHUB_TOKEN`) |
 
 ## Configuration File
 

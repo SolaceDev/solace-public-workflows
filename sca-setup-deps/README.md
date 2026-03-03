@@ -6,19 +6,23 @@ Composite action for setting up build environments before SCA scanning. Supports
 
 ## Overview
 
-The `sca-setup-deps` action prepares the build environment so that FOSSA can accurately resolve all project dependencies during a scan. It uses a `setup_actions` JSON array to selectively run only the steps your project needs.
+The `sca-setup-deps` action prepares the build environment so that FOSSA can accurately resolve all project dependencies during a scan. It uses a `setup_actions` JSON array to selectively run only the setup steps your project needs.
+
+Build and install commands are intentionally not built-in — use `custom-script` to run them. This keeps the action focused on environment setup while giving you full control over build steps.
 
 ## Usage
 
-Pass `setup_actions` as a JSON array of steps to execute. Steps run in the order they are listed.
+Pass `setup_actions` as a JSON array of steps to execute, then use `custom_setup_script` to run your build or install commands:
 
 ```yaml
 jobs:
   sca-scan:
     uses: SolaceDev/solace-public-workflows/.github/workflows/sca-scan-and-guard.yaml@main
     with:
-      setup_actions: '["setup-java", "maven-settings", "maven-build"]'
       use_vault: true
+      setup_actions: '["setup-java", "maven-settings", "custom-script"]'
+      custom_setup_script: |
+        mvn clean install -DskipTests
 ```
 
 ## Supported Actions
@@ -27,16 +31,13 @@ jobs:
 |--------|-------------|
 | `setup-java` | Install Java (Temurin distribution) |
 | `maven-settings` | Generate `~/.m2/settings.xml` with repositories and servers |
-| `maven-build` | Run Maven build command |
 | `setup-node` | Install Node.js |
-| `npm-config` | Configure `.npmrc` auth and run NPM install |
+| `npm-config` | Configure `.npmrc` auth token |
 | `setup-python` | Install Python |
-| `python-install` | Run pip install command |
 | `setup-uv` | Install uv (Astral's fast Python package manager) |
 | `setup-dotnet` | Install .NET SDK |
 | `dotnet-nuget-config` | Add NuGet source with optional auth |
-| `dotnet-restore` | Run dotnet restore |
-| `custom-script` | Run arbitrary bash commands |
+| `custom-script` | Run arbitrary bash commands (build, install, export, etc.) |
 
 ## Inputs
 
@@ -45,7 +46,7 @@ jobs:
 | Input | Required | Default | Description |
 |-------|----------|---------|-------------|
 | `setup_actions` | No | `'["setup-java", "maven-settings"]'` | JSON array of setup steps to run |
-| `custom_setup_script` | No | (empty) | Bash script content to run when `custom-script` is in `setup_actions` |
+| `custom_setup_script` | No | (empty) | Bash script to run when `custom-script` is in `setup_actions`. Use this for build and install commands. |
 
 ### Java / Maven
 
@@ -55,7 +56,6 @@ jobs:
 | `java_distribution` | No | `"temurin"` | Java distribution |
 | `maven_settings_repositories` | No | (empty) | Maven repositories JSON configuration |
 | `maven_settings_servers` | No | (empty) | Maven servers JSON configuration |
-| `maven_build_command` | No | `"mvn clean install -DskipTests"` | Maven command to run |
 
 ### Node / NPM
 
@@ -64,14 +64,12 @@ jobs:
 | `node_version` | No | `"20"` | Node.js version to install |
 | `npm_registry_url` | No | `"https://npm.pkg.github.com"` | NPM registry URL |
 | `npm_auth_token` | No | (empty) | Auth token for the NPM registry |
-| `npm_install_command` | No | `"npm install"` | NPM install command to run |
 
 ### Python
 
 | Input | Required | Default | Description |
 |-------|----------|---------|-------------|
 | `python_version` | No | `"3.10"` | Python version to install |
-| `python_install_command` | No | `"pip install -r requirements.txt"` | Install command to run |
 
 ### uv
 
@@ -86,18 +84,27 @@ jobs:
 | `dotnet_versions` | No | `"6.0.x"` | .NET SDK versions to install |
 | `nuget_source_url` | No | (empty) | NuGet source URL to add |
 | `nuget_auth_token` | No | (empty) | Auth token for NuGet source |
-| `dotnet_restore_command` | No | `"dotnet restore"` | Restore command to run |
 
 ## Examples
 
 ### Java / Maven (Default)
 
-No extra configuration needed — Maven is the default:
+No extra configuration needed — Maven setup is the default. Use `custom-script` to run the build:
 
 ```yaml
 jobs:
   sca-scan:
     uses: SolaceDev/solace-public-workflows/.github/workflows/sca-scan-and-guard.yaml@main
+    with:
+      use_vault: true
+      setup_actions: '["setup-java", "maven-settings", "custom-script"]'
+      custom_setup_script: |
+        mvn clean install -DskipTests
+```
+
+If FOSSA can resolve dependencies without a build step (e.g. from `pom.xml` alone), omit `custom-script`:
+
+```yaml
     with:
       use_vault: true
       # setup_actions defaults to '["setup-java", "maven-settings"]'
@@ -105,15 +112,13 @@ jobs:
 
 ### Java with Private Repository
 
-Use `maven_settings_repositories` and `maven_settings_servers` to configure access to a private Nexus/Artifactory:
-
 ```yaml
 jobs:
   sca-scan:
     uses: SolaceDev/solace-public-workflows/.github/workflows/sca-scan-and-guard.yaml@main
     with:
       use_vault: true
-      setup_actions: '["setup-java", "maven-settings", "maven-build"]'
+      setup_actions: '["setup-java", "maven-settings", "custom-script"]'
       maven_settings_repositories: |
         [{"id": "central", "url": "https://nexus.example.com/repository/maven-central"}]
       maven_settings_servers: |
@@ -121,6 +126,8 @@ jobs:
       vault_secrets: |
         secret/data/nexus NEXUS_USER | NEXUS_USERNAME
         secret/data/nexus NEXUS_PASS | NEXUS_PASSWORD
+      custom_setup_script: |
+        mvn clean install -DskipTests
 ```
 
 ### Node / NPM
@@ -131,14 +138,15 @@ jobs:
     uses: SolaceDev/solace-public-workflows/.github/workflows/sca-scan-and-guard.yaml@main
     with:
       use_vault: true
-      setup_actions: '["setup-node", "npm-config"]'
+      setup_actions: '["setup-node", "npm-config", "custom-script"]'
       node_version: "18"
-      npm_install_command: "npm ci"
+      custom_setup_script: |
+        npm ci
 ```
 
 ### Node with Private GitHub Packages Registry
 
-The `npm_auth_token` is automatically set to `GITHUB_TOKEN` by the workflow:
+`npm_auth_token` defaults to `GITHUB_TOKEN` automatically. The `npm-config` action writes it to `.npmrc`:
 
 ```yaml
 jobs:
@@ -146,8 +154,10 @@ jobs:
     uses: SolaceDev/solace-public-workflows/.github/workflows/sca-scan-and-guard.yaml@main
     with:
       use_vault: true
-      setup_actions: '["setup-node", "npm-config"]'
+      setup_actions: '["setup-node", "npm-config", "custom-script"]'
       npm_registry_url: "https://npm.pkg.github.com"
+      custom_setup_script: |
+        npm ci
 ```
 
 ### Python
@@ -158,22 +168,10 @@ jobs:
     uses: SolaceDev/solace-public-workflows/.github/workflows/sca-scan-and-guard.yaml@main
     with:
       use_vault: true
-      setup_actions: '["setup-python", "python-install"]'
+      setup_actions: '["setup-python", "custom-script"]'
       python_version: "3.11"
-      python_install_command: "pip install -r requirements.txt"
-```
-
-### .NET
-
-```yaml
-jobs:
-  sca-scan:
-    uses: SolaceDev/solace-public-workflows/.github/workflows/sca-scan-and-guard.yaml@main
-    with:
-      use_vault: true
-      setup_actions: '["setup-dotnet", "dotnet-nuget-config", "dotnet-restore"]'
-      dotnet_versions: "8.0.x"
-      nuget_source_url: "https://nuget.pkg.github.com/SolaceDev/index.json"
+      custom_setup_script: |
+        pip install -r requirements.txt
 ```
 
 ### Python with uv
@@ -201,9 +199,7 @@ Pin a specific uv version if needed:
         uv export --format requirements-txt --no-dev --output-file requirements.txt
 ```
 
-### Custom Setup Script
-
-For edge cases not covered by the built-in actions:
+### .NET
 
 ```yaml
 jobs:
@@ -211,10 +207,11 @@ jobs:
     uses: SolaceDev/solace-public-workflows/.github/workflows/sca-scan-and-guard.yaml@main
     with:
       use_vault: true
-      setup_actions: '["setup-java", "maven-settings", "custom-script"]'
+      setup_actions: '["setup-dotnet", "dotnet-nuget-config", "custom-script"]'
+      dotnet_versions: "8.0.x"
+      nuget_source_url: "https://nuget.pkg.github.com/SolaceDev/index.json"
       custom_setup_script: |
-        echo "Generating protobuf sources..."
-        mvn generate-sources -pl proto-module
+        dotnet restore
 ```
 
 ### Mixed Language (Java + Node)
@@ -225,9 +222,12 @@ jobs:
     uses: SolaceDev/solace-public-workflows/.github/workflows/sca-scan-and-guard.yaml@main
     with:
       use_vault: true
-      setup_actions: '["setup-java", "maven-settings", "setup-node", "npm-config"]'
+      setup_actions: '["setup-java", "maven-settings", "setup-node", "npm-config", "custom-script"]'
       java_version: "21"
       node_version: "20"
+      custom_setup_script: |
+        mvn clean install -DskipTests
+        npm ci
 ```
 
 ## Vault Secret Mappings
@@ -261,7 +261,7 @@ with:
 }
 ```
 
-Secrets retrieved via `secret_mappings` are injected as environment variables before build steps run, making them available to Maven settings, `.npmrc`, and other configuration files.
+Secrets retrieved via `secret_mappings` are injected as environment variables before `custom-script` runs, making them available to Maven settings, `.npmrc`, and other configuration files.
 
 ## Step Execution Order
 
@@ -269,16 +269,13 @@ Steps always execute in this fixed order regardless of the order specified in `s
 
 1. `setup-java`
 2. `maven-settings`
-3. `maven-build`
-4. `setup-node`
-5. `npm-config` (runs NPM install)
-6. `setup-python`
-7. `python-install`
-8. `setup-uv`
-9. `setup-dotnet`
-10. `dotnet-nuget-config`
-11. `dotnet-restore`
-12. `custom-script`
+3. `setup-node`
+4. `npm-config` (writes `.npmrc` auth token)
+5. `setup-python`
+6. `setup-uv`
+7. `setup-dotnet`
+8. `dotnet-nuget-config`
+9. `custom-script`
 
 ## Related Documentation
 

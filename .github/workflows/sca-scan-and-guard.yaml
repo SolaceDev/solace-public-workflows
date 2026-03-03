@@ -57,7 +57,13 @@ on:
         type: string
         default: ''
       custom_setup_script:
-        description: "Custom setup script to execute before scan"
+        description: |
+          Custom setup script to execute before scan. Use this to run build or install commands, e.g.:
+            mvn clean install -DskipTests
+            npm ci
+            pip install -r requirements.txt
+            uv export --format requirements-txt --no-dev --output-file requirements.txt
+            dotnet restore
         required: false
         type: string
         default: ''
@@ -68,40 +74,38 @@ on:
         required: false
         type: string
         default: "17"
+      java_distribution:
+        description: "Java distribution (default: 'temurin')"
+        required: false
+        type: string
+        default: ''
       node_version:
         description: "Node version"
         required: false
         type: string
         default: "20"
+      npm_registry_url:
+        description: "NPM registry URL (default: 'https://npm.pkg.github.com')"
+        required: false
+        type: string
+        default: ''
       python_version:
         description: "Python version"
         required: false
         type: string
         default: "3.10"
+      uv_version:
+        description: "uv version to install (default: latest)"
+        required: false
+        type: string
+        default: ''
       dotnet_versions:
         description: ".NET versions (e.g. 6.0.x)"
         required: false
         type: string
         default: "6.0.x"
-
-      # Build/Install Commands
-      maven_build_command:
-        description: "Maven build command (default: 'mvn clean install -DskipTests')"
-        required: false
-        type: string
-        default: ''
-      npm_install_command:
-        description: "NPM install command (default: 'npm install')"
-        required: false
-        type: string
-        default: ''
-      python_install_command:
-        description: "Python install command (default: 'pip install -r requirements.txt')"
-        required: false
-        type: string
-        default: ''
-      dotnet_restore_command:
-        description: ".NET restore command (default: 'dotnet restore')"
+      nuget_source_url:
+        description: "NuGet source URL to add"
         required: false
         type: string
         default: ''
@@ -127,6 +131,12 @@ on:
         required: false
       VAULT_ROLE:
         description: 'Vault role for JWT authentication (optional - defaults to config file value)'
+        required: false
+      NPM_AUTH_TOKEN:
+        description: 'NPM auth token for private registry access (defaults to GITHUB_TOKEN)'
+        required: false
+      NUGET_AUTH_TOKEN:
+        description: 'NuGet auth token for private feed access (defaults to GITHUB_TOKEN)'
         required: false
 
 permissions:
@@ -362,21 +372,21 @@ jobs:
 
       - name: Setup SCA Dependencies
         id: setup_deps
-        uses: SolaceDev/solace-public-workflows/sca-setup-deps@main
+        uses: SolaceDev/solace-public-workflows/sca-setup-deps@sca_setup_guard_doc_updates
         with:
           setup_actions: ${{ inputs.setup_actions }}
           java_version: ${{ inputs.java_version }}
+          java_distribution: ${{ inputs.java_distribution }}
           maven_settings_repositories: ${{ inputs.maven_settings_repositories }}
           maven_settings_servers: ${{ inputs.maven_settings_servers }}
-          maven_build_command: ${{ inputs.maven_build_command }}
           node_version: ${{ inputs.node_version }}
-          npm_auth_token: ${{ secrets.GITHUB_TOKEN }}
-          npm_install_command: ${{ inputs.npm_install_command }}
+          npm_registry_url: ${{ inputs.npm_registry_url }}
+          npm_auth_token: ${{ secrets.NPM_AUTH_TOKEN != '' && secrets.NPM_AUTH_TOKEN || github.token }}
           python_version: ${{ inputs.python_version }}
-          python_install_command: ${{ inputs.python_install_command }}
+          uv_version: ${{ inputs.uv_version }}
           dotnet_versions: ${{ inputs.dotnet_versions }}
-          nuget_auth_token: ${{ secrets.GITHUB_TOKEN }}
-          dotnet_restore_command: ${{ inputs.dotnet_restore_command }}
+          nuget_source_url: ${{ inputs.nuget_source_url }}
+          nuget_auth_token: ${{ secrets.NUGET_AUTH_TOKEN != '' && secrets.NUGET_AUTH_TOKEN || github.token }}
           custom_setup_script: ${{ inputs.custom_setup_script }}
       - name: Validate FOSSA API Key
         id: fossa_key
