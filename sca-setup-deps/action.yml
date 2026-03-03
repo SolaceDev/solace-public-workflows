@@ -134,7 +134,7 @@ runs:
 
     # 6. Custom Script
     - name: Run Custom Setup Script
-      if: contains(inputs.setup_actions, 'custom-script') && inputs.custom_setup_script != ''
+      if: inputs.custom_setup_script != ''
       shell: bash
       run: |
         echo "::group::Run Custom Setup Script"

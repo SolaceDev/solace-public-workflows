@@ -8,11 +8,13 @@ Composite action for setting up build environments before SCA scanning. Supports
 
 The `sca-setup-deps` action prepares the build environment so that FOSSA can accurately resolve all project dependencies during a scan. It uses a `setup_actions` JSON array to selectively run only the setup steps your project needs.
 
-Build and install commands are intentionally not built-in — use `custom-script` to run them. This keeps the action focused on environment setup while giving you full control over build steps.
+Build and install commands are intentionally not built-in — use `custom_setup_script` to run them. This keeps the action focused on environment setup while giving you full control over build steps.
+
+`custom_setup_script` runs automatically whenever it is non-empty; you do not need to add anything to `setup_actions` for it to execute.
 
 ## Usage
 
-Pass `setup_actions` as a JSON array of steps to execute, then use `custom_setup_script` to run your build or install commands:
+Pass `setup_actions` as a JSON array of environment setup steps, and optionally provide `custom_setup_script` for build or install commands:
 
 ```yaml
 jobs:
@@ -20,7 +22,7 @@ jobs:
     uses: SolaceDev/solace-public-workflows/.github/workflows/sca-scan-and-guard.yaml@main
     with:
       use_vault: true
-      setup_actions: '["setup-java", "maven-settings", "custom-script"]'
+      setup_actions: '["setup-java", "maven-settings"]'
       custom_setup_script: |
         mvn clean install -DskipTests
 ```
@@ -37,7 +39,6 @@ jobs:
 | `setup-uv` | Install uv (Astral's fast Python package manager) |
 | `setup-dotnet` | Install .NET SDK |
 | `dotnet-nuget-config` | Add NuGet source with optional auth |
-| `custom-script` | Run arbitrary bash commands (build, install, export, etc.) |
 
 ## Inputs
 
@@ -46,7 +47,7 @@ jobs:
 | Input | Required | Default | Description |
 |-------|----------|---------|-------------|
 | `setup_actions` | No | `'["setup-java", "maven-settings"]'` | JSON array of setup steps to run |
-| `custom_setup_script` | No | (empty) | Bash script to run when `custom-script` is in `setup_actions`. Use this for build and install commands. |
+| `custom_setup_script` | No | (empty) | Bash script for build/install commands. Runs automatically when non-empty. |
 
 ### Java / Maven
 
@@ -89,7 +90,7 @@ jobs:
 
 ### Java / Maven (Default)
 
-No extra configuration needed — Maven setup is the default. Use `custom-script` to run the build:
+Maven setup is the default. Provide `custom_setup_script` if FOSSA needs the project built to resolve dependencies:
 
 ```yaml
 jobs:
@@ -97,12 +98,12 @@ jobs:
     uses: SolaceDev/solace-public-workflows/.github/workflows/sca-scan-and-guard.yaml@main
     with:
       use_vault: true
-      setup_actions: '["setup-java", "maven-settings", "custom-script"]'
+      setup_actions: '["setup-java", "maven-settings"]'
       custom_setup_script: |
         mvn clean install -DskipTests
 ```
 
-If FOSSA can resolve dependencies without a build step (e.g. from `pom.xml` alone), omit `custom-script`:
+If FOSSA can resolve dependencies from `pom.xml` alone, omit `custom_setup_script`:
 
 ```yaml
     with:
@@ -118,7 +119,7 @@ jobs:
     uses: SolaceDev/solace-public-workflows/.github/workflows/sca-scan-and-guard.yaml@main
     with:
       use_vault: true
-      setup_actions: '["setup-java", "maven-settings", "custom-script"]'
+      setup_actions: '["setup-java", "maven-settings"]'
       maven_settings_repositories: |
         [{"id": "central", "url": "https://nexus.example.com/repository/maven-central"}]
       maven_settings_servers: |
@@ -138,7 +139,7 @@ jobs:
     uses: SolaceDev/solace-public-workflows/.github/workflows/sca-scan-and-guard.yaml@main
     with:
       use_vault: true
-      setup_actions: '["setup-node", "npm-config", "custom-script"]'
+      setup_actions: '["setup-node", "npm-config"]'
       node_version: "18"
       custom_setup_script: |
         npm ci
@@ -154,7 +155,7 @@ jobs:
     uses: SolaceDev/solace-public-workflows/.github/workflows/sca-scan-and-guard.yaml@main
     with:
       use_vault: true
-      setup_actions: '["setup-node", "npm-config", "custom-script"]'
+      setup_actions: '["setup-node", "npm-config"]'
       npm_registry_url: "https://npm.pkg.github.com"
       custom_setup_script: |
         npm ci
@@ -168,7 +169,7 @@ jobs:
     uses: SolaceDev/solace-public-workflows/.github/workflows/sca-scan-and-guard.yaml@main
     with:
       use_vault: true
-      setup_actions: '["setup-python", "custom-script"]'
+      setup_actions: '["setup-python"]'
       python_version: "3.11"
       custom_setup_script: |
         pip install -r requirements.txt
@@ -176,7 +177,7 @@ jobs:
 
 ### Python with uv
 
-Install uv and use `custom-script` to export a `requirements.txt` before FOSSA scans. FOSSA requires a `requirements.txt` to resolve Python dependencies; `uv export` generates one from your `uv.lock` without installing packages:
+Install uv and use `custom_setup_script` to export a `requirements.txt` before FOSSA scans. FOSSA requires a `requirements.txt` to resolve Python dependencies; `uv export` generates one from your `uv.lock` without installing packages:
 
 ```yaml
 jobs:
@@ -184,7 +185,7 @@ jobs:
     uses: SolaceDev/solace-public-workflows/.github/workflows/sca-scan-and-guard.yaml@main
     with:
       use_vault: true
-      setup_actions: '["setup-uv", "custom-script"]'
+      setup_actions: '["setup-uv"]'
       custom_setup_script: |
         uv export --format requirements-txt --no-dev --output-file requirements.txt
 ```
@@ -193,7 +194,7 @@ Pin a specific uv version if needed:
 
 ```yaml
     with:
-      setup_actions: '["setup-uv", "custom-script"]'
+      setup_actions: '["setup-uv"]'
       uv_version: "0.6.0"
       custom_setup_script: |
         uv export --format requirements-txt --no-dev --output-file requirements.txt
@@ -207,7 +208,7 @@ jobs:
     uses: SolaceDev/solace-public-workflows/.github/workflows/sca-scan-and-guard.yaml@main
     with:
       use_vault: true
-      setup_actions: '["setup-dotnet", "dotnet-nuget-config", "custom-script"]'
+      setup_actions: '["setup-dotnet", "dotnet-nuget-config"]'
       dotnet_versions: "8.0.x"
       nuget_source_url: "https://nuget.pkg.github.com/SolaceDev/index.json"
       custom_setup_script: |
@@ -222,7 +223,7 @@ jobs:
     uses: SolaceDev/solace-public-workflows/.github/workflows/sca-scan-and-guard.yaml@main
     with:
       use_vault: true
-      setup_actions: '["setup-java", "maven-settings", "setup-node", "npm-config", "custom-script"]'
+      setup_actions: '["setup-java", "maven-settings", "setup-node", "npm-config"]'
       java_version: "21"
       node_version: "20"
       custom_setup_script: |
@@ -261,11 +262,11 @@ with:
 }
 ```
 
-Secrets retrieved via `secret_mappings` are injected as environment variables before `custom-script` runs, making them available to Maven settings, `.npmrc`, and other configuration files.
+Secrets retrieved via `secret_mappings` are injected as environment variables before `custom_setup_script` runs, making them available to Maven settings, `.npmrc`, and other configuration files.
 
 ## Step Execution Order
 
-Steps always execute in this fixed order regardless of the order specified in `setup_actions`:
+Steps always execute in this fixed order regardless of the order specified in `setup_actions`. `custom_setup_script` always runs last when non-empty:
 
 1. `setup-java`
 2. `maven-settings`
@@ -275,7 +276,7 @@ Steps always execute in this fixed order regardless of the order specified in `s
 6. `setup-uv`
 7. `setup-dotnet`
 8. `dotnet-nuget-config`
-9. `custom-script`
+9. `custom_setup_script` (runs when non-empty)
 
 ## Related Documentation
 
