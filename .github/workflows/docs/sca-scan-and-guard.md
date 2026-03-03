@@ -89,6 +89,8 @@ jobs:
 
 ## Inputs
 
+### Core Inputs
+
 | Input | Required | Default | Description |
 |-------|----------|---------|-------------|
 | `git_ref` | No | (empty) | Git ref to checkout (e.g., `0.0.269` for releases). Leave empty for PR context. |
@@ -99,12 +101,35 @@ jobs:
 | `config_file` | No | `.github/workflow-config.json` | Path to workflow configuration file |
 | `additional_scan_params` | No | (empty) | Additional scanner-specific parameters (see below) |
 
+### Dependency Setup Inputs
+
+These inputs configure the build environment before FOSSA runs. See [SCA Setup Dependencies](../../../sca-setup-deps/README.md) for full documentation.
+
+| Input | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `setup_actions` | No | `'["setup-java", "maven-settings"]'` | JSON array of setup steps to run |
+| `vault_secrets` | No | (empty) | Multiline Vault secret mappings (`secret/path KEY \| ENV_VAR`) |
+| `custom_setup_script` | No | (empty) | Bash script for build/install commands (e.g. `mvn clean install -DskipTests`, `npm ci`, `pip install -r requirements.txt`, `dotnet restore`) |
+| `java_version` | No | `"17"` | Java version |
+| `java_distribution` | No | `"temurin"` | Java distribution |
+| `node_version` | No | `"20"` | Node.js version |
+| `npm_registry_url` | No | `"https://npm.pkg.github.com"` | NPM registry URL |
+| `python_version` | No | `"3.10"` | Python version |
+| `uv_version` | No | latest | uv version to install |
+| `dotnet_versions` | No | `"6.0.x"` | .NET SDK versions |
+| `nuget_source_url` | No | (empty) | NuGet source URL to add |
+| `maven_settings_repositories` | No | (empty) | Maven repositories configuration (JSON) |
+| `maven_settings_servers` | No | (empty) | Maven servers configuration (JSON) |
+
 ## Secrets
 
 | Secret | Required | Description |
 |--------|----------|-------------|
 | `FOSSA_API_KEY` | Conditional | Required if `use_vault` is `false` |
-| `VAULT_ROLE` | No | Vault role for JWT authentication (defaults to `cicd-workflows-secret-read-role`) |
+| `VAULT_URL` | No | Vault URL (defaults to config file value) |
+| `VAULT_ROLE` | No | Vault role for JWT authentication (defaults to config file value) |
+| `NPM_AUTH_TOKEN` | No | Auth token for private NPM registry (defaults to `GITHUB_TOKEN`) |
+| `NUGET_AUTH_TOKEN` | No | Auth token for private NuGet feed (defaults to `GITHUB_TOKEN`) |
 
 ## Configuration File
 
@@ -177,6 +202,95 @@ additional_scan_params: |
 - `fossa.privacy_mode` - Override privacy mode detection
 
 **See**: [FOSSA Scan Action](../../../.github/actions/sca/fossa-scan/README.md) for full parameter list
+
+## Dependency Setup
+
+Before FOSSA scans your project, the workflow runs the `sca-setup-deps` composite action to prepare the build environment so that all dependencies are resolvable. You control which setup steps run via the `setup_actions` JSON array.
+
+**Full documentation**: [SCA Setup Dependencies](../../../sca-setup-deps/README.md)
+
+### Java / Maven (Default)
+
+Maven setup runs by default with no extra configuration:
+
+```yaml
+jobs:
+  sca-scan:
+    uses: SolaceDev/solace-public-workflows/.github/workflows/sca-scan-and-guard.yaml@main
+    with:
+      use_vault: true
+      # setup_actions defaults to '["setup-java", "maven-settings"]'
+```
+
+### Node / NPM
+
+```yaml
+jobs:
+  sca-scan:
+    uses: SolaceDev/solace-public-workflows/.github/workflows/sca-scan-and-guard.yaml@main
+    with:
+      use_vault: true
+      setup_actions: '["setup-node", "npm-config"]'
+      node_version: "18"
+```
+
+### Python
+
+```yaml
+jobs:
+  sca-scan:
+    uses: SolaceDev/solace-public-workflows/.github/workflows/sca-scan-and-guard.yaml@main
+    with:
+      use_vault: true
+      setup_actions: '["setup-python", "python-install"]'
+      python_version: "3.11"
+```
+
+### .NET
+
+```yaml
+jobs:
+  sca-scan:
+    uses: SolaceDev/solace-public-workflows/.github/workflows/sca-scan-and-guard.yaml@main
+    with:
+      use_vault: true
+      setup_actions: '["setup-dotnet", "dotnet-nuget-config", "dotnet-restore"]'
+      dotnet_versions: "8.0.x"
+```
+
+### Custom Setup Script
+
+```yaml
+jobs:
+  sca-scan:
+    uses: SolaceDev/solace-public-workflows/.github/workflows/sca-scan-and-guard.yaml@main
+    with:
+      use_vault: true
+      setup_actions: '["setup-java", "maven-settings", "custom-script"]'
+      custom_setup_script: |
+        echo "Generating protobuf sources..."
+        mvn generate-sources -pl proto-module
+```
+
+### Retrieving Build Credentials from Vault
+
+Use `vault_secrets` to inject credentials needed for private registries or repositories:
+
+```yaml
+jobs:
+  sca-scan:
+    uses: SolaceDev/solace-public-workflows/.github/workflows/sca-scan-and-guard.yaml@main
+    with:
+      use_vault: true
+      setup_actions: '["setup-java", "maven-settings", "maven-build"]'
+      vault_secrets: |
+        secret/data/nexus USERNAME | NEXUS_USERNAME
+        secret/data/nexus PASSWORD | NEXUS_PASSWORD
+      maven_settings_servers: |
+        [{"id": "central", "username": "${env.NEXUS_USERNAME}", "password": "${env.NEXUS_PASSWORD}"}]
+```
+
+Alternatively, configure `secret_mappings` in your `workflow-config.json` to avoid passing `vault_secrets` each time. See [SCA Setup Dependencies](../../../sca-setup-deps/README.md#vault-secret-mappings) for details.
 
 ## Scan Contexts
 
@@ -388,6 +502,7 @@ jobs:
 
 ## Related Documentation
 
+- [SCA Setup Dependencies](../../../sca-setup-deps/README.md)
 - [Workflow Config Loader](../../../workflow-config-loader/README.md)
 - [SCA Scan Action](../../../.github/actions/sca/sca-scan/README.md)
 - [FOSSA Scan Action](../../../.github/actions/sca/fossa-scan/README.md)
