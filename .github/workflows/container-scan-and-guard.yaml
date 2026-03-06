@@ -456,6 +456,14 @@ jobs:
             PARAMS="${PARAMS}"$'\n'"$ADDITIONAL_PARAMS"
           fi
 
+          # Extract effective revision and branch for guard steps.
+          # additional_scan_params may override fossa.revision/fossa.branch,
+          # so we take the last occurrence (last one wins in the FOSSA CLI).
+          EFFECTIVE_REVISION=$(echo "$PARAMS" | grep "^fossa.revision=" | tail -1 | cut -d'=' -f2-)
+          EFFECTIVE_BRANCH=$(echo "$PARAMS" | grep "^fossa.branch=" | tail -1 | cut -d'=' -f2-)
+          echo "effective_revision=${EFFECTIVE_REVISION}" >> $GITHUB_OUTPUT
+          echo "effective_branch=${EFFECTIVE_BRANCH}" >> $GITHUB_OUTPUT
+
           # Export to output
           {
             echo "params<<EOF"
@@ -477,8 +485,8 @@ jobs:
         with:
           fossa_api_key: ${{ steps.fossa_key.outputs.FOSSA_KEY }}
           fossa_project_id: ${{ steps.fossa_project.outputs.FOSSA_PROJECT_ID }}
-          fossa_branch: ${{ steps.context.outputs.branch }}
-          fossa_revision: ${{ steps.context.outputs.revision }}
+          fossa_branch: ${{ steps.fossa_params.outputs.effective_branch }}
+          fossa_revision: ${{ steps.fossa_params.outputs.effective_revision }}
           fossa_category: licensing
           fossa_mode: ${{ steps.config.outputs.fossa_licensing_mode }}
           block_on: ${{ steps.config.outputs.fossa_licensing_block_on }}
@@ -495,8 +503,8 @@ jobs:
         with:
           fossa_api_key: ${{ steps.fossa_key.outputs.FOSSA_KEY }}
           fossa_project_id: ${{ steps.fossa_project.outputs.FOSSA_PROJECT_ID }}
-          fossa_branch: ${{ steps.context.outputs.branch }}
-          fossa_revision: ${{ steps.context.outputs.revision }}
+          fossa_branch: ${{ steps.fossa_params.outputs.effective_branch }}
+          fossa_revision: ${{ steps.fossa_params.outputs.effective_revision }}
           fossa_category: vulnerability
           fossa_mode: ${{ steps.config.outputs.fossa_vulnerability_mode }}
           block_on: ${{ steps.config.outputs.fossa_vulnerability_block_on }}
@@ -519,8 +527,8 @@ jobs:
           BYPASS_JUSTIFICATION: ${{ inputs.bypass_justification }}
           CONTAINER_IMAGE: ${{ inputs.container_image }}
           FOSSA_PROJECT_ID: ${{ steps.fossa_project.outputs.FOSSA_PROJECT_ID }}
-          FOSSA_BRANCH: ${{ steps.context.outputs.branch }}
-          FOSSA_REVISION: ${{ steps.context.outputs.revision }}
+          FOSSA_BRANCH: ${{ steps.fossa_params.outputs.effective_branch }}
+          FOSSA_REVISION: ${{ steps.fossa_params.outputs.effective_revision }}
           SCAN_TYPE: ${{ steps.context.outputs.scan_type }}
         run: |
           echo "" >> $GITHUB_STEP_SUMMARY
