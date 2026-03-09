@@ -474,8 +474,8 @@ jobs:
           # Extract effective revision and branch for guard steps.
           # additional_scan_params may override fossa.revision/fossa.branch,
           # so we take the last occurrence (last one wins in the FOSSA CLI).
-          EFFECTIVE_REVISION=$(echo "$PARAMS" | grep "^fossa.revision=" | tail -1 | cut -d'=' -f2-)
-          EFFECTIVE_BRANCH=$(echo "$PARAMS" | grep "^fossa.branch=" | tail -1 | cut -d'=' -f2-)
+          EFFECTIVE_REVISION=$(echo "$PARAMS" | grep "^fossa\\.revision=" | tail -1 | cut -d'=' -f2-)
+          EFFECTIVE_BRANCH=$(echo "$PARAMS" | grep "^fossa\\.branch=" | tail -1 | cut -d'=' -f2-)
           echo "effective_revision=${EFFECTIVE_REVISION}" >> $GITHUB_OUTPUT
           echo "effective_branch=${EFFECTIVE_BRANCH}" >> $GITHUB_OUTPUT
 
