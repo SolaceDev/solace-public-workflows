@@ -461,6 +461,15 @@ jobs:
           # so we take the last occurrence (last one wins in the FOSSA CLI).
           EFFECTIVE_REVISION=$(echo "$PARAMS" | grep "^fossa\\.revision=" | tail -1 | cut -d'=' -f2-)
           EFFECTIVE_BRANCH=$(echo "$PARAMS" | grep "^fossa\\.branch=" | tail -1 | cut -d'=' -f2-)
+
+          # Fallback to context defaults if extraction failed
+          if [[ -z "$EFFECTIVE_REVISION" ]]; then
+            EFFECTIVE_REVISION="${FOSSA_REVISION}"
+          fi
+          if [[ -z "$EFFECTIVE_BRANCH" ]]; then
+            EFFECTIVE_BRANCH="${FOSSA_BRANCH}"
+          fi
+
           echo "effective_revision=${EFFECTIVE_REVISION}" >> $GITHUB_OUTPUT
           echo "effective_branch=${EFFECTIVE_BRANCH}" >> $GITHUB_OUTPUT
 
