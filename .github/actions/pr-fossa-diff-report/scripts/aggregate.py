@@ -13,7 +13,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +22,10 @@ def _to_bool(value: str | None, default: bool = False) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def _github_api(
@@ -60,7 +64,7 @@ def _write_output(name: str, value: str) -> None:
     path = Path(output_path)
     with path.open("a", encoding="utf-8") as handle:
         if "\n" in value:
-            marker = f"EOF_{name}_{datetime.utcnow().strftime('%Y%m%d%H%M%S%f')}"
+            marker = f"EOF_{name}_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}"
             handle.write(f"{name}<<{marker}\n")
             handle.write(value)
             if not value.endswith("\n"):
@@ -147,7 +151,7 @@ def _create_check_run(
             "name": check_name,
             "head_sha": head_sha,
             "status": "in_progress",
-            "started_at": datetime.utcnow().isoformat() + "Z",
+            "started_at": _utc_now_iso(),
             "output": {
                 "title": check_name,
                 "summary": initial_summary,
@@ -215,7 +219,7 @@ def _run_guard(
     head_ref: str,
     base_sha: str,
     docker_image: str,
-) -> tuple[int, dict[str, Any]]:
+) -> tuple[int, dict[str, Any], bool]:
     report_path = workspace / "fossa_guard_report.json"
     if report_path.exists():
         report_path.unlink()
@@ -251,14 +255,38 @@ def _run_guard(
         "-c",
         "source /maas-build-actions/venv/bin/activate && python3 /maas-build-actions/scripts/fossa-guard/fossa_guard.py",
     ]
-    completed = subprocess.run(cmd, check=False)
+    completed = subprocess.run(
+        cmd,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if completed.stdout:
+        print(completed.stdout, end="" if completed.stdout.endswith("\n") else "\n")
+    if completed.stderr:
+        print(completed.stderr, file=sys.stderr, end="" if completed.stderr.endswith("\n") else "\n")
+
     report_data: dict[str, Any] = {}
     if report_path.exists():
         try:
             report_data = json.loads(report_path.read_text(encoding="utf-8"))
         except Exception:
             report_data = {}
-    return completed.returncode, report_data
+    combined_output = f"{completed.stdout or ''}\n{completed.stderr or ''}"
+    base_revision_missing = (
+        "Error fetching issues for revision" in combined_output
+        and "404 Client Error" in combined_output
+        and "scope%5Brevision%5D=" in combined_output
+    )
+    if completed.returncode != 0:
+        print(f"FOSSA guard exited non-zero for {project_id} [{category}] (rc={completed.returncode})")
+        if base_revision_missing:
+            print(
+                f"Diff base revision missing in FOSSA for {project_id} [{category}]; "
+                "treating this plugin/category as non-blocking."
+            )
+
+    return completed.returncode, report_data, base_revision_missing
 
 
 def _summary_counts(report: dict[str, Any]) -> tuple[int, int]:
@@ -326,7 +354,7 @@ def main() -> int:
         locator = urllib.parse.quote(f"custom+48578/{project_id}", safe="")
         encoded_revision = urllib.parse.quote(head_ref, safe="")
 
-        lic_rc, lic_report = _run_guard(
+        lic_rc, lic_report, lic_base_missing = _run_guard(
             workspace=workspace,
             fossa_api_key=fossa_api_key,
             project_id=project_id,
@@ -339,7 +367,7 @@ def main() -> int:
         lic_total, lic_blocking = _summary_counts(lic_report)
         (results_dir / f"{plugin}-licensing.json").write_text(json.dumps(lic_report, indent=2), encoding="utf-8")
 
-        vul_rc, vul_report = _run_guard(
+        vul_rc, vul_report, vul_base_missing = _run_guard(
             workspace=workspace,
             fossa_api_key=fossa_api_key,
             project_id=project_id,
@@ -365,8 +393,8 @@ def main() -> int:
         has_issues = (
             lic_blocking > 0
             or vul_blocking > 0
-            or lic_rc != 0
-            or vul_rc != 0
+            or (lic_rc != 0 and not lic_base_missing)
+            or (vul_rc != 0 and not vul_base_missing)
         )
 
         results.append(
@@ -376,9 +404,11 @@ def main() -> int:
                 "licensing_total_issues": lic_total,
                 "licensing_blocking_issues": lic_blocking,
                 "licensing_exit_code": lic_rc,
+                "licensing_base_revision_missing": lic_base_missing,
                 "vulnerability_total_issues": vul_total,
                 "vulnerability_blocking_issues": vul_blocking,
                 "vulnerability_exit_code": vul_rc,
+                "vulnerability_base_revision_missing": vul_base_missing,
                 "report_url": report_url,
                 "licensing_url": licensing_url,
                 "vulnerability_url": vulnerability_url,
@@ -393,7 +423,10 @@ def main() -> int:
         max(
             int(r.get("licensing_total_issues", 0) or 0),
             int(r.get("licensing_blocking_issues", 0) or 0),
-            0 if int(r.get("licensing_exit_code", 1) or 1) == 0 else 1,
+            0
+            if int(r.get("licensing_exit_code", 1) or 1) == 0
+            or bool(r.get("licensing_base_revision_missing"))
+            else 1,
         )
         for r in results
     )
@@ -401,7 +434,10 @@ def main() -> int:
         max(
             int(r.get("vulnerability_total_issues", 0) or 0),
             int(r.get("vulnerability_blocking_issues", 0) or 0),
-            0 if int(r.get("vulnerability_exit_code", 1) or 1) == 0 else 1,
+            0
+            if int(r.get("vulnerability_exit_code", 1) or 1) == 0
+            or bool(r.get("vulnerability_base_revision_missing"))
+            else 1,
         )
         for r in results
     )
@@ -435,18 +471,30 @@ def main() -> int:
     ]
 
     for row in results:
-        licensing_passed = int(row["licensing_exit_code"]) == 0 and int(row["licensing_blocking_issues"]) == 0
-        vulnerability_passed = int(row["vulnerability_exit_code"]) == 0 and int(row["vulnerability_blocking_issues"]) == 0
+        licensing_passed = (
+            int(row["licensing_exit_code"]) == 0
+            or bool(row.get("licensing_base_revision_missing"))
+        ) and int(row["licensing_blocking_issues"]) == 0
+        vulnerability_passed = (
+            int(row["vulnerability_exit_code"]) == 0
+            or bool(row.get("vulnerability_base_revision_missing"))
+        ) and int(row["vulnerability_blocking_issues"]) == 0
 
         licensing_issues = max(
             int(row["licensing_total_issues"]),
             int(row["licensing_blocking_issues"]),
-            0 if int(row["licensing_exit_code"]) == 0 else 1,
+            0
+            if int(row["licensing_exit_code"]) == 0
+            or bool(row.get("licensing_base_revision_missing"))
+            else 1,
         )
         vulnerability_issues = max(
             int(row["vulnerability_total_issues"]),
             int(row["vulnerability_blocking_issues"]),
-            0 if int(row["vulnerability_exit_code"]) == 0 else 1,
+            0
+            if int(row["vulnerability_exit_code"]) == 0
+            or bool(row.get("vulnerability_base_revision_missing"))
+            else 1,
         )
 
         licensing_text = "✅ Passed" if licensing_passed else f"❌ {licensing_issues} Issues"
@@ -463,18 +511,22 @@ def main() -> int:
 
     has_issues = len(with_issues) > 0
 
-    if github_token and comment_on_pr and pr_number > 0:
-        try:
-            _upsert_pr_comment(
-                owner=owner,
-                repo=repo,
-                token=github_token,
-                pr_number=pr_number,
-                marker=comment_marker,
-                body=body,
-            )
-        except Exception as err:
-            print(f"Warning: failed to upsert FOSSA PR comment: {err}")
+    comment_update_error: str | None = None
+    if comment_on_pr and pr_number > 0:
+        if not github_token:
+            comment_update_error = "comment_on_pr=true but no github_token was provided."
+        else:
+            try:
+                _upsert_pr_comment(
+                    owner=owner,
+                    repo=repo,
+                    token=github_token,
+                    pr_number=pr_number,
+                    marker=comment_marker,
+                    body=body,
+                )
+            except Exception as err:
+                comment_update_error = str(err)
 
     check_update_error: str | None = None
     if update_check_details:
@@ -524,7 +576,7 @@ def main() -> int:
                         {
                             "status": "completed",
                             "conclusion": "success" if not has_issues else "failure",
-                            "completed_at": datetime.utcnow().isoformat() + "Z",
+                            "completed_at": _utc_now_iso(),
                         }
                     )
                 _github_api("PATCH", check_url, github_token, payload)
@@ -539,6 +591,10 @@ def main() -> int:
     _write_output("results_json", json.dumps(results))
     _write_output("projects_with_issues", json.dumps(with_issues))
     _write_output("report_markdown", body)
+
+    if comment_update_error:
+        print(f"Error: failed to publish PR comment for {check_name}: {comment_update_error}")
+        return 2
 
     if check_update_error:
         print(f"Error: failed to publish check-run for {check_name}: {check_update_error}")
