@@ -58,6 +58,8 @@ It reads `ci-plugin-result-*.json` artifacts (downloaded into `results_dir`), wr
 | `update_check_details` | no | `true` | Update current check-run output summary |
 | `fail_on_issues` | no | `true` | Fail action if aggregated result has issues |
 
+When `update_check_details` is `true`, the action will fail if it cannot create or update the named check run. This guarantees the status check is always published (or the workflow fails loudly).
+
 ## Outputs
 
 | Output | Description |

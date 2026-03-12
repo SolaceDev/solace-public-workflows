@@ -13,6 +13,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import subprocess
 import sys
 import urllib.error
@@ -143,6 +144,57 @@ def _create_check_run(owner: str, repo: str, token: str, check_name: str, head_s
         return int(created.get("id"))
     except Exception as err:
         print(f"Warning: failed to create check-run {check_name}: {err}")
+        return None
+
+
+def _resolve_check_run_id(
+    owner: str,
+    repo: str,
+    token: str,
+    run_id: str,
+    head_sha: str,
+    check_name: str,
+) -> int | None:
+    try:
+        jobs_url = f"https://api.github.com/repos/{owner}/{repo}/actions/runs/{run_id}/jobs?per_page=100"
+        jobs_resp = _github_api("GET", jobs_url, token)
+        jobs = jobs_resp.get("jobs", []) if isinstance(jobs_resp, dict) else []
+        target_name = check_name.lower()
+        for job in jobs:
+            job_name = str(job.get("name", "")).lower()
+            if job_name == target_name or target_name in job_name or job_name in target_name:
+                check_url = str(job.get("check_run_url", ""))
+                match = re.search(r"/check-runs/(\d+)$", check_url)
+                if match:
+                    return int(match.group(1))
+    except Exception:
+        pass
+
+    try:
+        checks_url = f"https://api.github.com/repos/{owner}/{repo}/commits/{head_sha}/check-runs?per_page=100"
+        checks_resp = _github_api("GET", checks_url, token)
+        runs = checks_resp.get("check_runs", []) if isinstance(checks_resp, dict) else []
+        target_name = check_name.lower()
+
+        def _score(run: dict[str, Any]) -> tuple[int, str]:
+            started = str(run.get("started_at") or run.get("created_at") or "")
+            name = str(run.get("name", "")).lower()
+            score = 0
+            if name == target_name:
+                score += 3
+            elif target_name in name or name in target_name:
+                score += 1
+            details = str(run.get("details_url", ""))
+            if f"/actions/runs/{run_id}" in details:
+                score += 2
+            return (score, started)
+
+        candidates = [r for r in runs if _score(r)[0] > 0]
+        if not candidates:
+            return None
+        candidates.sort(key=_score, reverse=True)
+        return int(candidates[0]["id"])
+    except Exception:
         return None
 
 
@@ -330,10 +382,29 @@ def main() -> int:
     pr_number = _normalize_pr_number(pr_number_input, event)
     head_sha = _extract_head_sha(pr_number, event, github_token, owner, repo)
     short_sha = head_sha[:12] if head_sha else "unknown"
+    run_id = os.getenv("GITHUB_RUN_ID", "")
 
     check_run_id: int | None = None
     if update_check_details:
+        if not github_token:
+            print("Error: update_check_details=true but no github_token was provided.")
+            return 2
+        if not head_sha:
+            print("Error: update_check_details=true but no head SHA was available.")
+            return 2
         check_run_id = _create_check_run(owner, repo, github_token, check_name, head_sha)
+        if check_run_id is None:
+            check_run_id = _resolve_check_run_id(
+                owner=owner,
+                repo=repo,
+                token=github_token,
+                run_id=run_id,
+                head_sha=head_sha,
+                check_name=check_name,
+            )
+        if check_run_id is None:
+            print(f"Error: unable to create or resolve check run '{check_name}'.")
+            return 2
 
     fetch_main = _run_cmd(["git", "fetch", "origin", base_branch])
     if fetch_main.returncode != 0:
@@ -485,6 +556,7 @@ def main() -> int:
         except Exception as err:
             print(f"Warning: failed to upsert release-readiness PR comment: {err}")
 
+    check_update_error: str | None = None
     if update_check_details and check_run_id:
         try:
             update_url = f"https://api.github.com/repos/{owner}/{repo}/check-runs/{check_run_id}"
@@ -503,14 +575,19 @@ def main() -> int:
                     },
                 },
             )
+            print(f"Updated release-readiness check run {check_run_id} for {check_name}")
         except Exception as err:
-            print(f"Warning: failed to update release-readiness check-run details: {err}")
+            check_update_error = str(err)
 
     _write_output("conclusion", conclusion)
     _write_output("summary", summary)
     _write_output("projects_with_issues", json.dumps(projects_with_issues))
     _write_output("report_markdown", report)
     _write_output("report_file", str(report_path))
+
+    if check_update_error:
+        print(f"Error: failed to publish check-run for {check_name}: {check_update_error}")
+        return 2
 
     if fail_on_issues and conclusion != "success":
         print(summary)

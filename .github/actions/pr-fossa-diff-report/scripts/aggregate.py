@@ -476,18 +476,19 @@ def main() -> int:
         except Exception as err:
             print(f"Warning: failed to upsert FOSSA PR comment: {err}")
 
-    if github_token and update_check_details:
-        try:
-            created_check_run = False
-            check_run_id = _resolve_check_run_id(
-                owner=owner,
-                repo=repo,
-                token=github_token,
-                run_id=run_id,
-                head_sha=head_sha,
-                check_name=check_name,
+    check_update_error: str | None = None
+    if update_check_details:
+        if not github_token:
+            check_update_error = (
+                f"update_check_details=true for {check_name}, but no github_token was provided."
             )
-            if not check_run_id and head_sha:
+        elif not head_sha:
+            check_update_error = (
+                f"update_check_details=true for {check_name}, but no head SHA was available."
+            )
+        else:
+            try:
+                created_check_run = False
                 check_run_id = _create_check_run(
                     owner=owner,
                     repo=repo,
@@ -497,7 +498,18 @@ def main() -> int:
                     initial_summary=f"Generating {check_name} report...",
                 )
                 created_check_run = check_run_id is not None
-            if check_run_id:
+                if not check_run_id:
+                    check_run_id = _resolve_check_run_id(
+                        owner=owner,
+                        repo=repo,
+                        token=github_token,
+                        run_id=run_id,
+                        head_sha=head_sha,
+                        check_name=check_name,
+                    )
+                if not check_run_id:
+                    raise RuntimeError(f"unable to create or resolve check run '{check_name}'")
+
                 title = f"{check_name} Passed" if not has_issues else f"{check_name} Failed"
                 check_url = f"https://api.github.com/repos/{owner}/{repo}/check-runs/{check_run_id}"
                 payload: dict[str, Any] = {
@@ -520,15 +532,17 @@ def main() -> int:
                     print(f"Created and completed dedicated check run {check_run_id} for {check_name}")
                 else:
                     print(f"Updated existing check run {check_run_id} for {check_name}")
-            else:
-                print(f"No check run found for {check_name}; skipping check details update")
-        except Exception as err:
-            print(f"Warning: failed to update FOSSA check-run details: {err}")
+            except Exception as err:
+                check_update_error = str(err)
 
     _write_output("has_issues", "true" if has_issues else "false")
     _write_output("results_json", json.dumps(results))
     _write_output("projects_with_issues", json.dumps(with_issues))
     _write_output("report_markdown", body)
+
+    if check_update_error:
+        print(f"Error: failed to publish check-run for {check_name}: {check_update_error}")
+        return 2
 
     if fail_on_issues and has_issues:
         print(f"FOSSA diff report found issues in {len(with_issues)} plugin(s).")
