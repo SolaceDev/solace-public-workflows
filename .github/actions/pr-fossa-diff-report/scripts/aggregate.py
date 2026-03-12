@@ -209,6 +209,24 @@ def _normalize_plugins(raw_plugins: Any) -> list[str]:
     return plugins
 
 
+def _normalize_pr_number(event: dict[str, Any]) -> int:
+    candidates = [
+        event.get("pull_request", {}).get("number"),
+        event.get("number"),
+        os.getenv("PR_NUMBER"),
+    ]
+    for raw in candidates:
+        try:
+            if raw is None:
+                continue
+            value = str(raw).strip()
+            if value:
+                return int(value)
+        except Exception:
+            continue
+    return 0
+
+
 def _run_guard(
     *,
     workspace: Path,
@@ -332,7 +350,7 @@ def main() -> int:
             event = json.loads(event_path.read_text(encoding="utf-8"))
         except Exception:
             event = {}
-    pr_number = int(event.get("pull_request", {}).get("number") or 0)
+    pr_number = _normalize_pr_number(event)
     if not head_ref:
         head_ref = str(event.get("pull_request", {}).get("head", {}).get("ref") or os.getenv("GITHUB_HEAD_REF", ""))
     if not base_sha:
@@ -419,28 +437,35 @@ def main() -> int:
     results.sort(key=lambda r: (not r["has_issues"], r["plugin"]))
     with_issues = [r["plugin"] for r in results if r["has_issues"]]
 
-    total_licensing_issues = sum(
-        max(
-            int(r.get("licensing_total_issues", 0) or 0),
-            int(r.get("licensing_blocking_issues", 0) or 0),
-            0
-            if int(r.get("licensing_exit_code", 1) or 1) == 0
-            or bool(r.get("licensing_base_revision_missing"))
-            else 1,
+    total_licensing_issues = 0
+    total_vulnerability_issues = 0
+    for row in results:
+        lic_is_issue = int(row.get("licensing_blocking_issues", 0) or 0) > 0 or (
+            int(row.get("licensing_exit_code", 1) or 1) != 0
+            and not bool(row.get("licensing_base_revision_missing"))
         )
-        for r in results
-    )
-    total_vulnerability_issues = sum(
-        max(
-            int(r.get("vulnerability_total_issues", 0) or 0),
-            int(r.get("vulnerability_blocking_issues", 0) or 0),
-            0
-            if int(r.get("vulnerability_exit_code", 1) or 1) == 0
-            or bool(r.get("vulnerability_base_revision_missing"))
-            else 1,
+        vul_is_issue = int(row.get("vulnerability_blocking_issues", 0) or 0) > 0 or (
+            int(row.get("vulnerability_exit_code", 1) or 1) != 0
+            and not bool(row.get("vulnerability_base_revision_missing"))
         )
-        for r in results
-    )
+        if lic_is_issue:
+            total_licensing_issues += max(
+                int(row.get("licensing_total_issues", 0) or 0),
+                int(row.get("licensing_blocking_issues", 0) or 0),
+                1
+                if int(row.get("licensing_exit_code", 1) or 1) != 0
+                and not bool(row.get("licensing_base_revision_missing"))
+                else 0,
+            )
+        if vul_is_issue:
+            total_vulnerability_issues += max(
+                int(row.get("vulnerability_total_issues", 0) or 0),
+                int(row.get("vulnerability_blocking_issues", 0) or 0),
+                1
+                if int(row.get("vulnerability_exit_code", 1) or 1) != 0
+                and not bool(row.get("vulnerability_base_revision_missing"))
+                else 0,
+            )
 
     overall_licensing = "✅ Passed" if total_licensing_issues == 0 else f"❌ {total_licensing_issues} Issues"
     overall_vulnerability = "✅ Passed" if total_vulnerability_issues == 0 else f"❌ {total_vulnerability_issues} Issues"
@@ -512,8 +537,12 @@ def main() -> int:
     has_issues = len(with_issues) > 0
 
     comment_update_error: str | None = None
-    if comment_on_pr and pr_number > 0:
-        if not github_token:
+    if comment_on_pr:
+        if pr_number <= 0:
+            comment_update_error = (
+                f"comment_on_pr=true for {check_name}, but PR number could not be resolved from event payload."
+            )
+        elif not github_token:
             comment_update_error = "comment_on_pr=true but no github_token was provided."
         else:
             try:
@@ -563,11 +592,16 @@ def main() -> int:
                     raise RuntimeError(f"unable to create or resolve check run '{check_name}'")
 
                 title = f"{check_name} Passed" if not has_issues else f"{check_name} Failed"
+                check_output_summary = (
+                    f"No newly introduced FOSSA issues across {len(results)} plugin(s)."
+                    if not has_issues
+                    else f"New FOSSA issues were introduced in {len(with_issues)} of {len(results)} plugin(s)."
+                )
                 check_url = f"https://api.github.com/repos/{owner}/{repo}/check-runs/{check_run_id}"
                 payload: dict[str, Any] = {
                     "output": {
                         "title": title,
-                        "summary": body,
+                        "summary": check_output_summary,
                         "text": body,
                     }
                 }
