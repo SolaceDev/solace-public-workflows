@@ -19,7 +19,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +28,10 @@ def _to_bool(value: str | None, default: bool = False) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def _github_api(
@@ -66,7 +70,7 @@ def _write_output(name: str, value: str) -> None:
     path = Path(output_path)
     with path.open("a", encoding="utf-8") as handle:
         if "\n" in value:
-            marker = f"EOF_{name}_{datetime.utcnow().strftime('%Y%m%d%H%M%S%f')}"
+            marker = f"EOF_{name}_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}"
             handle.write(f"{name}<<{marker}\n")
             handle.write(value)
             if not value.endswith("\n"):
@@ -97,15 +101,22 @@ def _run_cmd(cmd: list[str], cwd: str | None = None) -> subprocess.CompletedProc
 
 
 def _normalize_pr_number(value: str, event: dict[str, Any]) -> int:
-    try:
-        if value.strip():
-            return int(value.strip())
-    except Exception:
-        pass
-    try:
-        return int(event.get("pull_request", {}).get("number") or 0)
-    except Exception:
-        return 0
+    candidates = [
+        value,
+        event.get("pull_request", {}).get("number"),
+        event.get("number"),
+        os.getenv("PR_NUMBER"),
+    ]
+    for raw in candidates:
+        try:
+            if raw is None:
+                continue
+            candidate = str(raw).strip()
+            if candidate:
+                return int(candidate)
+        except Exception:
+            continue
+    return 0
 
 
 def _extract_head_sha(pr_number: int, event: dict[str, Any], token: str, owner: str, repo: str) -> str:
@@ -134,7 +145,7 @@ def _create_check_run(owner: str, repo: str, token: str, check_name: str, head_s
             "name": check_name,
             "head_sha": head_sha,
             "status": "in_progress",
-            "started_at": datetime.utcnow().isoformat() + "Z",
+            "started_at": _utc_now_iso(),
             "output": {
                 "title": "Release Readiness Check",
                 "summary": "Aggregating SonarQube and FOSSA results...",
@@ -568,7 +579,7 @@ def main() -> int:
                 {
                     "status": "completed",
                     "conclusion": conclusion,
-                    "completed_at": datetime.utcnow().isoformat() + "Z",
+                    "completed_at": _utc_now_iso(),
                     "output": {
                         "title": "Release Readiness Check",
                         "summary": summary,

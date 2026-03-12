@@ -16,7 +16,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +25,10 @@ def _to_bool(value: str | None, default: bool = False) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def _read_json(path: Path, default: Any) -> Any:
@@ -72,7 +76,7 @@ def _write_output(name: str, value: str) -> None:
     path = Path(output_path)
     with path.open("a", encoding="utf-8") as handle:
         if "\n" in value:
-            marker = f"EOF_{name}_{datetime.utcnow().strftime('%Y%m%d%H%M%S%f')}"
+            marker = f"EOF_{name}_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}"
             handle.write(f"{name}<<{marker}\n")
             handle.write(value)
             if not value.endswith("\n"):
@@ -118,6 +122,24 @@ def _normalize_plugins(raw_plugins: Any) -> list[str]:
             if plugin:
                 plugins.append(plugin)
     return plugins
+
+
+def _normalize_pr_number(event: dict[str, Any]) -> int:
+    candidates = [
+        event.get("pull_request", {}).get("number"),
+        event.get("number"),
+        os.getenv("PR_NUMBER"),
+    ]
+    for raw in candidates:
+        try:
+            if raw is None:
+                continue
+            value = str(raw).strip()
+            if value:
+                return int(value)
+        except Exception:
+            continue
+    return 0
 
 
 def _resolve_check_run_id(
@@ -189,7 +211,7 @@ def _create_check_run(
             "name": check_name,
             "head_sha": head_sha,
             "status": "in_progress",
-            "started_at": datetime.utcnow().isoformat() + "Z",
+            "started_at": _utc_now_iso(),
             "output": {
                 "title": check_name,
                 "summary": initial_summary,
@@ -367,7 +389,7 @@ def main() -> int:
     head_sha = os.getenv("GITHUB_SHA", "")
 
     event = _read_json(Path(os.getenv("GITHUB_EVENT_PATH", "")), {})
-    pr_number = int(event.get("pull_request", {}).get("number") or 0)
+    pr_number = _normalize_pr_number(event)
     event_head_sha = str(event.get("pull_request", {}).get("head", {}).get("sha") or "")
     if event_head_sha:
         # For pull_request workflows, use PR head SHA (not merge SHA) so check runs appear on the PR.
@@ -394,6 +416,12 @@ def main() -> int:
         failing_plugins: list[str] = []
         missing_plugins: list[str] = []
         title = "SonarQube Quality Gate Passed" if all_passed else "SonarQube Quality Gate Failed"
+        issue_count = sum(1 for row in rows if row.get("has_issues"))
+        check_output_summary = (
+            f"All {len(rows)} plugin(s) passed SonarQube quality gate."
+            if all_passed
+            else f"{issue_count} of {len(rows)} plugin(s) have SonarQube quality-gate issues."
+        )
     else:
         check_name = check_name_input or "Unit Tests"
         comment_marker = marker_input or "Unit Tests - Issues Found"
@@ -402,12 +430,21 @@ def main() -> int:
             by_plugin=by_plugin,
         )
         title = "Unit Tests Passed" if all_passed else "Unit Tests Failed"
+        check_output_summary = (
+            f"All {len(rows)} plugin(s) passed unit tests."
+            if all_passed
+            else f"{len(failing_plugins)} of {len(rows)} plugin(s) have unit-test issues."
+        )
 
     _append_summary(report_markdown)
 
     comment_update_error: str | None = None
-    if comment_on_pr and pr_number > 0:
-        if not github_token:
+    if comment_on_pr:
+        if pr_number <= 0:
+            comment_update_error = (
+                f"comment_on_pr=true for {check_name}, but PR number could not be resolved from event payload."
+            )
+        elif not github_token:
             comment_update_error = (
                 f"comment_on_pr=true for {check_name}, but no github_token was provided."
             )
@@ -462,7 +499,7 @@ def main() -> int:
                 payload: dict[str, Any] = {
                     "output": {
                         "title": title,
-                        "summary": report_markdown,
+                        "summary": check_output_summary,
                         "text": report_markdown,
                     }
                 }
@@ -471,7 +508,7 @@ def main() -> int:
                         {
                             "status": "completed",
                             "conclusion": "success" if all_passed else "failure",
-                            "completed_at": datetime.utcnow().isoformat() + "Z",
+                            "completed_at": _utc_now_iso(),
                         }
                     )
                 _github_api("PATCH", check_url, github_token, payload)

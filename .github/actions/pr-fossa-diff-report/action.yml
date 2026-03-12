@@ -52,6 +52,10 @@ inputs:
     description: "Marker string used to find/update an existing bot comment"
     required: false
     default: "FOSSA Guard (PR Diff)"
+  pr_number:
+    description: "Pull request number (optional explicit override)"
+    required: false
+    default: ""
   update_check_details:
     description: "Whether to update the current job check-run details"
     required: false
@@ -95,6 +99,7 @@ runs:
         CHECK_NAME: ${{ inputs.check_name }}
         COMMENT_ON_PR: ${{ inputs.comment_on_pr }}
         COMMENT_MARKER: ${{ inputs.comment_marker }}
+        PR_NUMBER: ${{ inputs.pr_number }}
         UPDATE_CHECK_DETAILS: ${{ inputs.update_check_details }}
         FAIL_ON_ISSUES: ${{ inputs.fail_on_issues }}
       run: python3 "${{ github.action_path }}/scripts/aggregate.py"
