@@ -1,0 +1,100 @@
+name: PR FOSSA Diff Report
+description: Run per-plugin FOSSA Guard diff checks, then publish an aggregated PR report and check details.
+
+inputs:
+  plugins_json:
+    description: "JSON array of changed plugins (e.g. [{\"plugin_directory\":\"sam-x\"}])"
+    required: true
+  fossa_api_key:
+    description: "FOSSA API key"
+    required: true
+  repo_owner:
+    description: "Project owner prefix used in FOSSA project IDs"
+    required: false
+    default: ""
+  head_ref:
+    description: "PR head ref used as FOSSA revision"
+    required: false
+    default: ""
+  base_sha:
+    description: "PR base SHA for diff mode comparison"
+    required: false
+    default: ""
+  results_dir:
+    description: "Directory to write per-plugin FOSSA report artifacts"
+    required: false
+    default: "fossa-report"
+  docker_image:
+    description: "Docker image containing fossa_guard.py"
+    required: false
+    default: "ghcr.io/solacedev/maas-build-actions:latest"
+  licensing_block_on:
+    description: "Blocking config for licensing category"
+    required: false
+    default: "policy_conflict"
+  vulnerability_block_on:
+    description: "Blocking config for vulnerability category"
+    required: false
+    default: "critical,high"
+  github_token:
+    description: "GitHub token used for comments/check updates"
+    required: false
+    default: ${{ github.token }}
+  check_name:
+    description: "Target check run name to update details for"
+    required: false
+    default: "FOSSA Report"
+  comment_on_pr:
+    description: "Whether to create/update a PR comment"
+    required: false
+    default: "true"
+  comment_marker:
+    description: "Marker string used to find/update an existing bot comment"
+    required: false
+    default: "FOSSA Guard (PR Diff)"
+  update_check_details:
+    description: "Whether to update the current job check-run details"
+    required: false
+    default: "true"
+  fail_on_issues:
+    description: "Exit non-zero when new issues are found"
+    required: false
+    default: "true"
+
+outputs:
+  has_issues:
+    description: "true when one or more plugins have new issues"
+    value: ${{ steps.aggregate.outputs.has_issues }}
+  projects_with_issues:
+    description: "JSON list of plugin names with new issues"
+    value: ${{ steps.aggregate.outputs.projects_with_issues }}
+  results_json:
+    description: "JSON list with per-plugin FOSSA aggregation details"
+    value: ${{ steps.aggregate.outputs.results_json }}
+  report_markdown:
+    description: "Rendered markdown report"
+    value: ${{ steps.aggregate.outputs.report_markdown }}
+
+runs:
+  using: composite
+  steps:
+    - name: Aggregate FOSSA diff report
+      id: aggregate
+      shell: bash
+      env:
+        PLUGINS_JSON: ${{ inputs.plugins_json }}
+        FOSSA_API_KEY: ${{ inputs.fossa_api_key }}
+        REPO_OWNER: ${{ inputs.repo_owner }}
+        HEAD_REF: ${{ inputs.head_ref }}
+        BASE_SHA: ${{ inputs.base_sha }}
+        RESULTS_DIR: ${{ inputs.results_dir }}
+        DOCKER_IMAGE: ${{ inputs.docker_image }}
+        LICENSING_BLOCK_ON: ${{ inputs.licensing_block_on }}
+        VULNERABILITY_BLOCK_ON: ${{ inputs.vulnerability_block_on }}
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+        CHECK_NAME: ${{ inputs.check_name }}
+        COMMENT_ON_PR: ${{ inputs.comment_on_pr }}
+        COMMENT_MARKER: ${{ inputs.comment_marker }}
+        UPDATE_CHECK_DETAILS: ${{ inputs.update_check_details }}
+        FAIL_ON_ISSUES: ${{ inputs.fail_on_issues }}
+      run: python3 "${{ github.action_path }}/scripts/aggregate.py"
