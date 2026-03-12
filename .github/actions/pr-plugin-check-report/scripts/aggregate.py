@@ -405,18 +405,24 @@ def main() -> int:
 
     _append_summary(report_markdown)
 
-    if github_token and comment_on_pr and pr_number > 0:
-        try:
-            _upsert_pr_comment(
-                owner=owner,
-                repo=repo,
-                token=github_token,
-                pr_number=pr_number,
-                marker=comment_marker,
-                body=report_markdown,
+    comment_update_error: str | None = None
+    if comment_on_pr and pr_number > 0:
+        if not github_token:
+            comment_update_error = (
+                f"comment_on_pr=true for {check_name}, but no github_token was provided."
             )
-        except Exception as err:
-            print(f"Warning: failed to upsert PR comment for {check_name}: {err}")
+        else:
+            try:
+                _upsert_pr_comment(
+                    owner=owner,
+                    repo=repo,
+                    token=github_token,
+                    pr_number=pr_number,
+                    marker=comment_marker,
+                    body=report_markdown,
+                )
+            except Exception as err:
+                comment_update_error = str(err)
 
     check_update_error: str | None = None
     if update_check_details:
@@ -481,6 +487,10 @@ def main() -> int:
     _write_output("failing_plugins", json.dumps(failing_plugins))
     _write_output("missing_plugins", json.dumps(missing_plugins))
     _write_output("report_markdown", report_markdown)
+
+    if comment_update_error:
+        print(f"Error: failed to publish PR comment for {check_name}: {comment_update_error}")
+        return 2
 
     if check_update_error:
         print(f"Error: failed to publish check-run for {check_name}: {check_update_error}")

@@ -550,11 +550,12 @@ def main() -> int:
         else "✅ All release-readiness checks passed."
     )
 
+    comment_update_error: str | None = None
     if update_pr_comment and pr_number > 0:
         try:
             _upsert_pr_comment(owner, repo, github_token, pr_number, comment_marker, report)
         except Exception as err:
-            print(f"Warning: failed to upsert release-readiness PR comment: {err}")
+            comment_update_error = str(err)
 
     check_update_error: str | None = None
     if update_check_details and check_run_id:
@@ -584,6 +585,10 @@ def main() -> int:
     _write_output("projects_with_issues", json.dumps(projects_with_issues))
     _write_output("report_markdown", report)
     _write_output("report_file", str(report_path))
+
+    if comment_update_error:
+        print(f"Error: failed to publish PR comment for {check_name}: {comment_update_error}")
+        return 2
 
     if check_update_error:
         print(f"Error: failed to publish check-run for {check_name}: {check_update_error}")
