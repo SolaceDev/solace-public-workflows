@@ -173,6 +173,35 @@ def _resolve_check_run_id(
         return None
 
 
+def _create_check_run(
+    owner: str,
+    repo: str,
+    token: str,
+    head_sha: str,
+    check_name: str,
+    initial_summary: str,
+) -> int | None:
+    if not token or not head_sha:
+        return None
+    try:
+        url = f"https://api.github.com/repos/{owner}/{repo}/check-runs"
+        payload = {
+            "name": check_name,
+            "head_sha": head_sha,
+            "status": "in_progress",
+            "started_at": datetime.utcnow().isoformat() + "Z",
+            "output": {
+                "title": check_name,
+                "summary": initial_summary,
+            },
+        }
+        created = _github_api("POST", url, token, payload)
+        return int(created.get("id"))
+    except Exception as err:
+        print(f"Warning: failed to create check-run {check_name}: {err}")
+        return None
+
+
 def _upsert_pr_comment(
     owner: str,
     repo: str,
@@ -389,6 +418,7 @@ def main() -> int:
 
     if github_token and update_check_details:
         try:
+            created_check_run = False
             check_run_id = _resolve_check_run_id(
                 owner=owner,
                 repo=repo,
@@ -397,20 +427,38 @@ def main() -> int:
                 head_sha=head_sha,
                 check_name=check_name,
             )
+            if not check_run_id and head_sha:
+                check_run_id = _create_check_run(
+                    owner=owner,
+                    repo=repo,
+                    token=github_token,
+                    head_sha=head_sha,
+                    check_name=check_name,
+                    initial_summary=f"Generating {check_name} report...",
+                )
+                created_check_run = check_run_id is not None
             if check_run_id:
                 check_url = f"https://api.github.com/repos/{owner}/{repo}/check-runs/{check_run_id}"
-                _github_api(
-                    "PATCH",
-                    check_url,
-                    github_token,
-                    {
-                        "output": {
-                            "title": title,
-                            "summary": report_markdown,
+                payload: dict[str, Any] = {
+                    "output": {
+                        "title": title,
+                        "summary": report_markdown,
+                        "text": report_markdown,
+                    }
+                }
+                if created_check_run:
+                    payload.update(
+                        {
+                            "status": "completed",
+                            "conclusion": "success" if all_passed else "failure",
+                            "completed_at": datetime.utcnow().isoformat() + "Z",
                         }
-                    },
-                )
-                print(f"Updated check run {check_run_id} for {check_name}")
+                    )
+                _github_api("PATCH", check_url, github_token, payload)
+                if created_check_run:
+                    print(f"Created and completed dedicated check run {check_run_id} for {check_name}")
+                else:
+                    print(f"Updated existing check run {check_run_id} for {check_name}")
             else:
                 print(f"No check run found for {check_name}; skipping check details update")
         except Exception as err:
