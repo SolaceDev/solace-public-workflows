@@ -346,12 +346,24 @@ runs:
       run: |
         python3 "${{ github.action_path }}/scripts/post_prisma_check_run.py"
 
+    - name: Prepare Scan Artifact Name
+      id: artifact_name
+      if: always()
+      shell: bash
+      run: |
+        RAW_TAG="${{ inputs.image_tag }}"
+        SAFE_TAG=$(echo "$RAW_TAG" | tr '/:@ ' '-' | tr -cd '[:alnum:]._-' )
+        if [ -z "$SAFE_TAG" ]; then
+          SAFE_TAG="scan"
+        fi
+        echo "name=prisma-cloud-scan-results-${{ runner.os }}-${{ runner.arch }}-${SAFE_TAG}" >> $GITHUB_OUTPUT
+
     - name: Upload Scan Results
       id: upload_artifacts
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: prisma-cloud-scan-results
+        name: ${{ steps.artifact_name.outputs.name }}
         path: |
           pcc_scan_results.json
           pcc_scan_output.txt
