@@ -44,6 +44,8 @@ Reusable action that runs FOSSA Guard in diff mode for each changed plugin, then
 | `update_check_details` | no | `true` | Update current check-run output |
 | `fail_on_issues` | no | `true` | Fail action when new issues exist |
 
+When `update_check_details` is `true`, the action fails if the `FOSSA Report` check run cannot be created or updated. This prevents silent success without a visible status check.
+
 ## Outputs
 
 | Output | Description |

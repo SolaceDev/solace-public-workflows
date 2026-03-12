@@ -368,8 +368,10 @@ def main() -> int:
 
     event = _read_json(Path(os.getenv("GITHUB_EVENT_PATH", "")), {})
     pr_number = int(event.get("pull_request", {}).get("number") or 0)
-    if not head_sha:
-        head_sha = str(event.get("pull_request", {}).get("head", {}).get("sha") or "")
+    event_head_sha = str(event.get("pull_request", {}).get("head", {}).get("sha") or "")
+    if event_head_sha:
+        # For pull_request workflows, use PR head SHA (not merge SHA) so check runs appear on the PR.
+        head_sha = event_head_sha
 
     try:
         raw_plugins = json.loads(plugins_json_raw)
@@ -416,18 +418,19 @@ def main() -> int:
         except Exception as err:
             print(f"Warning: failed to upsert PR comment for {check_name}: {err}")
 
-    if github_token and update_check_details:
-        try:
-            created_check_run = False
-            check_run_id = _resolve_check_run_id(
-                owner=owner,
-                repo=repo,
-                token=github_token,
-                run_id=run_id,
-                head_sha=head_sha,
-                check_name=check_name,
+    check_update_error: str | None = None
+    if update_check_details:
+        if not github_token:
+            check_update_error = (
+                f"update_check_details=true for {check_name}, but no github_token was provided."
             )
-            if not check_run_id and head_sha:
+        elif not head_sha:
+            check_update_error = (
+                f"update_check_details=true for {check_name}, but no head SHA was available."
+            )
+        else:
+            try:
+                created_check_run = False
                 check_run_id = _create_check_run(
                     owner=owner,
                     repo=repo,
@@ -437,7 +440,18 @@ def main() -> int:
                     initial_summary=f"Generating {check_name} report...",
                 )
                 created_check_run = check_run_id is not None
-            if check_run_id:
+                if not check_run_id:
+                    check_run_id = _resolve_check_run_id(
+                        owner=owner,
+                        repo=repo,
+                        token=github_token,
+                        run_id=run_id,
+                        head_sha=head_sha,
+                        check_name=check_name,
+                    )
+                if not check_run_id:
+                    raise RuntimeError(f"unable to create or resolve check run '{check_name}'")
+
                 check_url = f"https://api.github.com/repos/{owner}/{repo}/check-runs/{check_run_id}"
                 payload: dict[str, Any] = {
                     "output": {
@@ -459,16 +473,18 @@ def main() -> int:
                     print(f"Created and completed dedicated check run {check_run_id} for {check_name}")
                 else:
                     print(f"Updated existing check run {check_run_id} for {check_name}")
-            else:
-                print(f"No check run found for {check_name}; skipping check details update")
-        except Exception as err:
-            print(f"Warning: failed to update check-run details for {check_name}: {err}")
+            except Exception as err:
+                check_update_error = str(err)
 
     _write_output("all_passed", "true" if all_passed else "false")
     _write_output("plugin_results", json.dumps(rows))
     _write_output("failing_plugins", json.dumps(failing_plugins))
     _write_output("missing_plugins", json.dumps(missing_plugins))
     _write_output("report_markdown", report_markdown)
+
+    if check_update_error:
+        print(f"Error: failed to publish check-run for {check_name}: {check_update_error}")
+        return 2
 
     if fail_on_issues and not all_passed:
         print(f"{check_name} found issues in one or more plugins.")

@@ -71,6 +71,8 @@ jobs:
 | `report_markdown` | Full rendered markdown report |
 | `report_file` | Path to generated markdown report in workspace |
 
+When `update_check_details` is `true`, the action fails if it cannot create/update the unified `Release Readiness` check run. This ensures the check is always visible on the PR.
+
 ## Permissions
 
 Recommended workflow permissions:
