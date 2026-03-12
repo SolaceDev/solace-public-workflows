@@ -5,10 +5,14 @@ A composite GitHub Action that scans Docker container images using Prisma Cloud'
 ## Features
 
 - Downloads and uses `twistcli` directly from Prisma Cloud Console
+- Handles both AMD64 and ARM64 runners when downloading `twistcli`
 - Pulls Docker images from any registry
 - Scans images for vulnerabilities and compliance issues
 - Blocks releases on critical or high severity findings
 - Provides detailed scan results as outputs
+- Posts a GitHub Check Run (`Prisma Image Scan (<OS>/<ARCH>)`) linked to Prisma Cloud scan results
+- Uploads `pcc_scan_results.json` and `pcc_scan_output.txt` as artifacts
+- Hides detailed vulnerability/compliance logs by default for public repositories
 - Helpful error messages for authentication issues
 - Automatically publishes results to Prisma Cloud Console (configurable)
 
@@ -25,6 +29,9 @@ on:
 
 jobs:
   scan:
+    permissions:
+      contents: read
+      checks: write
     runs-on: ubuntu-latest
     steps:
       - name: Scan Docker Image
@@ -112,15 +119,19 @@ jobs:
 
 ## Inputs
 
-| Name               | Required | Default          | Description                                                                    |
-| ------------------ | -------- | ---------------- | ------------------------------------------------------------------------------ |
-| `image_registry`   | Yes      | -                | Docker image registry (e.g., `868978040651.dkr.ecr.us-east-1.amazonaws.com`)   |
-| `image_repo`       | No       | GitHub repo name | Docker image repository name. If not provided, uses the GitHub repository name |
-| `image_tag`        | Yes      | -                | Docker image tag to scan                                                       |
-| `pcc_console_url`  | Yes      | -                | Prisma Cloud Console URL (e.g., `https://console.prisma.cloud`)                |
-| `pcc_user`         | Yes      | -                | Prisma Cloud Access Key ID                                                     |
-| `pcc_pass`         | Yes      | -                | Prisma Cloud Secret Access Key                                                 |
-| `twistcli_publish` | No       | `true`           | Whether to publish scan results to Prisma Cloud Console (`true` or `false`)    |
+| Name | Required | Default | Description |
+| --- | --- | --- | --- |
+| `image_registry` | Yes | - | Docker image registry (e.g., `868978040651.dkr.ecr.us-east-1.amazonaws.com`) |
+| `image_repo` | No | GitHub repo name | Docker image repository name. If not provided, uses the GitHub repository name |
+| `image_tag` | Yes | - | Docker image tag to scan |
+| `pcc_console_url` | Yes | - | Prisma Cloud Console URL (e.g., `https://console.prisma.cloud`) |
+| `pcc_user` | Yes | - | Prisma Cloud Access Key ID |
+| `pcc_pass` | Yes | - | Prisma Cloud Secret Access Key |
+| `twistcli_publish` | No | `true` | Whether to publish scan results to Prisma Cloud Console (`true`/`false`) |
+| `block_on_compliance` | No | `false` | Block on high/critical compliance findings (`true`/`false`) |
+| `vulnerability_grace_period_days` | No | `7` | Grace period for new vulnerabilities before they become blocking |
+| `skip_image_pull` | No | `false` | Skip Docker pull and scan image already present locally |
+| `show_detailed_logs` | No | auto | Force detailed logs (`true`/`false`). Auto mode = hidden for public repos, shown otherwise |
 
 ## Outputs
 
@@ -131,6 +142,7 @@ jobs:
 | `vuln_high`     | Number of high severity vulnerabilities found                                         |
 | `vuln_medium`   | Number of medium severity vulnerabilities found                                       |
 | `vuln_low`      | Number of low severity vulnerabilities found                                          |
+| `console_link`  | Deep link to Prisma Cloud Console results (when available)                           |
 
 ## Blocking Behavior
 
@@ -199,6 +211,20 @@ If your image is in a private registry, you must authenticate **before** calling
 4. **Parses results**: Extracts vulnerability and compliance counts from the scan results JSON
 5. **Blocks on issues**: Fails the action if critical or high severity issues are found
 6. **Outputs results**: Provides detailed counts as action outputs for downstream jobs
+7. **Publishes check run details**: Adds a rich check run overview with severity totals, blocking counts, and Prisma Console link
+
+### Check Run Details
+
+The action publishes a check run named `Prisma Image Scan (<OS>/<ARCH>)` when runner system info is available.
+
+- Always includes:
+  - PASS/FAIL result
+  - Severity totals for vulnerabilities and compliance
+  - Blocking issue totals
+  - Direct link to Prisma Cloud results
+- Includes issue-level markdown tables (vulnerabilities + compliance) only when:
+  - effective detailed mode is enabled (`show_detailed_logs: "true"`), and
+  - repository visibility is not public
 
 ## Troubleshooting
 
@@ -218,6 +244,7 @@ If the scan itself fails:
 1. **Invalid Prisma Cloud credentials** - Verify `pcc_user` and `pcc_pass` are correct
 2. **Wrong Console URL** - Verify `pcc_console_url` is correct and accessible
 3. **Network connectivity** - Ensure the runner can reach the Prisma Cloud Console
+4. **Exec format error** - Usually means architecture mismatch. This action now tries ARM64 and default endpoints automatically, but ensure your Console supports ARM64 `twistcli` for ARM runners.
 
 ### Result Parsing Issues
 

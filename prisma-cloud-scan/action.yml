@@ -26,6 +26,22 @@ inputs:
     description: "Whether to publish scan results to Prisma Cloud Console"
     required: false
     default: "true"
+  block_on_compliance:
+    description: "Block release on compliance issues (high/critical)"
+    required: false
+    default: "false"
+  vulnerability_grace_period_days:
+    description: "Grace period in days for new vulnerabilities before blocking (0 to block immediately)"
+    required: false
+    default: "7"
+  skip_image_pull:
+    description: "Skip pulling the image (use when image is already available locally)"
+    required: false
+    default: "false"
+  show_detailed_logs:
+    description: "Force detailed scan output in workflow logs (`true`/`false`). Defaults to `false` for public repos and `true` otherwise."
+    required: false
+    default: ""
 
 outputs:
   scan_passed:
@@ -43,6 +59,9 @@ outputs:
   vuln_low:
     description: "Number of low severity vulnerabilities found"
     value: ${{ steps.check_results.outputs.vuln_low }}
+  console_link:
+    description: "Deep link to Prisma Cloud Console scan results when available"
+    value: ${{ steps.scan_image.outputs.console_link }}
 
 runs:
   using: "composite"
@@ -66,24 +85,74 @@ runs:
       run: |
         echo "📥 Downloading twistcli from Prisma Cloud Console..."
 
-        # Download twistcli from the Console
-        curl -k -u "${{ inputs.pcc_user }}:${{ inputs.pcc_pass }}" \
-          --output ./twistcli \
-          "${{ inputs.pcc_console_url }}/api/v1/util/twistcli"
+        ARCH="$(uname -m)"
+        CONSOLE_VERSION_RAW=$(curl -k -u "${{ inputs.pcc_user }}:${{ inputs.pcc_pass }}" \
+          --fail --silent --show-error \
+          "${{ inputs.pcc_console_url }}/api/v1/version" 2>/dev/null || true)
+        API_VERSION=$(echo "$CONSOLE_VERSION_RAW" | awk 'match($0, /[0-9]+\.[0-9]+/){print substr($0, RSTART, RLENGTH); exit}')
 
-        if [ $? -ne 0 ]; then
-          echo "❌ Failed to download twistcli from Console"
+        declare -a TWISTCLI_ENDPOINTS
+        add_endpoint() {
+          local candidate="$1"
+          for existing in "${TWISTCLI_ENDPOINTS[@]}"; do
+            if [ "$existing" = "$candidate" ]; then
+              return 0
+            fi
+          done
+          TWISTCLI_ENDPOINTS+=("$candidate")
+        }
+
+        if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
+          add_endpoint "/api/v1/util/arm64/twistcli"
+          if [ -n "$API_VERSION" ]; then
+            add_endpoint "/api/v${API_VERSION}/util/arm64/twistcli"
+          fi
+          add_endpoint "/api/v1/util/twistcli"
+          if [ -n "$API_VERSION" ]; then
+            add_endpoint "/api/v${API_VERSION}/util/twistcli"
+          fi
+        else
+          add_endpoint "/api/v1/util/twistcli"
+          if [ -n "$API_VERSION" ]; then
+            add_endpoint "/api/v${API_VERSION}/util/twistcli"
+          fi
+        fi
+
+        DOWNLOAD_SUCCESS=0
+        for ENDPOINT in "${TWISTCLI_ENDPOINTS[@]}"; do
+          echo "Trying endpoint: $ENDPOINT"
+          if curl -k -u "${{ inputs.pcc_user }}:${{ inputs.pcc_pass }}" \
+            --fail --location --silent --show-error \
+            --output ./twistcli \
+            "${{ inputs.pcc_console_url }}${ENDPOINT}"; then
+            chmod +x ./twistcli
+            if ./twistcli --version > /dev/null 2>&1 || ./twistcli > /dev/null 2>&1; then
+              DOWNLOAD_SUCCESS=1
+              echo "download_endpoint=$ENDPOINT" >> $GITHUB_OUTPUT
+              break
+            fi
+            echo "Downloaded file from $ENDPOINT is not runnable on architecture $ARCH"
+          fi
+        done
+
+        if [ "$DOWNLOAD_SUCCESS" -ne 1 ]; then
+          echo "❌ Failed to download a runnable twistcli binary"
+          echo "Runner architecture: $ARCH"
+          echo "Tried endpoints: ${TWISTCLI_ENDPOINTS[*]}"
           exit 1
         fi
 
-        chmod +x ./twistcli
-
         # Verify twistcli version
-        TWISTCLI_VERSION=$(./twistcli | grep -A1 VERSION | sed '1d' | tr -d '[:space:]' || echo "unknown")
+        TWISTCLI_VERSION=$(
+          ./twistcli --version 2>/dev/null | tr -d '[:space:]' || \
+          ./twistcli 2>/dev/null | sed -n '2p' | tr -d '[:space:]' || \
+          echo "unknown"
+        )
         echo "✅ Downloaded twistcli version: $TWISTCLI_VERSION"
 
     - name: Pull Docker Image
       id: pull_image
+      if: ${{ inputs.skip_image_pull != 'true' }}
       shell: bash
       run: |
         IMAGE_NAME="${{ inputs.image_registry }}/${{ steps.set_repo_name.outputs.repo_name }}:${{ inputs.image_tag }}"
@@ -102,8 +171,8 @@ runs:
           echo "  - name: Configure AWS credentials"
           echo "    uses: aws-actions/configure-aws-credentials@v4"
           echo "    with:"
-          echo "      aws-access-key-id: \${{ secrets.AWS_ACCESS_KEY_ID }}"
-          echo "      aws-secret-access-key: \${{ secrets.AWS_SECRET_ACCESS_KEY }}"
+          echo "      aws-access-key-id: <AWS_ACCESS_KEY_ID_SECRET>"
+          echo "      aws-secret-access-key: <AWS_SECRET_ACCESS_KEY_SECRET>"
           echo "      aws-region: us-east-1"
           echo ""
           echo "  - name: Login to Amazon ECR"
@@ -113,12 +182,32 @@ runs:
           echo "  - name: Login to Docker Hub"
           echo "    uses: docker/login-action@v3"
           echo "    with:"
-          echo "      username: \${{ secrets.DOCKERHUB_USERNAME }}"
-          echo "      password: \${{ secrets.DOCKERHUB_TOKEN }}"
+          echo "      username: <DOCKERHUB_USERNAME_SECRET>"
+          echo "      password: <DOCKERHUB_TOKEN_SECRET>"
           echo ""
           echo "For other registries:"
           echo "  - name: Login to Registry"
-          echo "    run: echo \"\${{ secrets.REGISTRY_PASSWORD }}\" | docker login <registry> -u \"\${{ secrets.REGISTRY_USERNAME }}\" --password-stdin"
+          echo "    run: echo \"<REGISTRY_PASSWORD_SECRET>\" | docker login <registry> -u \"<REGISTRY_USERNAME_SECRET>\" --password-stdin"
+          exit 1
+        fi
+
+    - name: Use Local Docker Image
+      id: local_image
+      if: ${{ inputs.skip_image_pull == 'true' }}
+      shell: bash
+      run: |
+        IMAGE_NAME="${{ inputs.image_registry }}/${{ steps.set_repo_name.outputs.repo_name }}:${{ inputs.image_tag }}"
+        echo "🐳 Using local image: $IMAGE_NAME"
+
+        # Verify image exists locally
+        if docker image inspect "$IMAGE_NAME" > /dev/null 2>&1; then
+          echo "✅ Found local image: $IMAGE_NAME"
+          echo "image_name=$IMAGE_NAME" >> $GITHUB_OUTPUT
+        else
+          echo "❌ Local image not found: $IMAGE_NAME"
+          echo ""
+          echo "Available local images:"
+          docker images
           exit 1
         fi
 
@@ -126,7 +215,8 @@ runs:
       id: scan_image
       shell: bash
       run: |
-        IMAGE_NAME="${{ steps.pull_image.outputs.image_name }}"
+        IMAGE_NAME="${{ steps.pull_image.outputs.image_name || steps.local_image.outputs.image_name }}"
+        echo "image_name=$IMAGE_NAME" >> $GITHUB_OUTPUT
         echo "🔍 Scanning image with Prisma Cloud twistcli..."
 
         # Determine publish flag
@@ -136,15 +226,67 @@ runs:
           PUBLISH_FLAG=""
         fi
 
-        # Run twistcli scan
-        ./twistcli images scan \
-          --address "${{ inputs.pcc_console_url }}" \
-          --user "${{ inputs.pcc_user }}" \
-          --password "${{ inputs.pcc_pass }}" \
-          --output-file pcc_scan_results.json \
-          --details \
-          $PUBLISH_FLAG \
-          "$IMAGE_NAME" || true
+        REPO_VISIBILITY="${{ github.event.repository.visibility }}"
+        if [ -z "$REPO_VISIBILITY" ]; then
+          REPO_VISIBILITY="private"
+        fi
+
+        SHOW_DETAILED_LOGS="${{ inputs.show_detailed_logs }}"
+        if [ -z "$SHOW_DETAILED_LOGS" ]; then
+          if [ "$REPO_VISIBILITY" = "public" ]; then
+            SHOW_DETAILED_LOGS="false"
+          else
+            SHOW_DETAILED_LOGS="true"
+          fi
+        fi
+        SHOW_DETAILED_LOGS=$(echo "$SHOW_DETAILED_LOGS" | tr '[:upper:]' '[:lower:]')
+        echo "repo_visibility=$REPO_VISIBILITY" >> $GITHUB_OUTPUT
+        echo "show_detailed_logs=$SHOW_DETAILED_LOGS" >> $GITHUB_OUTPUT
+
+        # Resolve commit SHA for dedicated check run targeting.
+        # Prefer PR head SHA when available, then checked-out HEAD, then github.sha.
+        TARGET_SHA="${{ github.event.pull_request.head.sha }}"
+        if [ -z "$TARGET_SHA" ]; then
+          TARGET_SHA=$(git rev-parse HEAD 2>/dev/null || true)
+        fi
+        if [ -z "$TARGET_SHA" ]; then
+          TARGET_SHA="${{ github.sha }}"
+        fi
+        echo "target_sha=$TARGET_SHA" >> $GITHUB_OUTPUT
+
+        if [ "$SHOW_DETAILED_LOGS" = "true" ]; then
+          DETAILS_FLAG="--details"
+          echo "Detailed scan output is enabled in workflow logs."
+        else
+          DETAILS_FLAG=""
+          echo "Detailed scan output is hidden for visibility=$REPO_VISIBILITY."
+        fi
+
+        # Run twistcli scan and capture output
+        set +e
+        if [ "$SHOW_DETAILED_LOGS" = "true" ]; then
+          ./twistcli images scan \
+            --address "${{ inputs.pcc_console_url }}" \
+            --user "${{ inputs.pcc_user }}" \
+            --password "${{ inputs.pcc_pass }}" \
+            --output-file pcc_scan_results.json \
+            $DETAILS_FLAG \
+            $PUBLISH_FLAG \
+            "$IMAGE_NAME" 2>&1 | tee pcc_scan_output.txt
+          SCAN_EXIT_CODE=${PIPESTATUS[0]}
+        else
+          ./twistcli images scan \
+            --address "${{ inputs.pcc_console_url }}" \
+            --user "${{ inputs.pcc_user }}" \
+            --password "${{ inputs.pcc_pass }}" \
+            --output-file pcc_scan_results.json \
+            $DETAILS_FLAG \
+            $PUBLISH_FLAG \
+            "$IMAGE_NAME" > pcc_scan_output.txt 2>&1
+          SCAN_EXIT_CODE=$?
+        fi
+        set -e
+        echo "scan_exit_code=$SCAN_EXIT_CODE" >> $GITHUB_OUTPUT
 
         # Check if scan results file was created
         if [ ! -f "pcc_scan_results.json" ]; then
@@ -152,13 +294,44 @@ runs:
           exit 1
         fi
 
-        echo "✅ Scan completed successfully"
+        # Extract console link from JSON first, then fallback to scan logs
+        CONSOLE_LINK=$(jq -r '.consoleURL // empty' pcc_scan_results.json 2>/dev/null || true)
+        if [ -z "$CONSOLE_LINK" ] && [ -f "pcc_scan_output.txt" ]; then
+          CONSOLE_LINK=$(sed -n 's/.*Link to the results in Console:[[:space:]]*//p' pcc_scan_output.txt | awk 'NF{last=$0} END{print last}')
+        fi
+        if [ -n "$CONSOLE_LINK" ]; then
+          echo "console_link=$CONSOLE_LINK" >> $GITHUB_OUTPUT
+          echo "📊 View detailed results: $CONSOLE_LINK"
+        else
+          echo "⚠️ Could not extract Prisma Cloud console link from scan results"
+        fi
+
+        if [ "$SCAN_EXIT_CODE" -ne 0 ]; then
+          echo "⚠️ twistcli exited with code $SCAN_EXIT_CODE. This can indicate policy violations or scan errors."
+        fi
+
+        if [ "$SHOW_DETAILED_LOGS" != "true" ]; then
+          echo "Detailed vulnerability/compliance findings are hidden in logs."
+          echo "Use the Prisma Console link and uploaded artifact for full details."
+        fi
+
+        echo "✅ Scan completed"
 
     - name: Check Scan Results and Block on Issues
       id: check_results
       shell: bash
       run: |
         echo "📊 Analyzing Prisma Cloud scan results..."
+
+        # Configuration
+        BLOCK_ON_COMPLIANCE="${{ inputs.block_on_compliance }}"
+        GRACE_PERIOD_DAYS="${{ inputs.vulnerability_grace_period_days }}"
+        GRACE_PERIOD_SECONDS=$((GRACE_PERIOD_DAYS * 86400))
+        CURRENT_TIMESTAMP=$(date +%s)
+
+        echo "Configuration:"
+        echo "  Block on compliance: $BLOCK_ON_COMPLIANCE"
+        echo "  Vulnerability grace period: $GRACE_PERIOD_DAYS days"
 
         # Check if JSON is valid
         if ! jq empty pcc_scan_results.json 2>/dev/null; then
@@ -206,33 +379,108 @@ runs:
         COMPLIANCE_MEDIUM=${COMPLIANCE_MEDIUM:-0}
         COMPLIANCE_LOW=${COMPLIANCE_LOW:-0}
 
+        # Count vulnerabilities that are past the grace period
+        # Filter by published date - only block on vulnerabilities older than grace period
+        BLOCKING_VULN_CRITICAL=0
+        BLOCKING_VULN_HIGH=0
+
+        if [ "$GRACE_PERIOD_DAYS" -gt 0 ]; then
+          # Count critical vulnerabilities past grace period
+          BLOCKING_VULN_CRITICAL=$(jq --arg grace "$GRACE_PERIOD_SECONDS" --arg now "$CURRENT_TIMESTAMP" '
+            [.results[0].vulnerabilities[]? | 
+              select((.severity == "critical" or .severity == "Critical") and 
+                     ((.publishedDate // 0) | if type == "number" then . else (. | split("T")[0] | strptime("%Y-%m-%d") | mktime) end) < ($now | tonumber) - ($grace | tonumber))
+            ] | length' pcc_scan_results.json 2>/dev/null || echo "$VULN_CRITICAL")
+          
+          # Count high vulnerabilities past grace period
+          BLOCKING_VULN_HIGH=$(jq --arg grace "$GRACE_PERIOD_SECONDS" --arg now "$CURRENT_TIMESTAMP" '
+            [.results[0].vulnerabilities[]? | 
+              select((.severity == "high" or .severity == "High") and 
+                     ((.publishedDate // 0) | if type == "number" then . else (. | split("T")[0] | strptime("%Y-%m-%d") | mktime) end) < ($now | tonumber) - ($grace | tonumber))
+            ] | length' pcc_scan_results.json 2>/dev/null || echo "$VULN_HIGH")
+          
+          GRACE_VULN_CRITICAL=$((VULN_CRITICAL - BLOCKING_VULN_CRITICAL))
+          GRACE_VULN_HIGH=$((VULN_HIGH - BLOCKING_VULN_HIGH))
+        else
+          BLOCKING_VULN_CRITICAL=$VULN_CRITICAL
+          BLOCKING_VULN_HIGH=$VULN_HIGH
+          GRACE_VULN_CRITICAL=0
+          GRACE_VULN_HIGH=0
+        fi
+
         # Display summary
         echo "=========================================="
         echo "Prisma Cloud Scan Results Summary"
         echo "=========================================="
         echo "Vulnerabilities:"
-        echo "  Critical: $VULN_CRITICAL"
-        echo "  High:     $VULN_HIGH"
+        echo "  Critical: $VULN_CRITICAL (blocking: $BLOCKING_VULN_CRITICAL, in grace period: $GRACE_VULN_CRITICAL)"
+        echo "  High:     $VULN_HIGH (blocking: $BLOCKING_VULN_HIGH, in grace period: $GRACE_VULN_HIGH)"
         echo "  Medium:   $VULN_MEDIUM"
         echo "  Low:      $VULN_LOW"
         echo ""
-        echo "Compliance Issues:"
+        echo "Compliance Issues (block_on_compliance=$BLOCK_ON_COMPLIANCE):"
         echo "  Critical: $COMPLIANCE_CRITICAL"
         echo "  High:     $COMPLIANCE_HIGH"
         echo "  Medium:   $COMPLIANCE_MEDIUM"
         echo "  Low:      $COMPLIANCE_LOW"
         echo "=========================================="
 
-        # Block on critical or high severity issues
+        # Block on critical or high severity vulnerabilities (past grace period only)
         BLOCKING_ISSUES=0
-        if [ "$VULN_CRITICAL" -gt 0 ] || [ "$COMPLIANCE_CRITICAL" -gt 0 ]; then
-          echo "❌ BLOCKING: Found $VULN_CRITICAL critical vulnerabilities and $COMPLIANCE_CRITICAL critical compliance issues"
+        BLOCKING_COMPLIANCE_CRITICAL=0
+        BLOCKING_COMPLIANCE_HIGH=0
+
+        if [ "$BLOCKING_VULN_CRITICAL" -gt 0 ]; then
+          echo "❌ BLOCKING: Found $BLOCKING_VULN_CRITICAL critical vulnerabilities past ${GRACE_PERIOD_DAYS}-day grace period"
           BLOCKING_ISSUES=1
         fi
 
-        if [ "$VULN_HIGH" -gt 0 ] || [ "$COMPLIANCE_HIGH" -gt 0 ]; then
-          echo "❌ BLOCKING: Found $VULN_HIGH high severity vulnerabilities and $COMPLIANCE_HIGH high severity compliance issues"
+        if [ "$BLOCKING_VULN_HIGH" -gt 0 ]; then
+          echo "❌ BLOCKING: Found $BLOCKING_VULN_HIGH high severity vulnerabilities past ${GRACE_PERIOD_DAYS}-day grace period"
           BLOCKING_ISSUES=1
+        fi
+
+        # Only block on compliance if explicitly enabled
+        if [ "$BLOCK_ON_COMPLIANCE" = "true" ]; then
+          if [ "$COMPLIANCE_CRITICAL" -gt 0 ]; then
+            echo "❌ BLOCKING: Found $COMPLIANCE_CRITICAL critical compliance issues"
+            BLOCKING_COMPLIANCE_CRITICAL=$COMPLIANCE_CRITICAL
+            BLOCKING_ISSUES=1
+          fi
+
+          if [ "$COMPLIANCE_HIGH" -gt 0 ]; then
+            echo "❌ BLOCKING: Found $COMPLIANCE_HIGH high severity compliance issues"
+            BLOCKING_COMPLIANCE_HIGH=$COMPLIANCE_HIGH
+            BLOCKING_ISSUES=1
+          fi
+        else
+          if [ "$COMPLIANCE_CRITICAL" -gt 0 ] || [ "$COMPLIANCE_HIGH" -gt 0 ]; then
+            echo "⚠️ WARNING: Found compliance issues but blocking is disabled (block_on_compliance=false)"
+          fi
+        fi
+
+        BLOCKING_TOTAL=$((BLOCKING_VULN_CRITICAL + BLOCKING_VULN_HIGH + BLOCKING_COMPLIANCE_CRITICAL + BLOCKING_COMPLIANCE_HIGH))
+
+        # Store key outputs before potential failure so check run can always render details
+        echo "vuln_critical=$VULN_CRITICAL" >> $GITHUB_OUTPUT
+        echo "vuln_high=$VULN_HIGH" >> $GITHUB_OUTPUT
+        echo "vuln_medium=$VULN_MEDIUM" >> $GITHUB_OUTPUT
+        echo "vuln_low=$VULN_LOW" >> $GITHUB_OUTPUT
+        echo "compliance_critical=$COMPLIANCE_CRITICAL" >> $GITHUB_OUTPUT
+        echo "compliance_high=$COMPLIANCE_HIGH" >> $GITHUB_OUTPUT
+        echo "compliance_medium=$COMPLIANCE_MEDIUM" >> $GITHUB_OUTPUT
+        echo "compliance_low=$COMPLIANCE_LOW" >> $GITHUB_OUTPUT
+        echo "blocking_vuln_critical=$BLOCKING_VULN_CRITICAL" >> $GITHUB_OUTPUT
+        echo "blocking_vuln_high=$BLOCKING_VULN_HIGH" >> $GITHUB_OUTPUT
+        echo "blocking_compliance_critical=$BLOCKING_COMPLIANCE_CRITICAL" >> $GITHUB_OUTPUT
+        echo "blocking_compliance_high=$BLOCKING_COMPLIANCE_HIGH" >> $GITHUB_OUTPUT
+        echo "blocking_total=$BLOCKING_TOTAL" >> $GITHUB_OUTPUT
+
+        # Report vulnerabilities in grace period
+        if [ "$GRACE_VULN_CRITICAL" -gt 0 ] || [ "$GRACE_VULN_HIGH" -gt 0 ]; then
+          echo ""
+          echo "ℹ️ INFO: $GRACE_VULN_CRITICAL critical and $GRACE_VULN_HIGH high vulnerabilities are within the ${GRACE_PERIOD_DAYS}-day grace period"
+          echo "   These will become blocking after the grace period expires."
         fi
 
         if [ "$BLOCKING_ISSUES" -eq 1 ]; then
@@ -240,7 +488,11 @@ runs:
           echo "🚫 Release blocked due to critical or high severity security issues."
           echo "Please review and resolve the issues before proceeding with the release."
           echo ""
-          echo "View detailed results in Prisma Cloud Console: ${{ inputs.pcc_console_url }}"
+          if [ -n "${{ steps.scan_image.outputs.console_link }}" ]; then
+            echo "View detailed results in Prisma Cloud Console: ${{ steps.scan_image.outputs.console_link }}"
+          else
+            echo "View detailed results in Prisma Cloud Console: ${{ inputs.pcc_console_url }}"
+          fi
           echo "Or check pcc_scan_results.json for full details"
           echo ""
           echo "For debugging, here's the JSON structure:"
@@ -252,12 +504,267 @@ runs:
           echo "scan_passed=true" >> $GITHUB_OUTPUT
         fi
 
-        # Store counts for output
-        echo "vuln_critical=$VULN_CRITICAL" >> $GITHUB_OUTPUT
-        echo "vuln_high=$VULN_HIGH" >> $GITHUB_OUTPUT
-        echo "vuln_medium=$VULN_MEDIUM" >> $GITHUB_OUTPUT
-        echo "vuln_low=$VULN_LOW" >> $GITHUB_OUTPUT
-        echo "compliance_critical=$COMPLIANCE_CRITICAL" >> $GITHUB_OUTPUT
-        echo "compliance_high=$COMPLIANCE_HIGH" >> $GITHUB_OUTPUT
-        echo "compliance_medium=$COMPLIANCE_MEDIUM" >> $GITHUB_OUTPUT
-        echo "compliance_low=$COMPLIANCE_LOW" >> $GITHUB_OUTPUT
+    - name: Post Prisma Check Run
+      id: post_status
+      if: always()
+      uses: actions/github-script@v8
+      with:
+        script: |
+          const fs = require('fs');
+
+          const toInt = (value, fallback = 0) => {
+            const parsed = parseInt(String(value ?? ''), 10);
+            return Number.isFinite(parsed) ? parsed : fallback;
+          };
+          const norm = (value) => String(value ?? '').trim();
+          const mdEscape = (value) =>
+            String(value ?? '')
+              .replace(/\|/g, '\\|')
+              .replace(/\r?\n/g, ' ')
+              .trim();
+          const truncate = (value, max = 140) => {
+            const text = mdEscape(value);
+            return text.length > max ? `${text.slice(0, max - 3)}...` : text;
+          };
+          const severityRank = { critical: 4, high: 3, medium: 2, low: 1 };
+          const normalizeSeverity = (severity) => norm(severity).toLowerCase();
+          const asDateString = (value) => {
+            if (value === null || value === undefined || value === '') {
+              return '';
+            }
+            if (typeof value === 'number' && Number.isFinite(value)) {
+              // Prisma can return unix seconds.
+              return new Date(value * 1000).toISOString().slice(0, 10);
+            }
+            const stringValue = String(value);
+            const parsed = Date.parse(stringValue);
+            if (Number.isFinite(parsed)) {
+              return new Date(parsed).toISOString().slice(0, 10);
+            }
+            return stringValue;
+          };
+          const toEpochSeconds = (value) => {
+            if (value === null || value === undefined || value === '') {
+              return null;
+            }
+            if (typeof value === 'number' && Number.isFinite(value)) {
+              return value > 1000000000000 ? Math.floor(value / 1000) : Math.floor(value);
+            }
+            const parsed = Date.parse(String(value));
+            return Number.isFinite(parsed) ? Math.floor(parsed / 1000) : null;
+          };
+
+          const scanPassed = '${{ steps.check_results.outputs.scan_passed }}' === 'true';
+          const conclusion = scanPassed ? 'success' : 'failure';
+
+          const vulnCritical = toInt('${{ steps.check_results.outputs.vuln_critical }}');
+          const vulnHigh = toInt('${{ steps.check_results.outputs.vuln_high }}');
+          const vulnMedium = toInt('${{ steps.check_results.outputs.vuln_medium }}');
+          const vulnLow = toInt('${{ steps.check_results.outputs.vuln_low }}');
+          const complianceCritical = toInt('${{ steps.check_results.outputs.compliance_critical }}');
+          const complianceHigh = toInt('${{ steps.check_results.outputs.compliance_high }}');
+          const complianceMedium = toInt('${{ steps.check_results.outputs.compliance_medium }}');
+          const complianceLow = toInt('${{ steps.check_results.outputs.compliance_low }}');
+          const blockingVulnCritical = toInt('${{ steps.check_results.outputs.blocking_vuln_critical }}');
+          const blockingVulnHigh = toInt('${{ steps.check_results.outputs.blocking_vuln_high }}');
+          const blockingComplianceCritical = toInt('${{ steps.check_results.outputs.blocking_compliance_critical }}');
+          const blockingComplianceHigh = toInt('${{ steps.check_results.outputs.blocking_compliance_high }}');
+          const blockingTotal = toInt(
+            '${{ steps.check_results.outputs.blocking_total }}',
+            blockingVulnCritical + blockingVulnHigh + blockingComplianceCritical + blockingComplianceHigh
+          );
+          const scanExitCode = norm('${{ steps.scan_image.outputs.scan_exit_code }}') || 'unknown';
+          const imageName = norm('${{ steps.scan_image.outputs.image_name }}');
+          const repoVisibility = norm('${{ steps.scan_image.outputs.repo_visibility }}') || 'private';
+          const showDetailedLogs = norm('${{ steps.scan_image.outputs.show_detailed_logs }}').toLowerCase() === 'true';
+          const detailedTablesEnabled = showDetailedLogs && repoVisibility !== 'public';
+          const graceDays = toInt('${{ inputs.vulnerability_grace_period_days }}', 7);
+          const blockOnCompliance = norm('${{ inputs.block_on_compliance }}').toLowerCase() === 'true';
+          const runnerOs = norm('${{ runner.os }}');
+          const runnerArch = norm('${{ runner.arch }}');
+          const systemLabel = [runnerOs, runnerArch].filter(Boolean).join('/');
+          const targetSha =
+            norm('${{ steps.scan_image.outputs.target_sha }}') ||
+            norm(context.payload?.pull_request?.head?.sha) ||
+            context.sha;
+          const checkName = systemLabel ? `Prisma Image Scan (${systemLabel})` : 'Prisma Image Scan';
+
+          // Get console link with fallback
+          let targetUrl = norm('${{ steps.scan_image.outputs.console_link }}');
+          if (!targetUrl) {
+            targetUrl = '${{ inputs.pcc_console_url }}/compute?computeState=/monitor/vulnerabilities/images/ci';
+          }
+
+          const vulnerabilityTotal = vulnCritical + vulnHigh + vulnMedium + vulnLow;
+          const complianceTotal = complianceCritical + complianceHigh + complianceMedium + complianceLow;
+          const blockingVulnTotal = blockingVulnCritical + blockingVulnHigh;
+          const blockingComplianceTotal = blockingComplianceCritical + blockingComplianceHigh;
+
+          const summaryMarkdown = [
+            '### Prisma Image Scan Overview',
+            `- **Result:** ${scanPassed ? 'PASS' : 'FAIL'}`,
+            `- **System:** \`${mdEscape(systemLabel || 'unknown')}\``,
+            `- **Image:** \`${mdEscape(imageName || '${{ inputs.image_registry }}/${{ steps.set_repo_name.outputs.repo_name }}:${{ inputs.image_tag }}')}\``,
+            `- **Blocking issues:** **${blockingTotal}**`,
+            `- **Check SHA:** \`${mdEscape(targetSha)}\``,
+            `- **twistcli exit code:** \`${mdEscape(scanExitCode)}\``,
+            `- **Prisma results:** [Open full results in Prisma Cloud](${targetUrl})`,
+            '',
+            '| Category | Critical | High | Medium | Low | Total | Blocking |',
+            '| --- | ---: | ---: | ---: | ---: | ---: | ---: |',
+            `| Vulnerabilities | ${vulnCritical} | ${vulnHigh} | ${vulnMedium} | ${vulnLow} | ${vulnerabilityTotal} | ${blockingVulnTotal} |`,
+            `| Compliance | ${complianceCritical} | ${complianceHigh} | ${complianceMedium} | ${complianceLow} | ${complianceTotal} | ${blockingComplianceTotal} |`,
+            `| **Combined** | **${vulnCritical + complianceCritical}** | **${vulnHigh + complianceHigh}** | **${vulnMedium + complianceMedium}** | **${vulnLow + complianceLow}** | **${vulnerabilityTotal + complianceTotal}** | **${blockingTotal}** |`,
+            '',
+            `Policy settings: \`block_on_compliance=${blockOnCompliance}\`, \`vulnerability_grace_period_days=${graceDays}\``
+          ].join('\n');
+
+          const gracePeriodSeconds = Math.max(graceDays, 0) * 86400;
+          const nowSeconds = Math.floor(Date.now() / 1000);
+
+          const isBlockingVulnerability = (vulnerability) => {
+            const severity = normalizeSeverity(vulnerability?.severity);
+            if (severity !== 'critical' && severity !== 'high') {
+              return false;
+            }
+            if (gracePeriodSeconds <= 0) {
+              return true;
+            }
+            const publishedEpoch = toEpochSeconds(vulnerability?.publishedDate);
+            if (publishedEpoch === null) {
+              // Match fail-safe behavior from check logic when timestamp parsing is ambiguous.
+              return true;
+            }
+            return publishedEpoch < (nowSeconds - gracePeriodSeconds);
+          };
+
+          const isBlockingCompliance = (complianceIssue) => {
+            if (!blockOnCompliance) {
+              return false;
+            }
+            const severity = normalizeSeverity(complianceIssue?.severity);
+            return severity === 'critical' || severity === 'high';
+          };
+
+          const detailsLines = [];
+          if (detailedTablesEnabled) {
+            try {
+              if (!fs.existsSync('pcc_scan_results.json')) {
+                detailsLines.push('Detailed issue tables unavailable because `pcc_scan_results.json` was not found.');
+              } else {
+                const rawScanData = fs.readFileSync('pcc_scan_results.json', 'utf8');
+                const parsedScanData = JSON.parse(rawScanData);
+                const result = parsedScanData?.results?.[0] || {};
+
+                const vulnerabilities = Array.isArray(result.vulnerabilities) ? result.vulnerabilities : [];
+                const compliances = Array.isArray(result.compliances) ? result.compliances : [];
+
+                vulnerabilities.sort((a, b) => {
+                  const severityDelta =
+                    (severityRank[normalizeSeverity(b?.severity)] || 0) -
+                    (severityRank[normalizeSeverity(a?.severity)] || 0);
+                  if (severityDelta !== 0) {
+                    return severityDelta;
+                  }
+                  return (Number(b?.cvss || 0) - Number(a?.cvss || 0));
+                });
+
+                compliances.sort((a, b) => {
+                  const severityDelta =
+                    (severityRank[normalizeSeverity(b?.severity)] || 0) -
+                    (severityRank[normalizeSeverity(a?.severity)] || 0);
+                  if (severityDelta !== 0) {
+                    return severityDelta;
+                  }
+                  return 0;
+                });
+
+                const maxVulnerabilityRows = 25;
+                const maxComplianceRows = 15;
+
+                detailsLines.push('### Vulnerability Issues (quick view)');
+                detailsLines.push('| CVE | Severity | CVSS | Package | Version | Status | Published | Discovered | Description | Triggered Failure |');
+                detailsLines.push('| --- | --- | ---: | --- | --- | --- | --- | --- | --- | --- |');
+                if (vulnerabilities.length === 0) {
+                  detailsLines.push('| _None_ | - | - | - | - | - | - | - | No vulnerabilities reported. | - |');
+                } else {
+                  vulnerabilities.slice(0, maxVulnerabilityRows).forEach((vulnerability) => {
+                    detailsLines.push(
+                      `| ${truncate(vulnerability?.id || vulnerability?.cve || '-', 60)} | ${truncate(vulnerability?.severity || '-', 12)} | ${truncate(vulnerability?.cvss ?? '-', 8)} | ${truncate(vulnerability?.packageName || '-', 30)} | ${truncate(vulnerability?.packageVersion || '-', 20)} | ${truncate(vulnerability?.status || '-', 36)} | ${truncate(asDateString(vulnerability?.publishedDate) || '-', 20)} | ${truncate(asDateString(vulnerability?.discoveredDate) || '-', 20)} | ${truncate(vulnerability?.description || '-', 150)} | ${isBlockingVulnerability(vulnerability) ? 'Yes' : 'No'} |`
+                    );
+                  });
+                  if (vulnerabilities.length > maxVulnerabilityRows) {
+                    detailsLines.push('');
+                    detailsLines.push(`_Showing ${maxVulnerabilityRows} of ${vulnerabilities.length} vulnerability issues._`);
+                  }
+                }
+
+                detailsLines.push('');
+                detailsLines.push('### Compliance Issues (quick view)');
+                detailsLines.push('| ID / Title | Severity | Description | Triggered Failure |');
+                detailsLines.push('| --- | --- | --- | --- |');
+                if (compliances.length === 0) {
+                  detailsLines.push('| _None_ | - | No compliance issues reported. | - |');
+                } else {
+                  compliances.slice(0, maxComplianceRows).forEach((complianceIssue) => {
+                    const complianceIdOrTitle = complianceIssue?.id
+                      ? `${complianceIssue.id}${complianceIssue?.title ? ` - ${complianceIssue.title}` : ''}`
+                      : (complianceIssue?.title || '-');
+                    detailsLines.push(
+                      `| ${truncate(complianceIdOrTitle, 80)} | ${truncate(complianceIssue?.severity || '-', 12)} | ${truncate(complianceIssue?.description || '-', 180)} | ${isBlockingCompliance(complianceIssue) ? 'Yes' : 'No'} |`
+                    );
+                  });
+                  if (compliances.length > maxComplianceRows) {
+                    detailsLines.push('');
+                    detailsLines.push(`_Showing ${maxComplianceRows} of ${compliances.length} compliance issues._`);
+                  }
+                }
+              }
+            } catch (renderError) {
+              detailsLines.push(`Unable to render detailed issue tables: ${mdEscape(renderError.message)}`);
+            }
+          } else {
+            detailsLines.push('Detailed issue rows are hidden.');
+            if (repoVisibility === 'public') {
+              detailsLines.push('Repository visibility is `public` and detailed mode is hidden by default.');
+            }
+            if (!showDetailedLogs) {
+              detailsLines.push('Set `show_detailed_logs: "true"` to include quick issue tables in this check run.');
+            }
+            detailsLines.push(`Use [Prisma Console results](${targetUrl}) and the uploaded artifacts for full details.`);
+          }
+
+          try {
+            await github.rest.checks.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              name: checkName,
+              head_sha: targetSha,
+              status: 'completed',
+              conclusion: conclusion,
+              details_url: targetUrl,
+              output: {
+                title: scanPassed ? 'Prisma Image Scan passed' : 'Prisma Image Scan failed',
+                summary: summaryMarkdown,
+                text: detailsLines.join('\n')
+              }
+            });
+            console.log(`✅ Posted check run: ${conclusion}`);
+          } catch (error) {
+            core.setFailed(
+              `Failed to create dedicated Prisma check run: ${error.message}. ` +
+              'Ensure workflow token has `checks: write` permission.'
+            );
+          }
+
+    - name: Upload Scan Results
+      id: upload_artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: prisma-cloud-scan-results
+        path: |
+          pcc_scan_results.json
+          pcc_scan_output.txt
+        retention-days: 30
+        if-no-files-found: warn
