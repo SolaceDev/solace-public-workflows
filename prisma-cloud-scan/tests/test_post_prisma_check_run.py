@@ -27,6 +27,32 @@ class TestPostPrismaCheckRun(unittest.TestCase):
         self.assertEqual(post_prisma_check_run.parse_datetime_to_epoch(""), None)
         self.assertEqual(post_prisma_check_run.parse_datetime_to_epoch(None), None)
 
+    def test_resolve_target_sha_prefers_pull_request_head(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            event_path = Path(tmpdir) / "event.json"
+            event_path.write_text(
+                json.dumps({"pull_request": {"head": {"sha": "pr-head-sha-456"}}}),
+                encoding="utf-8",
+            )
+            env = {
+                "GITHUB_EVENT_PATH": str(event_path),
+                "TARGET_SHA": "merge-sha-111",
+                "PR_HEAD_SHA": "pr-head-sha-222",
+                "GITHUB_SHA": "github-sha-333",
+            }
+            with patch.dict(os.environ, env, clear=False):
+                self.assertEqual(post_prisma_check_run.resolve_target_sha(), "pr-head-sha-456")
+
+    def test_resolve_target_sha_falls_back_when_event_missing(self):
+        env = {
+            "GITHUB_EVENT_PATH": "/tmp/does-not-exist-event-path.json",
+            "TARGET_SHA": "merge-sha-111",
+            "PR_HEAD_SHA": "pr-head-sha-222",
+            "GITHUB_SHA": "github-sha-333",
+        }
+        with patch.dict(os.environ, env, clear=False):
+            self.assertEqual(post_prisma_check_run.resolve_target_sha(), "merge-sha-111")
+
     def test_build_detailed_text_hidden_mode(self):
         details = post_prisma_check_run.build_detailed_text(
             detailed_tables_enabled=False,
@@ -61,6 +87,10 @@ class TestPostPrismaCheckRun(unittest.TestCase):
                 "block_on_compliance": False,
             }
             (root / "pcc_scan_analysis.json").write_text(json.dumps(analysis), encoding="utf-8")
+            (root / "event.json").write_text(
+                json.dumps({"pull_request": {"head": {"sha": "pr-head-sha-123"}}}),
+                encoding="utf-8",
+            )
 
             env = {
                 "GITHUB_TOKEN": "token",
@@ -68,6 +98,7 @@ class TestPostPrismaCheckRun(unittest.TestCase):
                 "RUNNER_OS": "Linux",
                 "RUNNER_ARCH": "X64",
                 "TARGET_SHA": "abc123",
+                "GITHUB_EVENT_PATH": str(root / "event.json"),
                 "SCAN_EXIT_CODE": "0",
                 "IMAGE_NAME": "repo/image:tag",
                 "REPO_VISIBILITY": "private",
@@ -93,7 +124,7 @@ class TestPostPrismaCheckRun(unittest.TestCase):
 
             self.assertEqual(rc, 0)
             payload = captured["payload"]
-            self.assertEqual(payload["head_sha"], "abc123")
+            self.assertEqual(payload["head_sha"], "pr-head-sha-123")
             self.assertEqual(payload["conclusion"], "success")
             self.assertIn("Prisma Image Scan (Linux/X64)", payload["name"])
             self.assertIn("Prisma Image Scan Overview", payload["output"]["summary"])

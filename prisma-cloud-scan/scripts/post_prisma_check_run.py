@@ -100,6 +100,30 @@ def get_env(name: str, default: str = "") -> str:
     return norm(os.getenv(name, default))
 
 
+def read_github_event() -> dict[str, Any]:
+    event_path = get_env("GITHUB_EVENT_PATH")
+    if not event_path or not os.path.exists(event_path):
+        return {}
+    try:
+        with open(event_path, "r", encoding="utf-8") as handle:
+            parsed = json.load(handle)
+            return parsed if isinstance(parsed, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def resolve_target_sha() -> str:
+    event_payload = read_github_event()
+    pull_request = event_payload.get("pull_request") if isinstance(event_payload, dict) else None
+    if isinstance(pull_request, dict):
+        head = pull_request.get("head")
+        if isinstance(head, dict):
+            pull_request_head_sha = norm(head.get("sha"))
+            if pull_request_head_sha:
+                return pull_request_head_sha
+    return get_env("TARGET_SHA") or get_env("PR_HEAD_SHA") or get_env("GITHUB_SHA")
+
+
 def read_scan_results() -> dict[str, Any]:
     with open("pcc_scan_results.json", "r", encoding="utf-8") as handle:
         return json.load(handle)
@@ -263,7 +287,7 @@ def build_detailed_text(
     return "\n".join(details_lines)
 
 
-def post_check_run(payload: dict[str, Any]) -> None:
+def post_check_run(payload: dict[str, Any]) -> dict[str, Any]:
     token = get_env("GITHUB_TOKEN")
     repository = get_env("GITHUB_REPOSITORY")
     api_url = get_env("GITHUB_API_URL", "https://api.github.com")
@@ -291,6 +315,14 @@ def post_check_run(payload: dict[str, Any]) -> None:
     with request.urlopen(req) as response:  # noqa: S310 (GitHub API URL from env in runner context)
         if response.status < 200 or response.status >= 300:
             raise RuntimeError(f"GitHub API returned status {response.status}")
+        body = response.read().decode("utf-8")
+        if not body:
+            return {}
+        try:
+            parsed = json.loads(body)
+            return parsed if isinstance(parsed, dict) else {}
+        except json.JSONDecodeError:
+            return {}
 
 
 def main() -> int:
@@ -337,7 +369,7 @@ def main() -> int:
     runner_os = get_env("RUNNER_OS")
     runner_arch = get_env("RUNNER_ARCH")
     system_label = "/".join(part for part in [runner_os, runner_arch] if part)
-    target_sha = get_env("TARGET_SHA") or get_env("PR_HEAD_SHA") or get_env("GITHUB_SHA")
+    target_sha = resolve_target_sha()
     check_name = f"Prisma Image Scan ({system_label})" if system_label else "Prisma Image Scan"
 
     target_url = get_env("CONSOLE_LINK")
@@ -395,8 +427,11 @@ def main() -> int:
     }
 
     try:
-        post_check_run(payload)
-        print(f"✅ Posted check run: {conclusion}")
+        posted_check_run = post_check_run(payload) or {}
+        posted_check_url = norm(posted_check_run.get("html_url"))
+        print(f"✅ Posted check run: {conclusion} (sha={target_sha})")
+        if posted_check_url:
+            print(f"🔗 Check run URL: {posted_check_url}")
         return 0
     except error.HTTPError as http_err:
         message = http_err.reason
