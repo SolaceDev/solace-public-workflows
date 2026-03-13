@@ -9,6 +9,10 @@ inputs:
   github-token:
     description: "GitHub token for API access (needs repo:status scope)"
     required: true
+  exclude-patterns:
+    description: "Newline-separated glob patterns for files to exclude from the size count (e.g. 'tests/**')"
+    required: false
+    default: ""
 
 outputs:
   pr-size:
@@ -26,34 +30,57 @@ runs:
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github-token }}
+        EXCLUDE_PATTERNS: ${{ inputs.exclude-patterns }}
       run: |
         echo "🔍 Checking PR size..."
 
-        # Get PR details from GitHub API
-        PR_DATA=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }})
+        EXCLUDE_PATTERNS_TRIMMED=$(echo "$EXCLUDE_PATTERNS" | sed '/^\s*$/d')
 
-        # Extract additions and deletions
-        ADDITIONS=$(echo "$PR_DATA" | jq -r '.additions')
-        DELETIONS=$(echo "$PR_DATA" | jq -r '.deletions')
-        PR_SIZE=$((ADDITIONS + DELETIONS))
+        if [ -z "$EXCLUDE_PATTERNS_TRIMMED" ]; then
+          PR_DATA=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }})
+          ADDITIONS=$(echo "$PR_DATA" | jq -r '.additions')
+          DELETIONS=$(echo "$PR_DATA" | jq -r '.deletions')
+          TOTAL_SIZE=$((ADDITIONS + DELETIONS))
+          EXCLUDED_SIZE=0
+        else
+          FILES=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files --paginate)
 
+          TOTAL_SIZE=$(echo "$FILES" | jq '[.[] | (.additions + .deletions)] | add // 0')
+
+          JQ_FILTER=""
+          while IFS= read -r pattern; do
+            [ -z "$pattern" ] && continue
+            regex=$(echo "$pattern" | sed 's/\./\\./g' | sed 's/\*\*/.*/' | sed 's/\*/[^\/]*/')
+            if [ -z "$JQ_FILTER" ]; then
+              JQ_FILTER="test(\"^${regex}$\")"
+            else
+              JQ_FILTER="${JQ_FILTER} or test(\"^${regex}$\")"
+            fi
+          done <<< "$EXCLUDE_PATTERNS_TRIMMED"
+
+          EXCLUDED_SIZE=$(echo "$FILES" | jq "[.[] | select(.filename | (${JQ_FILTER})) | (.additions + .deletions)] | add // 0")
+
+          echo "  📁 Excluded patterns: $(echo "$EXCLUDE_PATTERNS_TRIMMED" | tr '\n' ', ')"
+          echo "  📁 Excluded lines: $EXCLUDED_SIZE"
+        fi
+
+        PR_SIZE=$((TOTAL_SIZE - EXCLUDED_SIZE))
         echo "pr-size=$PR_SIZE" >> $GITHUB_OUTPUT
 
         echo "📊 PR Statistics:"
-        echo "  - Additions: $ADDITIONS"
-        echo "  - Deletions: $DELETIONS"
-        echo "  - Total Size: $PR_SIZE lines"
+        echo "  - Total Size (all files): $TOTAL_SIZE lines"
+        echo "  - Counted Size (after exclusions): $PR_SIZE lines"
         echo "  - Maximum Allowed: ${{ inputs.max-lines }} lines"
 
         if [ "$PR_SIZE" -gt "${{ inputs.max-lines }}" ]; then
           echo "size-exceeded=true" >> $GITHUB_OUTPUT
           echo "state=failure" >> $GITHUB_OUTPUT
-          echo "description=PR size exceeds maximum allowed limit: $PR_SIZE lines (max: ${{ inputs.max-lines }})" >> $GITHUB_OUTPUT
+          echo "description=PR size exceeds limit: $PR_SIZE lines (max: ${{ inputs.max-lines }})" >> $GITHUB_OUTPUT
           echo "❌ PR size ($PR_SIZE lines) exceeds maximum allowed limit (${{ inputs.max-lines }} lines)"
         else
           echo "size-exceeded=false" >> $GITHUB_OUTPUT
           echo "state=success" >> $GITHUB_OUTPUT
-          echo "description=PR size is within acceptable limits: $PR_SIZE lines (max: ${{ inputs.max-lines }})" >> $GITHUB_OUTPUT
+          echo "description=PR size is within limits: $PR_SIZE lines (max: ${{ inputs.max-lines }})" >> $GITHUB_OUTPUT
           echo "✅ PR size ($PR_SIZE lines) is within acceptable limits (max: ${{ inputs.max-lines }} lines)"
         fi
 

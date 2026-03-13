@@ -36,6 +36,7 @@ jobs:
 |-------|-------------|----------|---------|
 | `max-lines` | Maximum PR size (additions + deletions) | No | `500` |
 | `github-token` | GitHub token for API access (needs `repo:status` scope) | Yes | N/A |
+| `exclude-patterns` | Newline-separated glob patterns for files to exclude from the size count (e.g. `tests/**`) | No | `""` |
 
 ## Outputs
 
@@ -61,6 +62,30 @@ jobs:
   with:
     github-token: ${{ secrets.GITHUB_TOKEN }}
     max-lines: 1000
+```
+
+### Exclude test files from the count
+
+```yaml
+- uses: SolaceDev/solace-public-workflows/.github/actions/pr-size-check@main
+  with:
+    github-token: ${{ secrets.GITHUB_TOKEN }}
+    max-lines: 1500
+    exclude-patterns: |
+      tests/**
+```
+
+### Exclude multiple patterns
+
+```yaml
+- uses: SolaceDev/solace-public-workflows/.github/actions/pr-size-check@main
+  with:
+    github-token: ${{ secrets.GITHUB_TOKEN }}
+    max-lines: 1000
+    exclude-patterns: |
+      tests/**
+      docs/**
+      *.lock
 ```
 
 ### Using outputs
