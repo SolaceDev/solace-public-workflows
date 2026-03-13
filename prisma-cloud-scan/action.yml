@@ -26,6 +26,22 @@ inputs:
     description: "Whether to publish scan results to Prisma Cloud Console"
     required: false
     default: "true"
+  block_on_compliance:
+    description: "Block release on compliance issues (high/critical)"
+    required: false
+    default: "false"
+  vulnerability_grace_period_days:
+    description: "Grace period in days for new vulnerabilities before blocking (0 to block immediately)"
+    required: false
+    default: "7"
+  skip_image_pull:
+    description: "Skip pulling the image (use when image is already available locally)"
+    required: false
+    default: "false"
+  show_detailed_logs:
+    description: "Force detailed scan output in workflow logs (`true`/`false`). Defaults to `false` for public repos and `true` otherwise."
+    required: false
+    default: ""
 
 outputs:
   scan_passed:
@@ -43,6 +59,9 @@ outputs:
   vuln_low:
     description: "Number of low severity vulnerabilities found"
     value: ${{ steps.check_results.outputs.vuln_low }}
+  console_link:
+    description: "Deep link to Prisma Cloud Console scan results when available"
+    value: ${{ steps.scan_image.outputs.console_link }}
 
 runs:
   using: "composite"
@@ -66,24 +85,74 @@ runs:
       run: |
         echo "📥 Downloading twistcli from Prisma Cloud Console..."
 
-        # Download twistcli from the Console
-        curl -k -u "${{ inputs.pcc_user }}:${{ inputs.pcc_pass }}" \
-          --output ./twistcli \
-          "${{ inputs.pcc_console_url }}/api/v1/util/twistcli"
+        ARCH="$(uname -m)"
+        CONSOLE_VERSION_RAW=$(curl -k -u "${{ inputs.pcc_user }}:${{ inputs.pcc_pass }}" \
+          --fail --silent --show-error \
+          "${{ inputs.pcc_console_url }}/api/v1/version" 2>/dev/null || true)
+        API_VERSION=$(echo "$CONSOLE_VERSION_RAW" | awk 'match($0, /[0-9]+\.[0-9]+/){print substr($0, RSTART, RLENGTH); exit}')
 
-        if [ $? -ne 0 ]; then
-          echo "❌ Failed to download twistcli from Console"
+        declare -a TWISTCLI_ENDPOINTS
+        add_endpoint() {
+          local candidate="$1"
+          for existing in "${TWISTCLI_ENDPOINTS[@]}"; do
+            if [ "$existing" = "$candidate" ]; then
+              return 0
+            fi
+          done
+          TWISTCLI_ENDPOINTS+=("$candidate")
+        }
+
+        if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
+          add_endpoint "/api/v1/util/arm64/twistcli"
+          if [ -n "$API_VERSION" ]; then
+            add_endpoint "/api/v${API_VERSION}/util/arm64/twistcli"
+          fi
+          add_endpoint "/api/v1/util/twistcli"
+          if [ -n "$API_VERSION" ]; then
+            add_endpoint "/api/v${API_VERSION}/util/twistcli"
+          fi
+        else
+          add_endpoint "/api/v1/util/twistcli"
+          if [ -n "$API_VERSION" ]; then
+            add_endpoint "/api/v${API_VERSION}/util/twistcli"
+          fi
+        fi
+
+        DOWNLOAD_SUCCESS=0
+        for ENDPOINT in "${TWISTCLI_ENDPOINTS[@]}"; do
+          echo "Trying endpoint: $ENDPOINT"
+          if curl -k -u "${{ inputs.pcc_user }}:${{ inputs.pcc_pass }}" \
+            --fail --location --silent --show-error \
+            --output ./twistcli \
+            "${{ inputs.pcc_console_url }}${ENDPOINT}"; then
+            chmod +x ./twistcli
+            if ./twistcli --version > /dev/null 2>&1 || ./twistcli > /dev/null 2>&1; then
+              DOWNLOAD_SUCCESS=1
+              echo "download_endpoint=$ENDPOINT" >> $GITHUB_OUTPUT
+              break
+            fi
+            echo "Downloaded file from $ENDPOINT is not runnable on architecture $ARCH"
+          fi
+        done
+
+        if [ "$DOWNLOAD_SUCCESS" -ne 1 ]; then
+          echo "❌ Failed to download a runnable twistcli binary"
+          echo "Runner architecture: $ARCH"
+          echo "Tried endpoints: ${TWISTCLI_ENDPOINTS[*]}"
           exit 1
         fi
 
-        chmod +x ./twistcli
-
         # Verify twistcli version
-        TWISTCLI_VERSION=$(./twistcli | grep -A1 VERSION | sed '1d' | tr -d '[:space:]' || echo "unknown")
+        TWISTCLI_VERSION=$(
+          ./twistcli --version 2>/dev/null | tr -d '[:space:]' || \
+          ./twistcli 2>/dev/null | sed -n '2p' | tr -d '[:space:]' || \
+          echo "unknown"
+        )
         echo "✅ Downloaded twistcli version: $TWISTCLI_VERSION"
 
     - name: Pull Docker Image
       id: pull_image
+      if: ${{ inputs.skip_image_pull != 'true' }}
       shell: bash
       run: |
         IMAGE_NAME="${{ inputs.image_registry }}/${{ steps.set_repo_name.outputs.repo_name }}:${{ inputs.image_tag }}"
@@ -102,8 +171,8 @@ runs:
           echo "  - name: Configure AWS credentials"
           echo "    uses: aws-actions/configure-aws-credentials@v4"
           echo "    with:"
-          echo "      aws-access-key-id: \${{ secrets.AWS_ACCESS_KEY_ID }}"
-          echo "      aws-secret-access-key: \${{ secrets.AWS_SECRET_ACCESS_KEY }}"
+          echo "      aws-access-key-id: <AWS_ACCESS_KEY_ID_SECRET>"
+          echo "      aws-secret-access-key: <AWS_SECRET_ACCESS_KEY_SECRET>"
           echo "      aws-region: us-east-1"
           echo ""
           echo "  - name: Login to Amazon ECR"
@@ -113,12 +182,32 @@ runs:
           echo "  - name: Login to Docker Hub"
           echo "    uses: docker/login-action@v3"
           echo "    with:"
-          echo "      username: \${{ secrets.DOCKERHUB_USERNAME }}"
-          echo "      password: \${{ secrets.DOCKERHUB_TOKEN }}"
+          echo "      username: <DOCKERHUB_USERNAME_SECRET>"
+          echo "      password: <DOCKERHUB_TOKEN_SECRET>"
           echo ""
           echo "For other registries:"
           echo "  - name: Login to Registry"
-          echo "    run: echo \"\${{ secrets.REGISTRY_PASSWORD }}\" | docker login <registry> -u \"\${{ secrets.REGISTRY_USERNAME }}\" --password-stdin"
+          echo "    run: echo \"<REGISTRY_PASSWORD_SECRET>\" | docker login <registry> -u \"<REGISTRY_USERNAME_SECRET>\" --password-stdin"
+          exit 1
+        fi
+
+    - name: Use Local Docker Image
+      id: local_image
+      if: ${{ inputs.skip_image_pull == 'true' }}
+      shell: bash
+      run: |
+        IMAGE_NAME="${{ inputs.image_registry }}/${{ steps.set_repo_name.outputs.repo_name }}:${{ inputs.image_tag }}"
+        echo "🐳 Using local image: $IMAGE_NAME"
+
+        # Verify image exists locally
+        if docker image inspect "$IMAGE_NAME" > /dev/null 2>&1; then
+          echo "✅ Found local image: $IMAGE_NAME"
+          echo "image_name=$IMAGE_NAME" >> $GITHUB_OUTPUT
+        else
+          echo "❌ Local image not found: $IMAGE_NAME"
+          echo ""
+          echo "Available local images:"
+          docker images
           exit 1
         fi
 
@@ -126,7 +215,8 @@ runs:
       id: scan_image
       shell: bash
       run: |
-        IMAGE_NAME="${{ steps.pull_image.outputs.image_name }}"
+        IMAGE_NAME="${{ steps.pull_image.outputs.image_name || steps.local_image.outputs.image_name }}"
+        echo "image_name=$IMAGE_NAME" >> $GITHUB_OUTPUT
         echo "🔍 Scanning image with Prisma Cloud twistcli..."
 
         # Determine publish flag
@@ -136,15 +226,67 @@ runs:
           PUBLISH_FLAG=""
         fi
 
-        # Run twistcli scan
-        ./twistcli images scan \
-          --address "${{ inputs.pcc_console_url }}" \
-          --user "${{ inputs.pcc_user }}" \
-          --password "${{ inputs.pcc_pass }}" \
-          --output-file pcc_scan_results.json \
-          --details \
-          $PUBLISH_FLAG \
-          "$IMAGE_NAME" || true
+        REPO_VISIBILITY="${{ github.event.repository.visibility }}"
+        if [ -z "$REPO_VISIBILITY" ]; then
+          REPO_VISIBILITY="private"
+        fi
+
+        SHOW_DETAILED_LOGS="${{ inputs.show_detailed_logs }}"
+        if [ -z "$SHOW_DETAILED_LOGS" ]; then
+          if [ "$REPO_VISIBILITY" = "public" ]; then
+            SHOW_DETAILED_LOGS="false"
+          else
+            SHOW_DETAILED_LOGS="true"
+          fi
+        fi
+        SHOW_DETAILED_LOGS=$(echo "$SHOW_DETAILED_LOGS" | tr '[:upper:]' '[:lower:]')
+        echo "repo_visibility=$REPO_VISIBILITY" >> $GITHUB_OUTPUT
+        echo "show_detailed_logs=$SHOW_DETAILED_LOGS" >> $GITHUB_OUTPUT
+
+        # Resolve commit SHA for dedicated check run targeting.
+        # Prefer PR head SHA when available, then checked-out HEAD, then github.sha.
+        TARGET_SHA="${{ github.event.pull_request.head.sha }}"
+        if [ -z "$TARGET_SHA" ]; then
+          TARGET_SHA=$(git rev-parse HEAD 2>/dev/null || true)
+        fi
+        if [ -z "$TARGET_SHA" ]; then
+          TARGET_SHA="${{ github.sha }}"
+        fi
+        echo "target_sha=$TARGET_SHA" >> $GITHUB_OUTPUT
+
+        if [ "$SHOW_DETAILED_LOGS" = "true" ]; then
+          DETAILS_FLAG="--details"
+          echo "Detailed scan output is enabled in workflow logs."
+        else
+          DETAILS_FLAG=""
+          echo "Detailed scan output is hidden for visibility=$REPO_VISIBILITY."
+        fi
+
+        # Run twistcli scan and capture output
+        set +e
+        if [ "$SHOW_DETAILED_LOGS" = "true" ]; then
+          ./twistcli images scan \
+            --address "${{ inputs.pcc_console_url }}" \
+            --user "${{ inputs.pcc_user }}" \
+            --password "${{ inputs.pcc_pass }}" \
+            --output-file pcc_scan_results.json \
+            $DETAILS_FLAG \
+            $PUBLISH_FLAG \
+            "$IMAGE_NAME" 2>&1 | tee pcc_scan_output.txt
+          SCAN_EXIT_CODE=${PIPESTATUS[0]}
+        else
+          ./twistcli images scan \
+            --address "${{ inputs.pcc_console_url }}" \
+            --user "${{ inputs.pcc_user }}" \
+            --password "${{ inputs.pcc_pass }}" \
+            --output-file pcc_scan_results.json \
+            $DETAILS_FLAG \
+            $PUBLISH_FLAG \
+            "$IMAGE_NAME" > pcc_scan_output.txt 2>&1
+          SCAN_EXIT_CODE=$?
+        fi
+        set -e
+        echo "scan_exit_code=$SCAN_EXIT_CODE" >> $GITHUB_OUTPUT
 
         # Check if scan results file was created
         if [ ! -f "pcc_scan_results.json" ]; then
@@ -152,112 +294,79 @@ runs:
           exit 1
         fi
 
-        echo "✅ Scan completed successfully"
+        # Extract console link from JSON first, then fallback to scan logs
+        CONSOLE_LINK=$(jq -r '.consoleURL // empty' pcc_scan_results.json 2>/dev/null || true)
+        if [ -z "$CONSOLE_LINK" ] && [ -f "pcc_scan_output.txt" ]; then
+          CONSOLE_LINK=$(sed -n 's/.*Link to the results in Console:[[:space:]]*//p' pcc_scan_output.txt | awk 'NF{last=$0} END{print last}')
+        fi
+        if [ -n "$CONSOLE_LINK" ]; then
+          echo "console_link=$CONSOLE_LINK" >> $GITHUB_OUTPUT
+          echo "📊 View detailed results: $CONSOLE_LINK"
+        else
+          echo "⚠️ Could not extract Prisma Cloud console link from scan results"
+        fi
+
+        if [ "$SCAN_EXIT_CODE" -ne 0 ]; then
+          echo "⚠️ twistcli exited with code $SCAN_EXIT_CODE. This can indicate policy violations or scan errors."
+        fi
+
+        if [ "$SHOW_DETAILED_LOGS" != "true" ]; then
+          echo "Detailed vulnerability/compliance findings are hidden in logs."
+          echo "Use the Prisma Console link and uploaded artifact for full details."
+        fi
+
+        echo "✅ Scan completed"
 
     - name: Check Scan Results and Block on Issues
       id: check_results
       shell: bash
+      env:
+        BLOCK_ON_COMPLIANCE: ${{ inputs.block_on_compliance }}
+        GRACE_PERIOD_DAYS: ${{ inputs.vulnerability_grace_period_days }}
+        CONSOLE_LINK: ${{ steps.scan_image.outputs.console_link }}
+        PCC_CONSOLE_URL: ${{ inputs.pcc_console_url }}
       run: |
-        echo "📊 Analyzing Prisma Cloud scan results..."
+        python3 "${{ github.action_path }}/scripts/analyze_scan_results.py"
 
-        # Check if JSON is valid
-        if ! jq empty pcc_scan_results.json 2>/dev/null; then
-          echo "❌ Error: Invalid JSON in scan results file"
-          echo "scan_passed=false" >> $GITHUB_OUTPUT
-          exit 1
+    - name: Post Prisma Check Run
+      id: post_status
+      if: always()
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+        SCAN_EXIT_CODE: ${{ steps.scan_image.outputs.scan_exit_code }}
+        IMAGE_NAME: ${{ steps.scan_image.outputs.image_name }}
+        REPO_VISIBILITY: ${{ steps.scan_image.outputs.repo_visibility }}
+        SHOW_DETAILED_LOGS: ${{ steps.scan_image.outputs.show_detailed_logs }}
+        TARGET_SHA: ${{ steps.scan_image.outputs.target_sha }}
+        PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        CONSOLE_LINK: ${{ steps.scan_image.outputs.console_link }}
+        PCC_CONSOLE_URL: ${{ inputs.pcc_console_url }}
+        FALLBACK_IMAGE: ${{ inputs.image_registry }}/${{ steps.set_repo_name.outputs.repo_name }}:${{ inputs.image_tag }}
+      run: |
+        python3 "${{ github.action_path }}/scripts/post_prisma_check_run.py"
+
+    - name: Prepare Scan Artifact Name
+      id: artifact_name
+      if: always()
+      shell: bash
+      run: |
+        RAW_TAG="${{ inputs.image_tag }}"
+        SAFE_TAG=$(echo "$RAW_TAG" | tr '/:@ ' '-' | tr -cd '[:alnum:]._-' )
+        if [ -z "$SAFE_TAG" ]; then
+          SAFE_TAG="scan"
         fi
+        echo "name=prisma-cloud-scan-results-${{ runner.os }}-${{ runner.arch }}-${SAFE_TAG}" >> $GITHUB_OUTPUT
 
-        # Parse the JSON structure from twistcli output
-        # The structure is: {"results": [{"vulnerabilities": [...], "compliances": [...]}]}
-
-        # Extract vulnerability counts by severity
-        VULN_CRITICAL=$(jq '[.results[0].vulnerabilities[]? | select(.severity == "critical" or .severity == "Critical")] | length' pcc_scan_results.json 2>/dev/null || echo "0")
-        VULN_HIGH=$(jq '[.results[0].vulnerabilities[]? | select(.severity == "high" or .severity == "High")] | length' pcc_scan_results.json 2>/dev/null || echo "0")
-        VULN_MEDIUM=$(jq '[.results[0].vulnerabilities[]? | select(.severity == "medium" or .severity == "Medium")] | length' pcc_scan_results.json 2>/dev/null || echo "0")
-        VULN_LOW=$(jq '[.results[0].vulnerabilities[]? | select(.severity == "low" or .severity == "Low")] | length' pcc_scan_results.json 2>/dev/null || echo "0")
-
-        # Extract compliance issue counts by severity
-        COMPLIANCE_CRITICAL=$(jq '[.results[0].compliances[]? | select(.severity == "critical" or .severity == "Critical")] | length' pcc_scan_results.json 2>/dev/null || echo "0")
-        COMPLIANCE_HIGH=$(jq '[.results[0].compliances[]? | select(.severity == "high" or .severity == "High")] | length' pcc_scan_results.json 2>/dev/null || echo "0")
-        COMPLIANCE_MEDIUM=$(jq '[.results[0].compliances[]? | select(.severity == "medium" or .severity == "Medium")] | length' pcc_scan_results.json 2>/dev/null || echo "0")
-        COMPLIANCE_LOW=$(jq '[.results[0].compliances[]? | select(.severity == "low" or .severity == "Low")] | length' pcc_scan_results.json 2>/dev/null || echo "0")
-
-        # Fallback: Try alternate paths if we got 0 for everything
-        if [ "$VULN_CRITICAL" = "0" ] && [ "$VULN_HIGH" = "0" ] && [ "$COMPLIANCE_CRITICAL" = "0" ] && [ "$COMPLIANCE_HIGH" = "0" ]; then
-          # Try using vulnerabilityDistribution and complianceDistribution
-          VULN_CRITICAL=$(jq '.results[0].vulnerabilityDistribution.critical // 0' pcc_scan_results.json 2>/dev/null || echo "0")
-          VULN_HIGH=$(jq '.results[0].vulnerabilityDistribution.high // 0' pcc_scan_results.json 2>/dev/null || echo "0")
-          VULN_MEDIUM=$(jq '.results[0].vulnerabilityDistribution.medium // 0' pcc_scan_results.json 2>/dev/null || echo "0")
-          VULN_LOW=$(jq '.results[0].vulnerabilityDistribution.low // 0' pcc_scan_results.json 2>/dev/null || echo "0")
-
-          COMPLIANCE_CRITICAL=$(jq '.results[0].complianceDistribution.critical // 0' pcc_scan_results.json 2>/dev/null || echo "0")
-          COMPLIANCE_HIGH=$(jq '.results[0].complianceDistribution.high // 0' pcc_scan_results.json 2>/dev/null || echo "0")
-          COMPLIANCE_MEDIUM=$(jq '.results[0].complianceDistribution.medium // 0' pcc_scan_results.json 2>/dev/null || echo "0")
-          COMPLIANCE_LOW=$(jq '.results[0].complianceDistribution.low // 0' pcc_scan_results.json 2>/dev/null || echo "0")
-        fi
-
-        # Ensure we have numeric values
-        VULN_CRITICAL=${VULN_CRITICAL:-0}
-        VULN_HIGH=${VULN_HIGH:-0}
-        VULN_MEDIUM=${VULN_MEDIUM:-0}
-        VULN_LOW=${VULN_LOW:-0}
-        COMPLIANCE_CRITICAL=${COMPLIANCE_CRITICAL:-0}
-        COMPLIANCE_HIGH=${COMPLIANCE_HIGH:-0}
-        COMPLIANCE_MEDIUM=${COMPLIANCE_MEDIUM:-0}
-        COMPLIANCE_LOW=${COMPLIANCE_LOW:-0}
-
-        # Display summary
-        echo "=========================================="
-        echo "Prisma Cloud Scan Results Summary"
-        echo "=========================================="
-        echo "Vulnerabilities:"
-        echo "  Critical: $VULN_CRITICAL"
-        echo "  High:     $VULN_HIGH"
-        echo "  Medium:   $VULN_MEDIUM"
-        echo "  Low:      $VULN_LOW"
-        echo ""
-        echo "Compliance Issues:"
-        echo "  Critical: $COMPLIANCE_CRITICAL"
-        echo "  High:     $COMPLIANCE_HIGH"
-        echo "  Medium:   $COMPLIANCE_MEDIUM"
-        echo "  Low:      $COMPLIANCE_LOW"
-        echo "=========================================="
-
-        # Block on critical or high severity issues
-        BLOCKING_ISSUES=0
-        if [ "$VULN_CRITICAL" -gt 0 ] || [ "$COMPLIANCE_CRITICAL" -gt 0 ]; then
-          echo "❌ BLOCKING: Found $VULN_CRITICAL critical vulnerabilities and $COMPLIANCE_CRITICAL critical compliance issues"
-          BLOCKING_ISSUES=1
-        fi
-
-        if [ "$VULN_HIGH" -gt 0 ] || [ "$COMPLIANCE_HIGH" -gt 0 ]; then
-          echo "❌ BLOCKING: Found $VULN_HIGH high severity vulnerabilities and $COMPLIANCE_HIGH high severity compliance issues"
-          BLOCKING_ISSUES=1
-        fi
-
-        if [ "$BLOCKING_ISSUES" -eq 1 ]; then
-          echo ""
-          echo "🚫 Release blocked due to critical or high severity security issues."
-          echo "Please review and resolve the issues before proceeding with the release."
-          echo ""
-          echo "View detailed results in Prisma Cloud Console: ${{ inputs.pcc_console_url }}"
-          echo "Or check pcc_scan_results.json for full details"
-          echo ""
-          echo "For debugging, here's the JSON structure:"
-          jq 'keys' pcc_scan_results.json 2>/dev/null || echo "Could not parse JSON keys"
-          echo "scan_passed=false" >> $GITHUB_OUTPUT
-          exit 1
-        else
-          echo "✅ No blocking issues found. Scan passed."
-          echo "scan_passed=true" >> $GITHUB_OUTPUT
-        fi
-
-        # Store counts for output
-        echo "vuln_critical=$VULN_CRITICAL" >> $GITHUB_OUTPUT
-        echo "vuln_high=$VULN_HIGH" >> $GITHUB_OUTPUT
-        echo "vuln_medium=$VULN_MEDIUM" >> $GITHUB_OUTPUT
-        echo "vuln_low=$VULN_LOW" >> $GITHUB_OUTPUT
-        echo "compliance_critical=$COMPLIANCE_CRITICAL" >> $GITHUB_OUTPUT
-        echo "compliance_high=$COMPLIANCE_HIGH" >> $GITHUB_OUTPUT
-        echo "compliance_medium=$COMPLIANCE_MEDIUM" >> $GITHUB_OUTPUT
-        echo "compliance_low=$COMPLIANCE_LOW" >> $GITHUB_OUTPUT
+    - name: Upload Scan Results
+      id: upload_artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ steps.artifact_name.outputs.name }}
+        path: |
+          pcc_scan_results.json
+          pcc_scan_output.txt
+          pcc_scan_analysis.json
+        retention-days: 30
+        if-no-files-found: warn
