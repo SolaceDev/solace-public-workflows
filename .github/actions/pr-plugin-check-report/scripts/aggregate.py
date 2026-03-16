@@ -11,24 +11,34 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import sys
-import urllib.error
-import urllib.parse
-import urllib.request
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 
-def _to_bool(value: str | None, default: bool = False) -> bool:
-    if value is None:
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+def _bootstrap_common_module() -> None:
+    script_path = Path(__file__).resolve()
+    for parent in script_path.parents:
+        candidate = parent / ".github" / "scripts" / "common" / "github_reporting.py"
+        if candidate.exists():
+            sys.path.insert(0, str(candidate.parent))
+            return
 
 
-def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+_bootstrap_common_module()
+
+from github_reporting import (  # type: ignore  # noqa: E402
+    append_summary as _append_summary,
+    create_check_run as _create_check_run,
+    github_api as _github_api,
+    normalize_pr_number as _normalize_pr_number,
+    resolve_check_run_id as _resolve_check_run_id,
+    resolve_pr_number_by_head as _resolve_pr_number_by_head,
+    to_bool as _to_bool,
+    upsert_pr_comment as _upsert_pr_comment,
+    utc_now_iso as _utc_now_iso,
+    write_output as _write_output,
+)
 
 
 def _read_json(path: Path, default: Any) -> Any:
@@ -38,62 +48,6 @@ def _read_json(path: Path, default: Any) -> Any:
         return json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return default
-
-
-def _github_api(
-    method: str,
-    url: str,
-    token: str,
-    payload: dict[str, Any] | None = None,
-) -> dict[str, Any] | list[Any]:
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-        "User-Agent": "solace-public-workflows/pr-plugin-check-report",
-    }
-    body = None
-    if payload is not None:
-        body = json.dumps(payload).encode("utf-8")
-        headers["Content-Type"] = "application/json"
-
-    req = urllib.request.Request(url, method=method.upper(), headers=headers, data=body)
-    try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            raw = resp.read()
-            if not raw:
-                return {}
-            return json.loads(raw.decode("utf-8"))
-    except urllib.error.HTTPError as err:
-        detail = err.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"GitHub API {method} {url} failed: {err.code} {detail}") from err
-
-
-def _write_output(name: str, value: str) -> None:
-    output_path = os.getenv("GITHUB_OUTPUT")
-    if not output_path:
-        return
-    path = Path(output_path)
-    with path.open("a", encoding="utf-8") as handle:
-        if "\n" in value:
-            marker = f"EOF_{name}_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}"
-            handle.write(f"{name}<<{marker}\n")
-            handle.write(value)
-            if not value.endswith("\n"):
-                handle.write("\n")
-            handle.write(f"{marker}\n")
-        else:
-            handle.write(f"{name}={value}\n")
-
-
-def _append_summary(markdown: str) -> None:
-    summary_path = os.getenv("GITHUB_STEP_SUMMARY")
-    if not summary_path:
-        return
-    with Path(summary_path).open("a", encoding="utf-8") as handle:
-        handle.write(markdown)
-        if not markdown.endswith("\n"):
-            handle.write("\n")
 
 
 def _collect_result_payloads(result_dir: Path) -> dict[str, dict[str, Any]]:
@@ -122,135 +76,6 @@ def _normalize_plugins(raw_plugins: Any) -> list[str]:
             if plugin:
                 plugins.append(plugin)
     return plugins
-
-
-def _normalize_pr_number(event: dict[str, Any]) -> int:
-    candidates = [
-        event.get("pull_request", {}).get("number"),
-        event.get("number"),
-        os.getenv("PR_NUMBER"),
-    ]
-    for raw in candidates:
-        try:
-            if raw is None:
-                continue
-            value = str(raw).strip()
-            if value:
-                return int(value)
-        except Exception:
-            continue
-    return 0
-
-
-def _resolve_check_run_id(
-    owner: str,
-    repo: str,
-    token: str,
-    run_id: str,
-    head_sha: str,
-    check_name: str,
-) -> int | None:
-    # Primary: derive from current workflow run jobs
-    try:
-        jobs_url = f"https://api.github.com/repos/{owner}/{repo}/actions/runs/{run_id}/jobs?per_page=100"
-        jobs_resp = _github_api("GET", jobs_url, token)
-        jobs = jobs_resp.get("jobs", []) if isinstance(jobs_resp, dict) else []
-        target_name = check_name.lower()
-        for job in jobs:
-            job_name = str(job.get("name", "")).lower()
-            if job_name == target_name or target_name in job_name or job_name in target_name:
-                check_url = str(job.get("check_run_url", ""))
-                match = re.search(r"/check-runs/(\d+)$", check_url)
-                if match:
-                    return int(match.group(1))
-    except Exception:
-        pass
-
-    # Fallback: find check run by commit SHA
-    try:
-        checks_url = f"https://api.github.com/repos/{owner}/{repo}/commits/{head_sha}/check-runs?per_page=100"
-        checks_resp = _github_api("GET", checks_url, token)
-        runs = checks_resp.get("check_runs", []) if isinstance(checks_resp, dict) else []
-        target_name = check_name.lower()
-
-        def _score(run: dict[str, Any]) -> tuple[int, str]:
-            started = str(run.get("started_at") or run.get("created_at") or "")
-            name = str(run.get("name", "")).lower()
-            score = 0
-            if name == target_name:
-                score += 3
-            elif target_name in name or name in target_name:
-                score += 1
-            details = str(run.get("details_url", ""))
-            if f"/actions/runs/{run_id}" in details:
-                score += 2
-            return (score, started)
-
-        candidates = [r for r in runs if _score(r)[0] > 0]
-        if not candidates:
-            return None
-        candidates.sort(key=_score, reverse=True)
-        return int(candidates[0]["id"])
-    except Exception:
-        return None
-
-
-def _create_check_run(
-    owner: str,
-    repo: str,
-    token: str,
-    head_sha: str,
-    check_name: str,
-    initial_summary: str,
-) -> int | None:
-    if not token or not head_sha:
-        return None
-    try:
-        url = f"https://api.github.com/repos/{owner}/{repo}/check-runs"
-        payload = {
-            "name": check_name,
-            "head_sha": head_sha,
-            "status": "in_progress",
-            "started_at": _utc_now_iso(),
-            "output": {
-                "title": check_name,
-                "summary": initial_summary,
-            },
-        }
-        created = _github_api("POST", url, token, payload)
-        return int(created.get("id"))
-    except Exception as err:
-        print(f"Warning: failed to create check-run {check_name}: {err}")
-        return None
-
-
-def _upsert_pr_comment(
-    owner: str,
-    repo: str,
-    token: str,
-    pr_number: int,
-    marker: str,
-    body: str,
-) -> None:
-    if pr_number <= 0:
-        return
-    list_url = f"https://api.github.com/repos/{owner}/{repo}/issues/{pr_number}/comments?per_page=100"
-    comments_resp = _github_api("GET", list_url, token)
-    comments = comments_resp if isinstance(comments_resp, list) else []
-    existing_id = None
-    for comment in comments:
-        comment_body = str(comment.get("body", ""))
-        if marker in comment_body and comment.get("user", {}).get("type") == "Bot":
-            existing_id = int(comment["id"])
-            break
-
-    if existing_id:
-        patch_url = f"https://api.github.com/repos/{owner}/{repo}/issues/comments/{existing_id}"
-        _github_api("PATCH", patch_url, token, {"body": body})
-        return
-
-    create_url = f"https://api.github.com/repos/{owner}/{repo}/issues/{pr_number}/comments"
-    _github_api("POST", create_url, token, {"body": body})
 
 
 def _build_sonar_report(
@@ -390,6 +215,9 @@ def main() -> int:
 
     event = _read_json(Path(os.getenv("GITHUB_EVENT_PATH", "")), {})
     pr_number = _normalize_pr_number(event)
+    if pr_number <= 0:
+        head_ref = str(event.get("pull_request", {}).get("head", {}).get("ref") or os.getenv("GITHUB_HEAD_REF", ""))
+        pr_number = _resolve_pr_number_by_head(owner, repo, github_token, head_ref)
     event_head_sha = str(event.get("pull_request", {}).get("head", {}).get("sha") or "")
     if event_head_sha:
         # For pull_request workflows, use PR head SHA (not merge SHA) so check runs appear on the PR.

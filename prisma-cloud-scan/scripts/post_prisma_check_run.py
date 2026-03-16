@@ -11,8 +11,22 @@ import json
 import os
 import sys
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
-from urllib import error, request
+
+
+def _bootstrap_common_module() -> None:
+    script_path = Path(__file__).resolve()
+    for parent in script_path.parents:
+        candidate = parent / ".github" / "scripts" / "common" / "github_reporting.py"
+        if candidate.exists():
+            sys.path.insert(0, str(candidate.parent))
+            return
+
+
+_bootstrap_common_module()
+
+from github_reporting import github_api  # type: ignore  # noqa: E402
 
 
 def norm(value: Any) -> str:
@@ -299,30 +313,14 @@ def post_check_run(payload: dict[str, Any]) -> dict[str, Any]:
 
     owner, repo = repository.split("/", 1)
     endpoint = f"{api_url}/repos/{owner}/{repo}/check-runs"
-
-    body = json.dumps(payload).encode("utf-8")
-    req = request.Request(
+    response = github_api(
+        "POST",
         endpoint,
-        data=body,
-        method="POST",
-        headers={
-            "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {token}",
-            "X-GitHub-Api-Version": "2022-11-28",
-            "Content-Type": "application/json",
-        },
+        token,
+        payload=payload,
+        user_agent="solace-public-workflows/prisma-cloud-scan",
     )
-    with request.urlopen(req) as response:  # noqa: S310 (GitHub API URL from env in runner context)
-        if response.status < 200 or response.status >= 300:
-            raise RuntimeError(f"GitHub API returned status {response.status}")
-        body = response.read().decode("utf-8")
-        if not body:
-            return {}
-        try:
-            parsed = json.loads(body)
-            return parsed if isinstance(parsed, dict) else {}
-        except json.JSONDecodeError:
-            return {}
+    return response if isinstance(response, dict) else {}
 
 
 def main() -> int:
@@ -433,20 +431,6 @@ def main() -> int:
         if posted_check_url:
             print(f"🔗 Check run URL: {posted_check_url}")
         return 0
-    except error.HTTPError as http_err:
-        message = http_err.reason
-        try:
-            body = http_err.read().decode("utf-8")
-            parsed = json.loads(body) if body else {}
-            message = parsed.get("message") or message
-        except Exception:  # noqa: BLE001
-            pass
-        print(
-            f"Failed to create dedicated Prisma check run: {message}. "
-            "Ensure workflow token has `checks: write` permission.",
-            file=sys.stderr,
-        )
-        return 1
     except Exception as exc:  # noqa: BLE001
         print(
             f"Failed to create dedicated Prisma check run: {exc}. "

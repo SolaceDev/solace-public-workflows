@@ -1,13 +1,14 @@
 name: PR FOSSA Diff Report
-description: Run per-plugin FOSSA Guard diff checks, then publish an aggregated PR report and check details.
+description: Aggregate per-plugin FOSSA Guard results and publish a compact PR report/check.
 
 inputs:
   plugins_json:
     description: "JSON array of changed plugins (e.g. [{\"plugin_directory\":\"sam-x\"}])"
     required: true
   fossa_api_key:
-    description: "FOSSA API key"
-    required: true
+    description: "Deprecated (kept for backward compatibility)"
+    required: false
+    default: ""
   repo_owner:
     description: "Project owner prefix used in FOSSA project IDs"
     required: false
@@ -21,9 +22,9 @@ inputs:
     required: false
     default: ""
   results_dir:
-    description: "Directory to write per-plugin FOSSA report artifacts"
+    description: "Directory containing aggregated plugin result payloads"
     required: false
-    default: "fossa-report"
+    default: "ci-plugin-results"
   docker_image:
     description: "Docker image containing fossa_guard.py"
     required: false
@@ -87,14 +88,9 @@ runs:
       shell: bash
       env:
         PLUGINS_JSON: ${{ inputs.plugins_json }}
-        FOSSA_API_KEY: ${{ inputs.fossa_api_key }}
         REPO_OWNER: ${{ inputs.repo_owner }}
         HEAD_REF: ${{ inputs.head_ref }}
-        BASE_SHA: ${{ inputs.base_sha }}
         RESULTS_DIR: ${{ inputs.results_dir }}
-        DOCKER_IMAGE: ${{ inputs.docker_image }}
-        LICENSING_BLOCK_ON: ${{ inputs.licensing_block_on }}
-        VULNERABILITY_BLOCK_ON: ${{ inputs.vulnerability_block_on }}
         GITHUB_TOKEN: ${{ inputs.github_token }}
         CHECK_NAME: ${{ inputs.check_name }}
         COMMENT_ON_PR: ${{ inputs.comment_on_pr }}

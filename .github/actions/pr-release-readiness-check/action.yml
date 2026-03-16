@@ -11,8 +11,9 @@ inputs:
     required: false
     default: ${{ github.token }}
   fossa_api_key:
-    description: "FOSSA API key"
-    required: true
+    description: "Deprecated (kept for backward compatibility)"
+    required: false
+    default: ""
   sonarqube_token:
     description: "SonarQube token"
     required: true
@@ -47,18 +48,10 @@ inputs:
     description: "Exit non-zero when release-readiness issues exist"
     required: false
     default: "true"
-  docker_image:
-    description: "Docker image containing fossa_guard.py"
+  results_dir:
+    description: "Directory with aggregated plugin result JSON artifacts"
     required: false
-    default: "ghcr.io/solacedev/maas-build-actions:latest"
-  licensing_block_on:
-    description: "FOSSA licensing blocking configuration"
-    required: false
-    default: "policy_conflict"
-  vulnerability_block_on:
-    description: "FOSSA vulnerability blocking configuration"
-    required: false
-    default: "critical,high"
+    default: "ci-plugin-results"
 
 outputs:
   conclusion:
@@ -86,7 +79,6 @@ runs:
       env:
         PR_NUMBER: ${{ inputs.pr_number }}
         GITHUB_TOKEN: ${{ inputs.github_token }}
-        FOSSA_API_KEY: ${{ inputs.fossa_api_key }}
         SONARQUBE_TOKEN: ${{ inputs.sonarqube_token }}
         SONARQUBE_HOST_URL: ${{ inputs.sonarqube_host_url }}
         REPO_OWNER: ${{ inputs.repo_owner }}
@@ -96,7 +88,5 @@ runs:
         UPDATE_PR_COMMENT: ${{ inputs.update_pr_comment }}
         UPDATE_CHECK_DETAILS: ${{ inputs.update_check_details }}
         FAIL_ON_ISSUES: ${{ inputs.fail_on_issues }}
-        DOCKER_IMAGE: ${{ inputs.docker_image }}
-        LICENSING_BLOCK_ON: ${{ inputs.licensing_block_on }}
-        VULNERABILITY_BLOCK_ON: ${{ inputs.vulnerability_block_on }}
+        RESULTS_DIR: ${{ inputs.results_dir }}
       run: python3 "${{ github.action_path }}/scripts/run.py"

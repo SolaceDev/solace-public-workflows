@@ -1,196 +1,39 @@
 #!/usr/bin/env python3
-"""
-Run per-plugin FOSSA Guard diff checks and publish a compact aggregated report.
-"""
+"""Aggregate per-plugin FOSSA Guard diff results into one report/check."""
 
 from __future__ import annotations
 
 import json
 import os
-import re
-import subprocess
 import sys
-import urllib.error
 import urllib.parse
-import urllib.request
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 
-def _to_bool(value: str | None, default: bool = False) -> bool:
-    if value is None:
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+def _bootstrap_common_module() -> None:
+    script_path = Path(__file__).resolve()
+    for parent in script_path.parents:
+        candidate = parent / ".github" / "scripts" / "common" / "github_reporting.py"
+        if candidate.exists():
+            sys.path.insert(0, str(candidate.parent))
+            return
 
 
-def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+_bootstrap_common_module()
 
-
-def _github_api(
-    method: str,
-    url: str,
-    token: str,
-    payload: dict[str, Any] | None = None,
-) -> dict[str, Any] | list[Any]:
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-        "User-Agent": "solace-public-workflows/pr-fossa-diff-report",
-    }
-    body = None
-    if payload is not None:
-        body = json.dumps(payload).encode("utf-8")
-        headers["Content-Type"] = "application/json"
-
-    req = urllib.request.Request(url, method=method.upper(), headers=headers, data=body)
-    try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            raw = resp.read()
-            if not raw:
-                return {}
-            return json.loads(raw.decode("utf-8"))
-    except urllib.error.HTTPError as err:
-        detail = err.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"GitHub API {method} {url} failed: {err.code} {detail}") from err
-
-
-def _write_output(name: str, value: str) -> None:
-    output_path = os.getenv("GITHUB_OUTPUT")
-    if not output_path:
-        return
-    path = Path(output_path)
-    with path.open("a", encoding="utf-8") as handle:
-        if "\n" in value:
-            marker = f"EOF_{name}_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}"
-            handle.write(f"{name}<<{marker}\n")
-            handle.write(value)
-            if not value.endswith("\n"):
-                handle.write("\n")
-            handle.write(f"{marker}\n")
-        else:
-            handle.write(f"{name}={value}\n")
-
-
-def _append_summary(markdown: str) -> None:
-    summary_path = os.getenv("GITHUB_STEP_SUMMARY")
-    if not summary_path:
-        return
-    with Path(summary_path).open("a", encoding="utf-8") as handle:
-        handle.write(markdown)
-        if not markdown.endswith("\n"):
-            handle.write("\n")
-
-
-def _resolve_check_run_id(
-    owner: str,
-    repo: str,
-    token: str,
-    run_id: str,
-    head_sha: str,
-    check_name: str,
-) -> int | None:
-    try:
-        jobs_url = f"https://api.github.com/repos/{owner}/{repo}/actions/runs/{run_id}/jobs?per_page=100"
-        jobs_resp = _github_api("GET", jobs_url, token)
-        jobs = jobs_resp.get("jobs", []) if isinstance(jobs_resp, dict) else []
-        target_name = check_name.lower()
-        for job in jobs:
-            job_name = str(job.get("name", "")).lower()
-            if job_name == target_name or target_name in job_name or job_name in target_name:
-                check_url = str(job.get("check_run_url", ""))
-                match = re.search(r"/check-runs/(\d+)$", check_url)
-                if match:
-                    return int(match.group(1))
-    except Exception:
-        pass
-
-    try:
-        checks_url = f"https://api.github.com/repos/{owner}/{repo}/commits/{head_sha}/check-runs?per_page=100"
-        checks_resp = _github_api("GET", checks_url, token)
-        runs = checks_resp.get("check_runs", []) if isinstance(checks_resp, dict) else []
-        target_name = check_name.lower()
-
-        def _score(run: dict[str, Any]) -> tuple[int, str]:
-            started = str(run.get("started_at") or run.get("created_at") or "")
-            name = str(run.get("name", "")).lower()
-            score = 0
-            if name == target_name:
-                score += 3
-            elif target_name in name or name in target_name:
-                score += 1
-            details = str(run.get("details_url", ""))
-            if f"/actions/runs/{run_id}" in details:
-                score += 2
-            return (score, started)
-
-        candidates = [r for r in runs if _score(r)[0] > 0]
-        if not candidates:
-            return None
-        candidates.sort(key=_score, reverse=True)
-        return int(candidates[0]["id"])
-    except Exception:
-        return None
-
-
-def _create_check_run(
-    owner: str,
-    repo: str,
-    token: str,
-    head_sha: str,
-    check_name: str,
-    initial_summary: str,
-) -> int | None:
-    if not token or not head_sha:
-        return None
-    try:
-        url = f"https://api.github.com/repos/{owner}/{repo}/check-runs"
-        payload = {
-            "name": check_name,
-            "head_sha": head_sha,
-            "status": "in_progress",
-            "started_at": _utc_now_iso(),
-            "output": {
-                "title": check_name,
-                "summary": initial_summary,
-            },
-        }
-        created = _github_api("POST", url, token, payload)
-        return int(created.get("id"))
-    except Exception as err:
-        print(f"Warning: failed to create check-run {check_name}: {err}")
-        return None
-
-
-def _upsert_pr_comment(
-    owner: str,
-    repo: str,
-    token: str,
-    pr_number: int,
-    marker: str,
-    body: str,
-) -> None:
-    if pr_number <= 0:
-        return
-    list_url = f"https://api.github.com/repos/{owner}/{repo}/issues/{pr_number}/comments?per_page=100"
-    comments_resp = _github_api("GET", list_url, token)
-    comments = comments_resp if isinstance(comments_resp, list) else []
-    existing_id = None
-    for comment in comments:
-        comment_body = str(comment.get("body", ""))
-        if marker in comment_body and comment.get("user", {}).get("type") == "Bot":
-            existing_id = int(comment["id"])
-            break
-
-    if existing_id:
-        patch_url = f"https://api.github.com/repos/{owner}/{repo}/issues/comments/{existing_id}"
-        _github_api("PATCH", patch_url, token, {"body": body})
-        return
-
-    create_url = f"https://api.github.com/repos/{owner}/{repo}/issues/{pr_number}/comments"
-    _github_api("POST", create_url, token, {"body": body})
+from github_reporting import (  # type: ignore  # noqa: E402
+    append_summary as _append_summary,
+    create_check_run as _create_check_run,
+    github_api as _github_api,
+    normalize_pr_number as _normalize_pr_number,
+    resolve_check_run_id as _resolve_check_run_id,
+    resolve_pr_number_by_head as _resolve_pr_number_by_head,
+    to_bool as _to_bool,
+    upsert_pr_comment as _upsert_pr_comment,
+    utc_now_iso as _utc_now_iso,
+    write_output as _write_output,
+)
 
 
 def _normalize_plugins(raw_plugins: Any) -> list[str]:
@@ -209,131 +52,42 @@ def _normalize_plugins(raw_plugins: Any) -> list[str]:
     return plugins
 
 
-def _normalize_pr_number(event: dict[str, Any]) -> int:
-    candidates = [
-        event.get("pull_request", {}).get("number"),
-        event.get("number"),
-        os.getenv("PR_NUMBER"),
-    ]
-    for raw in candidates:
+def _safe_int(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except Exception:
+        return 0
+
+
+def _collect_plugin_payloads(results_dir: Path) -> dict[str, dict[str, Any]]:
+    by_plugin: dict[str, dict[str, Any]] = {}
+    if not results_dir.exists():
+        return by_plugin
+    for file_path in sorted(results_dir.rglob("*.json")):
         try:
-            if raw is None:
-                continue
-            value = str(raw).strip()
-            if value:
-                return int(value)
+            payload = json.loads(file_path.read_text(encoding="utf-8"))
         except Exception:
             continue
-    return 0
-
-
-def _run_guard(
-    *,
-    workspace: Path,
-    fossa_api_key: str,
-    project_id: str,
-    category: str,
-    block_on: str,
-    head_ref: str,
-    base_sha: str,
-    docker_image: str,
-) -> tuple[int, dict[str, Any], bool]:
-    report_path = workspace / "fossa_guard_report.json"
-    if report_path.exists():
-        report_path.unlink()
-
-    cmd = [
-        "docker",
-        "run",
-        "--rm",
-        "-e",
-        f"FOSSA_API_KEY={fossa_api_key}",
-        "-e",
-        f"FOSSA_PROJECT_ID={project_id}",
-        "-e",
-        f"FOSSA_CATEGORY={category}",
-        "-e",
-        "FOSSA_MODE=REPORT",
-        "-e",
-        f"BLOCK_ON={block_on}",
-        "-e",
-        "FOSSA_BRANCH=PR",
-        "-e",
-        f"FOSSA_REVISION={head_ref}",
-        "-e",
-        "ENABLE_DIFF_MODE=true",
-        "-e",
-        f"DIFF_BASE_REVISION_SHA={base_sha}",
-        "-v",
-        f"{workspace}:/workspace",
-        "-w",
-        "/workspace",
-        docker_image,
-        "/bin/sh",
-        "-c",
-        "source /maas-build-actions/venv/bin/activate && python3 /maas-build-actions/scripts/fossa-guard/fossa_guard.py",
-    ]
-    completed = subprocess.run(
-        cmd,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if completed.stdout:
-        print(completed.stdout, end="" if completed.stdout.endswith("\n") else "\n")
-    if completed.stderr:
-        print(completed.stderr, file=sys.stderr, end="" if completed.stderr.endswith("\n") else "\n")
-
-    report_data: dict[str, Any] = {}
-    if report_path.exists():
-        try:
-            report_data = json.loads(report_path.read_text(encoding="utf-8"))
-        except Exception:
-            report_data = {}
-    combined_output = f"{completed.stdout or ''}\n{completed.stderr or ''}"
-    base_revision_missing = (
-        "Error fetching issues for revision" in combined_output
-        and "404 Client Error" in combined_output
-        and "scope%5Brevision%5D=" in combined_output
-    )
-    if completed.returncode != 0:
-        print(f"FOSSA guard exited non-zero for {project_id} [{category}] (rc={completed.returncode})")
-        if base_revision_missing:
-            print(
-                f"Diff base revision missing in FOSSA for {project_id} [{category}]; "
-                "treating this plugin/category as non-blocking."
-            )
-
-    return completed.returncode, report_data, base_revision_missing
-
-
-def _summary_counts(report: dict[str, Any]) -> tuple[int, int]:
-    summary = report.get("summary", {}) if isinstance(report, dict) else {}
-    total = int(summary.get("total_issues", 0) or 0)
-    blocking = int(summary.get("blocking_issues", 0) or 0)
-    return total, blocking
+        if not isinstance(payload, dict):
+            continue
+        plugin = str(payload.get("plugin", "")).strip()
+        if not plugin:
+            continue
+        by_plugin[plugin] = payload
+    return by_plugin
 
 
 def main() -> int:
     plugins_json_raw = os.getenv("PLUGINS_JSON", "[]")
-    fossa_api_key = os.getenv("FOSSA_API_KEY", "").strip()
     repo_owner = os.getenv("REPO_OWNER", "").strip()
     head_ref = os.getenv("HEAD_REF", "").strip()
-    base_sha = os.getenv("BASE_SHA", "").strip()
-    results_dir = Path(os.getenv("RESULTS_DIR", "fossa-report"))
-    docker_image = os.getenv("DOCKER_IMAGE", "ghcr.io/solacedev/maas-build-actions:latest").strip()
-    licensing_block_on = os.getenv("LICENSING_BLOCK_ON", "policy_conflict").strip()
-    vulnerability_block_on = os.getenv("VULNERABILITY_BLOCK_ON", "critical,high").strip()
+    results_dir = Path(os.getenv("RESULTS_DIR", "ci-plugin-results"))
     github_token = os.getenv("GITHUB_TOKEN", "").strip()
     check_name = os.getenv("CHECK_NAME", "FOSSA Report").strip()
     comment_marker = os.getenv("COMMENT_MARKER", "FOSSA Guard (PR Diff)").strip()
     comment_on_pr = _to_bool(os.getenv("COMMENT_ON_PR"), default=True)
     update_check_details = _to_bool(os.getenv("UPDATE_CHECK_DETAILS"), default=True)
     fail_on_issues = _to_bool(os.getenv("FAIL_ON_ISSUES"), default=True)
-
-    if not fossa_api_key:
-        print("Missing FOSSA_API_KEY", file=sys.stderr)
-        return 2
 
     repository = os.getenv("GITHUB_REPOSITORY", "")
     if "/" not in repository:
@@ -353,8 +107,8 @@ def main() -> int:
     pr_number = _normalize_pr_number(event)
     if not head_ref:
         head_ref = str(event.get("pull_request", {}).get("head", {}).get("ref") or os.getenv("GITHUB_HEAD_REF", ""))
-    if not base_sha:
-        base_sha = str(event.get("pull_request", {}).get("base", {}).get("sha") or "")
+    if pr_number <= 0:
+        pr_number = _resolve_pr_number_by_head(owner, repo, github_token, head_ref)
     run_id = os.getenv("GITHUB_RUN_ID", "")
     head_sha = str(event.get("pull_request", {}).get("head", {}).get("sha") or os.getenv("GITHUB_SHA", ""))
 
@@ -363,57 +117,54 @@ def main() -> int:
     except Exception:
         raw_plugins = []
     plugins = _normalize_plugins(raw_plugins)
-    workspace = Path.cwd()
+    by_plugin = _collect_plugin_payloads(results_dir)
     results_dir.mkdir(parents=True, exist_ok=True)
 
     results: list[dict[str, Any]] = []
+    missing_payload_plugins: list[str] = []
     for plugin in plugins:
-        project_id = f"{repo_owner}_{plugin}"
+        payload = by_plugin.get(plugin, {})
+        if not payload:
+            missing_payload_plugins.append(plugin)
+        project_id = str(payload.get("fossa_project_id") or f"{repo_owner}_{plugin}")
         locator = urllib.parse.quote(f"custom+48578/{project_id}", safe="")
-        encoded_revision = urllib.parse.quote(head_ref, safe="")
+        branch = str(payload.get("fossa_branch", "PR")).strip() or "PR"
+        revision = str(payload.get("fossa_revision") or head_ref).strip() or head_ref
+        encoded_branch = urllib.parse.quote(branch, safe="")
+        encoded_revision = urllib.parse.quote(revision, safe="")
 
-        lic_rc, lic_report, lic_base_missing = _run_guard(
-            workspace=workspace,
-            fossa_api_key=fossa_api_key,
-            project_id=project_id,
-            category="licensing",
-            block_on=licensing_block_on,
-            head_ref=head_ref,
-            base_sha=base_sha,
-            docker_image=docker_image,
-        )
-        lic_total, lic_blocking = _summary_counts(lic_report)
-        (results_dir / f"{plugin}-licensing.json").write_text(json.dumps(lic_report, indent=2), encoding="utf-8")
+        lic_total = _safe_int(payload.get("fossa_licensing_total_issues"))
+        lic_blocking = _safe_int(payload.get("fossa_licensing_blocking_issues"))
+        lic_outcome = str(payload.get("fossa_licensing_outcome", "missing")).strip().lower()
 
-        vul_rc, vul_report, vul_base_missing = _run_guard(
-            workspace=workspace,
-            fossa_api_key=fossa_api_key,
-            project_id=project_id,
-            category="vulnerability",
-            block_on=vulnerability_block_on,
-            head_ref=head_ref,
-            base_sha=base_sha,
-            docker_image=docker_image,
-        )
-        vul_total, vul_blocking = _summary_counts(vul_report)
-        (results_dir / f"{plugin}-vulnerability.json").write_text(json.dumps(vul_report, indent=2), encoding="utf-8")
+        vul_total = _safe_int(payload.get("fossa_vulnerability_total_issues"))
+        vul_blocking = _safe_int(payload.get("fossa_vulnerability_blocking_issues"))
+        vul_outcome = str(payload.get("fossa_vulnerability_outcome", "missing")).strip().lower()
 
         licensing_url = (
-            f"https://app.fossa.com/projects/{locator}/refs/branch/PR/{encoded_revision}/issues/licensing"
+            f"https://app.fossa.com/projects/{locator}/refs/branch/{encoded_branch}/{encoded_revision}/issues/licensing"
             "?page=1&count=20&sort=issue_count_desc&grouping=revision&status=active"
         )
         vulnerability_url = (
-            f"https://app.fossa.com/projects/{locator}/refs/branch/PR/{encoded_revision}/issues/vulnerability"
+            f"https://app.fossa.com/projects/{locator}/refs/branch/{encoded_branch}/{encoded_revision}/issues/vulnerability"
             "?page=1&count=20&sort=issue_count_desc&grouping=revision&status=active"
         )
-        report_url = f"https://app.fossa.com/projects/{locator}/refs/branch/PR/{encoded_revision}"
-
-        has_issues = (
-            lic_blocking > 0
-            or vul_blocking > 0
-            or (lic_rc != 0 and not lic_base_missing)
-            or (vul_rc != 0 and not vul_base_missing)
+        report_url = str(
+            payload.get("fossa_report_url")
+            or f"https://app.fossa.com/projects/{locator}/refs/branch/{encoded_branch}/{encoded_revision}"
         )
+
+        licensing_passed = (
+            bool(payload)
+            and lic_blocking == 0
+            and (lic_outcome in {"success", "skipped"} or lic_total == 0)
+        )
+        vulnerability_passed = (
+            bool(payload)
+            and vul_blocking == 0
+            and (vul_outcome in {"success", "skipped"} or vul_total == 0)
+        )
+        has_issues = (not licensing_passed) or (not vulnerability_passed)
 
         results.append(
             {
@@ -421,12 +172,12 @@ def main() -> int:
                 "project_id": project_id,
                 "licensing_total_issues": lic_total,
                 "licensing_blocking_issues": lic_blocking,
-                "licensing_exit_code": lic_rc,
-                "licensing_base_revision_missing": lic_base_missing,
+                "licensing_outcome": lic_outcome,
+                "licensing_passed": licensing_passed,
                 "vulnerability_total_issues": vul_total,
                 "vulnerability_blocking_issues": vul_blocking,
-                "vulnerability_exit_code": vul_rc,
-                "vulnerability_base_revision_missing": vul_base_missing,
+                "vulnerability_outcome": vul_outcome,
+                "vulnerability_passed": vulnerability_passed,
                 "report_url": report_url,
                 "licensing_url": licensing_url,
                 "vulnerability_url": vulnerability_url,
@@ -440,31 +191,17 @@ def main() -> int:
     total_licensing_issues = 0
     total_vulnerability_issues = 0
     for row in results:
-        lic_is_issue = int(row.get("licensing_blocking_issues", 0) or 0) > 0 or (
-            int(row.get("licensing_exit_code", 1) or 1) != 0
-            and not bool(row.get("licensing_base_revision_missing"))
-        )
-        vul_is_issue = int(row.get("vulnerability_blocking_issues", 0) or 0) > 0 or (
-            int(row.get("vulnerability_exit_code", 1) or 1) != 0
-            and not bool(row.get("vulnerability_base_revision_missing"))
-        )
-        if lic_is_issue:
+        if not bool(row.get("licensing_passed")):
             total_licensing_issues += max(
-                int(row.get("licensing_total_issues", 0) or 0),
-                int(row.get("licensing_blocking_issues", 0) or 0),
-                1
-                if int(row.get("licensing_exit_code", 1) or 1) != 0
-                and not bool(row.get("licensing_base_revision_missing"))
-                else 0,
+                _safe_int(row.get("licensing_total_issues")),
+                _safe_int(row.get("licensing_blocking_issues")),
+                1,
             )
-        if vul_is_issue:
+        if not bool(row.get("vulnerability_passed")):
             total_vulnerability_issues += max(
-                int(row.get("vulnerability_total_issues", 0) or 0),
-                int(row.get("vulnerability_blocking_issues", 0) or 0),
-                1
-                if int(row.get("vulnerability_exit_code", 1) or 1) != 0
-                and not bool(row.get("vulnerability_base_revision_missing"))
-                else 0,
+                _safe_int(row.get("vulnerability_total_issues")),
+                _safe_int(row.get("vulnerability_blocking_issues")),
+                1,
             )
 
     overall_licensing = "✅ Passed" if total_licensing_issues == 0 else f"❌ {total_licensing_issues} Issues"
@@ -496,30 +233,17 @@ def main() -> int:
     ]
 
     for row in results:
-        licensing_passed = (
-            int(row["licensing_exit_code"]) == 0
-            or bool(row.get("licensing_base_revision_missing"))
-        ) and int(row["licensing_blocking_issues"]) == 0
-        vulnerability_passed = (
-            int(row["vulnerability_exit_code"]) == 0
-            or bool(row.get("vulnerability_base_revision_missing"))
-        ) and int(row["vulnerability_blocking_issues"]) == 0
-
+        licensing_passed = bool(row.get("licensing_passed"))
+        vulnerability_passed = bool(row.get("vulnerability_passed"))
         licensing_issues = max(
-            int(row["licensing_total_issues"]),
-            int(row["licensing_blocking_issues"]),
-            0
-            if int(row["licensing_exit_code"]) == 0
-            or bool(row.get("licensing_base_revision_missing"))
-            else 1,
+            _safe_int(row.get("licensing_total_issues")),
+            _safe_int(row.get("licensing_blocking_issues")),
+            0 if licensing_passed else 1,
         )
         vulnerability_issues = max(
-            int(row["vulnerability_total_issues"]),
-            int(row["vulnerability_blocking_issues"]),
-            0
-            if int(row["vulnerability_exit_code"]) == 0
-            or bool(row.get("vulnerability_base_revision_missing"))
-            else 1,
+            _safe_int(row.get("vulnerability_total_issues")),
+            _safe_int(row.get("vulnerability_blocking_issues")),
+            0 if vulnerability_passed else 1,
         )
 
         licensing_text = "✅ Passed" if licensing_passed else f"❌ {licensing_issues} Issues"
@@ -529,6 +253,11 @@ def main() -> int:
         )
 
     lines += ["", "---", "*Only newly introduced issues are shown in this report.*"]
+    if missing_payload_plugins:
+        lines += [
+            "",
+            f"⚠️ Missing plugin result payloads for: {', '.join(f'`{p}`' for p in missing_payload_plugins)}",
+        ]
     body = "\n".join(lines)
 
     _append_summary(body)

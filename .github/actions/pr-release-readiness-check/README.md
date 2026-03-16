@@ -3,12 +3,15 @@
 Reusable action that performs release-readiness aggregation for PRs with one unified output:
 
 - SonarQube hotspots (main/base branch view)
-- FOSSA licensing
-- FOSSA vulnerabilities
+- FOSSA licensing (from pre-generated plugin payloads)
+- FOSSA vulnerabilities (from pre-generated plugin payloads)
 - One markdown report used for:
   - step summary
   - PR comment (optional)
   - unified check-run details (optional)
+
+Implementation note: this action does not execute FOSSA Guard directly. It expects
+`ci-plugin-result-*.json` artifacts (produced by plugin build jobs) to be downloaded first.
 
 It also returns a pass/fail conclusion and can fail the job when issues exist.
 
@@ -27,16 +30,20 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: pypa/hatch@install
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: ci-plugin-result-*
+          merge-multiple: true
+          path: ci-plugin-results
 
       - name: Run release readiness check
         uses: SolaceDev/solace-public-workflows/.github/actions/pr-release-readiness-check@main
         with:
           pr_number: ${{ github.event.pull_request.number }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          fossa_api_key: ${{ secrets.FOSSA_API_KEY }}
           sonarqube_token: ${{ secrets.SONARQUBE_TOKEN }}
           sonarqube_host_url: ${{ secrets.SONARQUBE_HOST_URL }}
+          results_dir: ci-plugin-results
           base_branch: main
           fail_on_issues: "true"
 ```
@@ -47,19 +54,17 @@ jobs:
 |---|---|---|---|
 | `pr_number` | no | auto | PR number for comment/check targeting |
 | `github_token` | no | `${{ github.token }}` | Token for checks/comments |
-| `fossa_api_key` | yes | - | FOSSA API key |
+| `fossa_api_key` | no | `""` | Deprecated (ignored) |
 | `sonarqube_token` | yes | - | SonarQube token |
 | `sonarqube_host_url` | yes | - | SonarQube host URL |
 | `repo_owner` | no | repo owner | Prefix for Sonar/FOSSA project IDs |
 | `base_branch` | no | `main` | Baseline branch for diff and branch checks |
+| `results_dir` | no | `ci-plugin-results` | Directory containing `ci-plugin-result-*.json` payloads |
 | `check_name` | no | `Release Readiness` | Unified check run name |
 | `comment_marker` | no | `Release Readiness Check Results` | PR comment upsert marker |
 | `update_pr_comment` | no | `true` | Create/update PR comment |
 | `update_check_details` | no | `true` | Create/update unified check-run |
 | `fail_on_issues` | no | `true` | Fail action if issues are found |
-| `docker_image` | no | `ghcr.io/solacedev/maas-build-actions:latest` | Image containing `fossa_guard.py` |
-| `licensing_block_on` | no | `policy_conflict` | FOSSA licensing block rules |
-| `vulnerability_block_on` | no | `critical,high` | FOSSA vulnerability block rules |
 
 ## Outputs
 

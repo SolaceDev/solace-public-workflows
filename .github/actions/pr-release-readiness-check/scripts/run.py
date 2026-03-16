@@ -13,81 +13,36 @@ from __future__ import annotations
 import base64
 import json
 import os
-import re
 import subprocess
 import sys
-import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 
-def _to_bool(value: str | None, default: bool = False) -> bool:
-    if value is None:
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+def _bootstrap_common_module() -> None:
+    script_path = Path(__file__).resolve()
+    for parent in script_path.parents:
+        candidate = parent / ".github" / "scripts" / "common" / "github_reporting.py"
+        if candidate.exists():
+            sys.path.insert(0, str(candidate.parent))
+            return
 
 
-def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+_bootstrap_common_module()
 
-
-def _github_api(
-    method: str,
-    url: str,
-    token: str,
-    payload: dict[str, Any] | None = None,
-) -> dict[str, Any] | list[Any]:
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-        "User-Agent": "solace-public-workflows/pr-release-readiness-check",
-    }
-    body = None
-    if payload is not None:
-        body = json.dumps(payload).encode("utf-8")
-        headers["Content-Type"] = "application/json"
-
-    req = urllib.request.Request(url, method=method.upper(), headers=headers, data=body)
-    try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            raw = resp.read()
-            if not raw:
-                return {}
-            return json.loads(raw.decode("utf-8"))
-    except urllib.error.HTTPError as err:
-        detail = err.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"GitHub API {method} {url} failed: {err.code} {detail}") from err
-
-
-def _write_output(name: str, value: str) -> None:
-    output_path = os.getenv("GITHUB_OUTPUT")
-    if not output_path:
-        return
-    path = Path(output_path)
-    with path.open("a", encoding="utf-8") as handle:
-        if "\n" in value:
-            marker = f"EOF_{name}_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}"
-            handle.write(f"{name}<<{marker}\n")
-            handle.write(value)
-            if not value.endswith("\n"):
-                handle.write("\n")
-            handle.write(f"{marker}\n")
-        else:
-            handle.write(f"{name}={value}\n")
-
-
-def _append_summary(markdown: str) -> None:
-    summary_path = os.getenv("GITHUB_STEP_SUMMARY")
-    if not summary_path:
-        return
-    with Path(summary_path).open("a", encoding="utf-8") as handle:
-        handle.write(markdown)
-        if not markdown.endswith("\n"):
-            handle.write("\n")
+from github_reporting import (  # type: ignore  # noqa: E402
+    append_summary as _append_summary,
+    create_check_run as _create_check_run,
+    github_api as _github_api,
+    normalize_pr_number as _normalize_pr_number,
+    resolve_check_run_id as _resolve_check_run_id,
+    to_bool as _to_bool,
+    upsert_pr_comment as _upsert_pr_comment,
+    utc_now_iso as _utc_now_iso,
+    write_output as _write_output,
+)
 
 
 def _run_cmd(cmd: list[str], cwd: str | None = None) -> subprocess.CompletedProcess[str]:
@@ -98,25 +53,6 @@ def _run_cmd(cmd: list[str], cwd: str | None = None) -> subprocess.CompletedProc
         capture_output=True,
         text=True,
     )
-
-
-def _normalize_pr_number(value: str, event: dict[str, Any]) -> int:
-    candidates = [
-        value,
-        event.get("pull_request", {}).get("number"),
-        event.get("number"),
-        os.getenv("PR_NUMBER"),
-    ]
-    for raw in candidates:
-        try:
-            if raw is None:
-                continue
-            candidate = str(raw).strip()
-            if candidate:
-                return int(candidate)
-        except Exception:
-            continue
-    return 0
 
 
 def _extract_head_sha(pr_number: int, event: dict[str, Any], token: str, owner: str, repo: str) -> str:
@@ -134,175 +70,6 @@ def _extract_head_sha(pr_number: int, event: dict[str, Any], token: str, owner: 
     if sha.returncode == 0:
         return sha.stdout.strip()
     return os.getenv("GITHUB_SHA", "")
-
-
-def _create_check_run(owner: str, repo: str, token: str, check_name: str, head_sha: str) -> int | None:
-    if not token or not head_sha:
-        return None
-    try:
-        url = f"https://api.github.com/repos/{owner}/{repo}/check-runs"
-        payload = {
-            "name": check_name,
-            "head_sha": head_sha,
-            "status": "in_progress",
-            "started_at": _utc_now_iso(),
-            "output": {
-                "title": "Release Readiness Check",
-                "summary": "Aggregating SonarQube and FOSSA results...",
-            },
-        }
-        created = _github_api("POST", url, token, payload)
-        return int(created.get("id"))
-    except Exception as err:
-        print(f"Warning: failed to create check-run {check_name}: {err}")
-        return None
-
-
-def _resolve_check_run_id(
-    owner: str,
-    repo: str,
-    token: str,
-    run_id: str,
-    head_sha: str,
-    check_name: str,
-) -> int | None:
-    try:
-        jobs_url = f"https://api.github.com/repos/{owner}/{repo}/actions/runs/{run_id}/jobs?per_page=100"
-        jobs_resp = _github_api("GET", jobs_url, token)
-        jobs = jobs_resp.get("jobs", []) if isinstance(jobs_resp, dict) else []
-        target_name = check_name.lower()
-        for job in jobs:
-            job_name = str(job.get("name", "")).lower()
-            if job_name == target_name or target_name in job_name or job_name in target_name:
-                check_url = str(job.get("check_run_url", ""))
-                match = re.search(r"/check-runs/(\d+)$", check_url)
-                if match:
-                    return int(match.group(1))
-    except Exception:
-        pass
-
-    try:
-        checks_url = f"https://api.github.com/repos/{owner}/{repo}/commits/{head_sha}/check-runs?per_page=100"
-        checks_resp = _github_api("GET", checks_url, token)
-        runs = checks_resp.get("check_runs", []) if isinstance(checks_resp, dict) else []
-        target_name = check_name.lower()
-
-        def _score(run: dict[str, Any]) -> tuple[int, str]:
-            started = str(run.get("started_at") or run.get("created_at") or "")
-            name = str(run.get("name", "")).lower()
-            score = 0
-            if name == target_name:
-                score += 3
-            elif target_name in name or name in target_name:
-                score += 1
-            details = str(run.get("details_url", ""))
-            if f"/actions/runs/{run_id}" in details:
-                score += 2
-            return (score, started)
-
-        candidates = [r for r in runs if _score(r)[0] > 0]
-        if not candidates:
-            return None
-        candidates.sort(key=_score, reverse=True)
-        return int(candidates[0]["id"])
-    except Exception:
-        return None
-
-
-def _upsert_pr_comment(
-    owner: str,
-    repo: str,
-    token: str,
-    pr_number: int,
-    marker: str,
-    body: str,
-) -> None:
-    if pr_number <= 0 or not token:
-        return
-    list_url = f"https://api.github.com/repos/{owner}/{repo}/issues/{pr_number}/comments?per_page=100"
-    comments_resp = _github_api("GET", list_url, token)
-    comments = comments_resp if isinstance(comments_resp, list) else []
-    existing_id = None
-    for comment in comments:
-        if marker in str(comment.get("body", "")) and comment.get("user", {}).get("type") == "Bot":
-            existing_id = int(comment["id"])
-            break
-
-    if existing_id:
-        patch_url = f"https://api.github.com/repos/{owner}/{repo}/issues/comments/{existing_id}"
-        _github_api("PATCH", patch_url, token, {"body": body})
-        return
-    create_url = f"https://api.github.com/repos/{owner}/{repo}/issues/{pr_number}/comments"
-    _github_api("POST", create_url, token, {"body": body})
-
-
-def _run_fossa_guard(
-    *,
-    workspace: Path,
-    fossa_api_key: str,
-    project_id: str,
-    category: str,
-    block_on: str,
-    branch: str,
-    revision: str,
-    docker_image: str,
-) -> dict[str, Any]:
-    report_path = workspace / "fossa_guard_report.json"
-    if report_path.exists():
-        report_path.unlink()
-
-    cmd = [
-        "docker",
-        "run",
-        "--rm",
-        "-e",
-        f"FOSSA_API_KEY={fossa_api_key}",
-        "-e",
-        f"FOSSA_PROJECT_ID={project_id}",
-        "-e",
-        f"FOSSA_CATEGORY={category}",
-        "-e",
-        "FOSSA_MODE=REPORT",
-        "-e",
-        f"BLOCK_ON={block_on}",
-        "-e",
-        f"FOSSA_BRANCH={branch}",
-        "-e",
-        f"FOSSA_REVISION={revision}",
-        "-v",
-        f"{workspace}:/workspace",
-        "-w",
-        "/workspace",
-        docker_image,
-        "/bin/sh",
-        "-c",
-        "source /maas-build-actions/venv/bin/activate && python3 /maas-build-actions/scripts/fossa-guard/fossa_guard.py",
-    ]
-    proc = subprocess.run(cmd, check=False)
-
-    report_data: dict[str, Any] = {}
-    if report_path.exists():
-        try:
-            report_data = json.loads(report_path.read_text(encoding="utf-8"))
-        except Exception:
-            report_data = {}
-
-    summary = report_data.get("summary", {}) if isinstance(report_data, dict) else {}
-    total_issues = int(summary.get("total_issues", 0) or 0)
-    blocking_issues = int(summary.get("blocking_issues", 0) or 0)
-
-    if proc.returncode != 0:
-        status = "error"
-    elif blocking_issues > 0:
-        status = "failed"
-    else:
-        status = "passed"
-
-    return {
-        "status": status,
-        "total_issues": total_issues,
-        "blocking_issues": blocking_issues,
-    }
 
 
 def _run_sonar_hotspots(
@@ -349,26 +116,45 @@ def _run_sonar_hotspots(
     return {"status": "failed" if high_count > 0 else "passed", "issues": high_count}
 
 
+def _safe_int(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except Exception:
+        return 0
+
+
+def _collect_plugin_payloads(results_dir: Path) -> dict[str, dict[str, Any]]:
+    by_plugin: dict[str, dict[str, Any]] = {}
+    if not results_dir.exists():
+        return by_plugin
+    for file_path in sorted(results_dir.rglob("*.json")):
+        try:
+            payload = json.loads(file_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        plugin = str(payload.get("plugin", "")).strip()
+        if not plugin:
+            continue
+        by_plugin[plugin] = payload
+    return by_plugin
+
+
 def main() -> int:
     github_token = os.getenv("GITHUB_TOKEN", "").strip()
-    fossa_api_key = os.getenv("FOSSA_API_KEY", "").strip()
     sonar_token = os.getenv("SONARQUBE_TOKEN", "").strip()
     sonar_host = os.getenv("SONARQUBE_HOST_URL", "").strip()
     repo_owner_input = os.getenv("REPO_OWNER", "").strip()
     base_branch = os.getenv("BASE_BRANCH", "main").strip()
     check_name = os.getenv("CHECK_NAME", "Release Readiness").strip()
     comment_marker = os.getenv("COMMENT_MARKER", "Release Readiness Check Results").strip()
-    docker_image = os.getenv("DOCKER_IMAGE", "ghcr.io/solacedev/maas-build-actions:latest").strip()
-    licensing_block_on = os.getenv("LICENSING_BLOCK_ON", "policy_conflict").strip()
-    vulnerability_block_on = os.getenv("VULNERABILITY_BLOCK_ON", "critical,high").strip()
+    results_dir = Path(os.getenv("RESULTS_DIR", "ci-plugin-results"))
     fail_on_issues = _to_bool(os.getenv("FAIL_ON_ISSUES"), default=True)
     update_pr_comment = _to_bool(os.getenv("UPDATE_PR_COMMENT"), default=True)
     update_check_details = _to_bool(os.getenv("UPDATE_CHECK_DETAILS"), default=True)
     pr_number_input = os.getenv("PR_NUMBER", "")
 
-    if not fossa_api_key:
-        print("Missing FOSSA_API_KEY", file=sys.stderr)
-        return 2
     if not sonar_token:
         print("Missing SONARQUBE_TOKEN", file=sys.stderr)
         return 2
@@ -390,7 +176,7 @@ def main() -> int:
             event = json.loads(event_path.read_text(encoding="utf-8"))
         except Exception:
             event = {}
-    pr_number = _normalize_pr_number(pr_number_input, event)
+    pr_number = _normalize_pr_number(event, explicit_value=pr_number_input)
     head_sha = _extract_head_sha(pr_number, event, github_token, owner, repo)
     short_sha = head_sha[:12] if head_sha else "unknown"
     run_id = os.getenv("GITHUB_RUN_ID", "")
@@ -403,7 +189,14 @@ def main() -> int:
         if not head_sha:
             print("Error: update_check_details=true but no head SHA was available.")
             return 2
-        check_run_id = _create_check_run(owner, repo, github_token, check_name, head_sha)
+        check_run_id = _create_check_run(
+            owner,
+            repo,
+            github_token,
+            head_sha,
+            check_name,
+            "Aggregating SonarQube and FOSSA results...",
+        )
         if check_run_id is None:
             check_run_id = _resolve_check_run_id(
                 owner=owner,
@@ -417,26 +210,24 @@ def main() -> int:
             print(f"Error: unable to create or resolve check run '{check_name}'.")
             return 2
 
-    fetch_main = _run_cmd(["git", "fetch", "origin", base_branch])
-    if fetch_main.returncode != 0:
-        print(fetch_main.stdout)
-        print(fetch_main.stderr)
-
-    changed_files = _run_cmd(["git", "diff", "--name-only", f"origin/{base_branch}...HEAD"])
-    changed = changed_files.stdout.splitlines() if changed_files.returncode == 0 else []
-    plugins = sorted({line.split("/", 1)[0] for line in changed if line.startswith("sam-") and "/" in line})
+    plugin_payloads = _collect_plugin_payloads(results_dir)
+    plugins = sorted(plugin_payloads.keys())
+    if not plugins:
+        print(
+            f"Error: no plugin payloads found in '{results_dir}'. "
+            "Download ci-plugin-result artifacts before running release-readiness aggregation.",
+            file=sys.stderr,
+        )
+        return 2
 
     workspace = Path.cwd()
     rows: list[dict[str, Any]] = []
 
     for plugin in plugins:
-        project_id = f"{repo_owner}_{plugin}"
-
-        version_cmd = _run_cmd(["hatch", "version"], cwd=plugin)
-        if version_cmd.returncode == 0 and version_cmd.stdout.strip():
-            version = version_cmd.stdout.strip().splitlines()[-1].strip()
-        else:
-            version = short_sha
+        payload = plugin_payloads.get(plugin, {})
+        project_id = str(payload.get("fossa_project_id") or f"{repo_owner}_{plugin}")
+        version = str(payload.get("fossa_revision") or short_sha)
+        fossa_branch = str(payload.get("fossa_branch") or base_branch)
 
         sonar = _run_sonar_hotspots(
             project_id=project_id,
@@ -444,36 +235,30 @@ def main() -> int:
             sonar_host_url=sonar_host,
             sonar_token=sonar_token,
         )
-        licensing = _run_fossa_guard(
-            workspace=workspace,
-            fossa_api_key=fossa_api_key,
-            project_id=project_id,
-            category="licensing",
-            block_on=licensing_block_on,
-            branch=base_branch,
-            revision=version,
-            docker_image=docker_image,
-        )
-        vulnerabilities = _run_fossa_guard(
-            workspace=workspace,
-            fossa_api_key=fossa_api_key,
-            project_id=project_id,
-            category="vulnerability",
-            block_on=vulnerability_block_on,
-            branch=base_branch,
-            revision=version,
-            docker_image=docker_image,
-        )
+
+        lic_outcome = str(payload.get("fossa_licensing_outcome", "missing")).strip().lower()
+        vul_outcome = str(payload.get("fossa_vulnerability_outcome", "missing")).strip().lower()
+        lic_total = _safe_int(payload.get("fossa_licensing_total_issues"))
+        lic_blocking = _safe_int(payload.get("fossa_licensing_blocking_issues"))
+        vul_total = _safe_int(payload.get("fossa_vulnerability_total_issues"))
+        vul_blocking = _safe_int(payload.get("fossa_vulnerability_blocking_issues"))
+
+        licensing_passed = lic_blocking == 0 and (lic_outcome in {"success", "skipped"} or lic_total == 0)
+        vulnerability_passed = vul_blocking == 0 and (vul_outcome in {"success", "skipped"} or vul_total == 0)
 
         plugin_has_issues = (
             sonar["status"] == "failed"
-            or licensing["total_issues"] > 0
-            or vulnerabilities["total_issues"] > 0
+            or not licensing_passed
+            or not vulnerability_passed
         )
 
         project_locator = urllib.parse.quote(f"custom+48578/{project_id}", safe="")
+        encoded_branch = urllib.parse.quote(fossa_branch, safe="")
         encoded_version = urllib.parse.quote(version, safe="")
         sonar_base = sonar_host if sonar_host.endswith("/") else f"{sonar_host}/"
+        fallback_fossa_url = (
+            f"https://app.fossa.com/projects/{project_locator}/refs/branch/{encoded_branch}/{encoded_version}"
+        )
 
         rows.append(
             {
@@ -482,17 +267,15 @@ def main() -> int:
                 "version": version,
                 "sonar_status": sonar["status"],
                 "sonar_issues": sonar["issues"],
-                "licensing_status": licensing["status"],
-                "licensing_total": licensing["total_issues"],
-                "licensing_blocking": licensing["blocking_issues"],
-                "vulnerability_status": vulnerabilities["status"],
-                "vulnerability_total": vulnerabilities["total_issues"],
-                "vulnerability_blocking": vulnerabilities["blocking_issues"],
+                "licensing_status": "passed" if licensing_passed else "failed",
+                "licensing_total": lic_total,
+                "licensing_blocking": lic_blocking,
+                "vulnerability_status": "passed" if vulnerability_passed else "failed",
+                "vulnerability_total": vul_total,
+                "vulnerability_blocking": vul_blocking,
                 "has_issues": plugin_has_issues,
                 "sonar_url": f"{sonar_base}dashboard?id={urllib.parse.quote(project_id, safe='')}",
-                "fossa_report_url": (
-                    f"https://app.fossa.com/projects/{project_locator}/refs/branch/{base_branch}/{encoded_version}"
-                ),
+                "fossa_report_url": str(payload.get("fossa_report_url") or fallback_fossa_url),
             }
         )
 

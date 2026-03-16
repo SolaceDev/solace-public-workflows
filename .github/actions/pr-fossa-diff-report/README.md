@@ -1,11 +1,14 @@
 # PR FOSSA Diff Report
 
-Reusable action that runs FOSSA Guard in diff mode for each changed plugin, then publishes one aggregated report:
+Reusable action that aggregates per-plugin FOSSA Guard diff results from build payloads, then publishes one aggregated report:
 
 - step summary markdown
 - optional PR comment (single updatable bot comment)
 - optional status check details update
 - optional job failure when new issues are introduced
+
+Implementation note: this action does not execute FOSSA Guard. It expects
+`ci-plugin-result-*.json` artifacts (produced by plugin build jobs) to be downloaded first.
 
 ## Usage
 
@@ -14,10 +17,9 @@ Reusable action that runs FOSSA Guard in diff mode for each changed plugin, then
   uses: SolaceDev/solace-public-workflows/.github/actions/pr-fossa-diff-report@main
   with:
     plugins_json: ${{ needs.label-pr.outputs.all_plugins }}
-    fossa_api_key: ${{ secrets.FOSSA_API_KEY }}
+    results_dir: ci-plugin-results
     repo_owner: ${{ github.repository_owner }}
     head_ref: ${{ github.head_ref }}
-    base_sha: ${{ github.event.pull_request.base.sha }}
     github_token: ${{ secrets.GITHUB_TOKEN }}
     check_name: "FOSSA Report"
     comment_on_pr: "true"
@@ -29,11 +31,11 @@ Reusable action that runs FOSSA Guard in diff mode for each changed plugin, then
 | Input | Required | Default | Description |
 |---|---|---|---|
 | `plugins_json` | yes | - | JSON list of plugins to evaluate |
-| `fossa_api_key` | yes | - | FOSSA API key |
+| `fossa_api_key` | no | `""` | Deprecated (ignored) |
 | `repo_owner` | no | repo owner | Prefix for FOSSA project IDs (`{repo_owner}_{plugin}`) |
 | `head_ref` | no | from PR event | PR revision used for diff mode |
-| `base_sha` | no | from PR event | Base SHA used for diff comparison |
-| `results_dir` | no | `fossa-report` | Directory for generated JSON reports |
+| `base_sha` | no | from PR event | Deprecated (ignored) |
+| `results_dir` | no | `ci-plugin-results` | Directory containing `ci-plugin-result-*.json` payloads |
 | `docker_image` | no | `ghcr.io/solacedev/maas-build-actions:latest` | Image containing `fossa_guard.py` |
 | `licensing_block_on` | no | `policy_conflict` | Licensing block rules |
 | `vulnerability_block_on` | no | `critical,high` | Vulnerability block rules |
