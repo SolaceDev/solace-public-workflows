@@ -1,49 +1,33 @@
 #!/usr/bin/env python3
-"""Build a unified per-project CI report payload."""
+"""Build a normalized per-project CI report payload."""
 
 from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
 
-def _to_bool(raw: str | None) -> bool:
-    if raw is None:
-        return False
-    return raw.strip().lower() in {"1", "true", "yes", "y", "on"}
+def _bootstrap_common_module() -> None:
+    script_path = Path(__file__).resolve()
+    for parent in script_path.parents:
+        candidate = parent / ".github" / "scripts" / "common" / "ci_payload.py"
+        if candidate.exists():
+            sys.path.insert(0, str(candidate.parent))
+            return
 
 
-def _safe_int(raw: Any) -> int:
-    try:
-        return int(raw or 0)
-    except Exception:
-        return 0
+_bootstrap_common_module()
+
+from ci_payload import read_json_file, safe_int, to_bool  # type: ignore  # noqa: E402
+from github_reporting import write_output as write_github_output  # type: ignore  # noqa: E402
 
 
-def _read_json(path: str) -> dict[str, Any]:
-    if not path:
-        return {}
-    report_path = Path(path)
-    if not report_path.exists():
-        return {}
-    try:
-        payload = json.loads(report_path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-    if isinstance(payload, dict):
-        return payload
-    return {}
-
-
-def _write_output(name: str, value: str) -> None:
-    output_path = os.getenv("GITHUB_OUTPUT", "")
-    if not output_path:
-        return
-    with Path(output_path).open("a", encoding="utf-8") as handle:
-        handle.write(f"{name}={value}\n")
+def _as_dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
 
 
 def main() -> int:
@@ -57,17 +41,17 @@ def main() -> int:
     sonarqube_result = os.getenv("SONARQUBE_RESULT", "missing").strip()
     unit_test_result = os.getenv("UNIT_TEST_RESULT", "missing").strip()
     unit_test_outcome = os.getenv("UNIT_TEST_OUTCOME", "missing").strip()
-    tests_present = _to_bool(os.getenv("TESTS_PRESENT"))
-    junit_exists = _to_bool(os.getenv("JUNIT_EXISTS"))
-    coverage_exists = _to_bool(os.getenv("COVERAGE_EXISTS"))
-    fossa_diff_mode = _to_bool(os.getenv("FOSSA_DIFF_MODE"))
+    tests_present = to_bool(os.getenv("TESTS_PRESENT"))
+    junit_exists = to_bool(os.getenv("JUNIT_EXISTS"))
+    coverage_exists = to_bool(os.getenv("COVERAGE_EXISTS"))
+    fossa_diff_mode = to_bool(os.getenv("FOSSA_DIFF_MODE"))
     fossa_licensing_result = os.getenv("FOSSA_LICENSING_RESULT", "missing").strip()
     fossa_vulnerability_result = os.getenv("FOSSA_VULNERABILITY_RESULT", "missing").strip()
     output_file = os.getenv("OUTPUT_FILE", "").strip() or f"ci-project-result-{project}.json"
 
-    fossa_licensing_report = _read_json(os.getenv("FOSSA_LICENSING_REPORT_PATH", ""))
-    fossa_vulnerability_report = _read_json(os.getenv("FOSSA_VULNERABILITY_REPORT_PATH", ""))
-    unit_test_report = _read_json(os.getenv("UNIT_TEST_REPORT_PATH", ""))
+    fossa_licensing_report = _as_dict(read_json_file(os.getenv("FOSSA_LICENSING_REPORT_PATH", ""), {}))
+    fossa_vulnerability_report = _as_dict(read_json_file(os.getenv("FOSSA_VULNERABILITY_REPORT_PATH", ""), {}))
+    unit_test_report = _as_dict(read_json_file(os.getenv("UNIT_TEST_REPORT_PATH", ""), {}))
 
     fossa_project_id = f"{repo_owner}_{project}" if repo_owner and project else ""
     project_locator = quote(f"custom+48578/{fossa_project_id}", safe="") if fossa_project_id else ""
@@ -79,11 +63,10 @@ def main() -> int:
         else ""
     )
 
-    lic_summary = fossa_licensing_report.get("summary", {}) if isinstance(fossa_licensing_report, dict) else {}
-    vul_summary = (
-        fossa_vulnerability_report.get("summary", {}) if isinstance(fossa_vulnerability_report, dict) else {}
-    )
+    licensing_summary = _as_dict(fossa_licensing_report.get("summary", {}))
+    vulnerability_summary = _as_dict(fossa_vulnerability_report.get("summary", {}))
 
+    # Keep both project and plugin keys so downstream aggregators can stay generic.
     payload: dict[str, Any] = {
         "project": project,
         "project_path": project_path,
@@ -95,7 +78,6 @@ def main() -> int:
         "fossa_licensing_report": fossa_licensing_report,
         "unit_test_result": unit_test_result,
         "unit_test_report": unit_test_report,
-        # Compatibility for existing plugin-based aggregators.
         "plugin": project,
         "tests_status": unit_test_result,
         "tests_present": tests_present,
@@ -109,15 +91,15 @@ def main() -> int:
         "fossa_diff_mode": fossa_diff_mode,
         "fossa_report_url": fossa_report_url,
         "fossa_licensing_outcome": fossa_licensing_result,
-        "fossa_licensing_total_issues": _safe_int(lic_summary.get("total_issues")),
-        "fossa_licensing_blocking_issues": _safe_int(lic_summary.get("blocking_issues")),
+        "fossa_licensing_total_issues": safe_int(licensing_summary.get("total_issues")),
+        "fossa_licensing_blocking_issues": safe_int(licensing_summary.get("blocking_issues")),
         "fossa_vulnerability_outcome": fossa_vulnerability_result,
-        "fossa_vulnerability_total_issues": _safe_int(vul_summary.get("total_issues")),
-        "fossa_vulnerability_blocking_issues": _safe_int(vul_summary.get("blocking_issues")),
+        "fossa_vulnerability_total_issues": safe_int(vulnerability_summary.get("total_issues")),
+        "fossa_vulnerability_blocking_issues": safe_int(vulnerability_summary.get("blocking_issues")),
     }
 
     Path(output_file).write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    _write_output("report_file", output_file)
+    write_github_output("report_file", output_file)
     return 0
 
 

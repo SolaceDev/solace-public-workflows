@@ -1,12 +1,9 @@
-name: PR FOSSA Diff Report
-description: Aggregate per-plugin FOSSA Guard results and publish a compact PR report/check.
+name: Monorepo FOSSA Diff Report
+description: Aggregate per-project FOSSA diff results and publish one PR report/check.
 
 inputs:
-  plugins_json:
-    description: "JSON array of changed plugins (e.g. [{\"plugin_directory\":\"sam-x\"}])"
-    required: true
-  fossa_api_key:
-    description: "Deprecated (kept for backward compatibility)"
+  projects_json:
+    description: "JSON array of changed projects (e.g. [{\"project_directory\":\"sam-x\"}])"
     required: false
     default: ""
   repo_owner:
@@ -17,26 +14,10 @@ inputs:
     description: "PR head ref used as FOSSA revision"
     required: false
     default: ""
-  base_sha:
-    description: "PR base SHA for diff mode comparison"
-    required: false
-    default: ""
   results_dir:
-    description: "Directory containing aggregated plugin result payloads"
+    description: "Directory containing aggregated project result payloads"
     required: false
     default: "ci-plugin-results"
-  docker_image:
-    description: "Docker image containing fossa_guard.py"
-    required: false
-    default: "ghcr.io/solacedev/maas-build-actions:latest"
-  licensing_block_on:
-    description: "Blocking config for licensing category"
-    required: false
-    default: "policy_conflict"
-  vulnerability_block_on:
-    description: "Blocking config for vulnerability category"
-    required: false
-    default: "critical,high"
   github_token:
     description: "GitHub token used for comments/check updates"
     required: false
@@ -68,13 +49,13 @@ inputs:
 
 outputs:
   has_issues:
-    description: "true when one or more plugins have new issues"
+    description: "true when one or more projects have new issues"
     value: ${{ steps.aggregate.outputs.has_issues }}
   projects_with_issues:
-    description: "JSON list of plugin names with new issues"
+    description: "JSON list of project names with new issues"
     value: ${{ steps.aggregate.outputs.projects_with_issues }}
   results_json:
-    description: "JSON list with per-plugin FOSSA aggregation details"
+    description: "JSON list with per-project FOSSA aggregation details"
     value: ${{ steps.aggregate.outputs.results_json }}
   report_markdown:
     description: "Rendered markdown report"
@@ -87,7 +68,7 @@ runs:
       id: aggregate
       shell: bash
       env:
-        PLUGINS_JSON: ${{ inputs.plugins_json }}
+        PROJECTS_JSON: ${{ inputs.projects_json }}
         REPO_OWNER: ${{ inputs.repo_owner }}
         HEAD_REF: ${{ inputs.head_ref }}
         RESULTS_DIR: ${{ inputs.results_dir }}

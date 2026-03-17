@@ -1,17 +1,12 @@
-name: Project CI Report
-description: Build a unified per-project CI JSON payload from SonarQube, FOSSA, and unit-test artifacts.
+name: Monorepo Project CI Report
+description: Build one normalized per-project CI payload for SonarQube, FOSSA, and unit tests.
 
 inputs:
   project_name:
     description: "Project identifier (for example: service-a)"
-    required: false
-    default: ""
-  plugin_name:
-    description: "Deprecated alias for project_name"
-    required: false
-    default: ""
+    required: true
   project_path:
-    description: "Project relative path"
+    description: "Project relative path in repository"
     required: true
   repo_owner:
     description: "Repository owner used to compose FOSSA project id"
@@ -73,23 +68,23 @@ inputs:
     required: false
     default: ""
   output_file:
-    description: "Output file path for unified project CI payload"
+    description: "Output file path for normalized CI payload"
     required: false
     default: ""
 
 outputs:
   report_file:
-    description: "Generated unified project CI JSON report path"
+    description: "Generated normalized CI JSON report path"
     value: ${{ steps.build.outputs.report_file }}
 
 runs:
   using: composite
   steps:
-    - name: Build unified project CI JSON report
+    - name: Build monorepo project CI payload
       id: build
       shell: bash
       env:
-        PROJECT_NAME: ${{ inputs.project_name || inputs.plugin_name }}
+        PROJECT_NAME: ${{ inputs.project_name }}
         PROJECT_PATH: ${{ inputs.project_path }}
         REPO_OWNER: ${{ inputs.repo_owner }}
         BRANCH: ${{ inputs.branch }}
