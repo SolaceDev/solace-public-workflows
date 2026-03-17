@@ -1,15 +1,20 @@
-name: PR Project Check Report (Deprecated Path)
-description: Deprecated alias for pr-project-check-report. Aggregate project check artifacts for SonarQube or Unit Tests.
+name: PR Project Check Report
+description: Aggregate project check artifacts and publish PR-friendly markdown for SonarQube or Unit Tests.
 
 inputs:
   check_type:
     description: "Aggregation mode: sonarqube or unit-tests"
     required: true
+  projects_json:
+    description: "JSON array of changed projects (e.g. [{\"project_directory\":\"service-a\"}])"
+    required: false
+    default: ""
   plugins_json:
-    description: "JSON array of changed plugins (e.g. [{\"plugin_directory\":\"sam-x\"}])"
-    required: true
+    description: "Deprecated alias for projects_json"
+    required: false
+    default: ""
   results_dir:
-    description: "Directory containing downloaded ci-plugin-result artifacts"
+    description: "Directory containing downloaded CI result artifacts"
     required: false
     default: "ci-plugin-results"
   github_token:
@@ -41,23 +46,33 @@ inputs:
     required: false
     default: "true"
   fail_on_issues:
-    description: "Exit non-zero when any plugin has issues"
+    description: "Exit non-zero when any project has issues"
     required: false
     default: "true"
 
 outputs:
   all_passed:
-    description: "true when all plugin checks passed (or were skipped for unit tests)"
+    description: "true when all project checks passed (or were skipped for unit tests)"
     value: ${{ steps.aggregate.outputs.all_passed }}
+  project_results:
+    description: "JSON list of per-project aggregation rows"
+    value: ${{ steps.aggregate.outputs.project_results }}
+  failing_projects:
+    description: "JSON list of failing projects (unit-tests mode)"
+    value: ${{ steps.aggregate.outputs.failing_projects }}
+  missing_projects:
+    description: "JSON list of projects missing result payloads (unit-tests mode)"
+    value: ${{ steps.aggregate.outputs.missing_projects }}
+  # Backward-compat aliases
   plugin_results:
-    description: "JSON list of per-plugin aggregation rows"
-    value: ${{ steps.aggregate.outputs.plugin_results }}
+    description: "Deprecated alias for project_results"
+    value: ${{ steps.aggregate.outputs.project_results }}
   failing_plugins:
-    description: "JSON list of failing plugins (unit-tests mode)"
-    value: ${{ steps.aggregate.outputs.failing_plugins }}
+    description: "Deprecated alias for failing_projects"
+    value: ${{ steps.aggregate.outputs.failing_projects }}
   missing_plugins:
-    description: "JSON list of plugins missing result payloads (unit-tests mode)"
-    value: ${{ steps.aggregate.outputs.missing_plugins }}
+    description: "Deprecated alias for missing_projects"
+    value: ${{ steps.aggregate.outputs.missing_projects }}
   report_markdown:
     description: "Rendered markdown report"
     value: ${{ steps.aggregate.outputs.report_markdown }}
@@ -65,12 +80,12 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Aggregate plugin checks
+    - name: Aggregate project checks
       id: aggregate
       shell: bash
       env:
         CHECK_TYPE: ${{ inputs.check_type }}
-        PLUGINS_JSON: ${{ inputs.plugins_json }}
+        PROJECTS_JSON: ${{ inputs.projects_json || inputs.plugins_json }}
         RESULTS_DIR: ${{ inputs.results_dir }}
         GITHUB_TOKEN: ${{ inputs.github_token }}
         SONARQUBE_HOST_URL: ${{ inputs.sonarqube_host_url }}

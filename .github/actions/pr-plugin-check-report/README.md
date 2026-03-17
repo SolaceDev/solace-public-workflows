@@ -1,4 +1,6 @@
-# PR Plugin Check Report
+# PR Plugin Check Report (Deprecated Alias)
+
+Use `.github/actions/pr-project-check-report` for new integrations.
 
 Reusable action that aggregates plugin-level CI payloads and publishes a compact markdown report for:
 

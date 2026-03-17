@@ -1,12 +1,17 @@
-name: Project CI Report (Deprecated Path)
-description: Deprecated alias for project-ci-report. Build a unified per-project CI JSON payload.
+name: Project CI Report
+description: Build a unified per-project CI JSON payload from SonarQube, FOSSA, and unit-test artifacts.
 
 inputs:
+  project_name:
+    description: "Project identifier (for example: service-a)"
+    required: false
+    default: ""
   plugin_name:
-    description: "Plugin identifier (for example: sam-geo-information)"
-    required: true
+    description: "Deprecated alias for project_name"
+    required: false
+    default: ""
   project_path:
-    description: "Plugin/project relative path"
+    description: "Project relative path"
     required: true
   repo_owner:
     description: "Repository owner used to compose FOSSA project id"
@@ -18,7 +23,7 @@ inputs:
     description: "FOSSA revision used for scan/report lookup"
     required: true
   sha:
-    description: "Commit SHA for this plugin build"
+    description: "Commit SHA for this project build"
     required: true
   github_event:
     description: "GitHub event name for this build"
@@ -38,7 +43,7 @@ inputs:
     required: false
     default: ""
   tests_present:
-    description: "Whether tests are present for this plugin"
+    description: "Whether tests are present for this project"
     required: false
     default: "false"
   junit_exists:
@@ -68,23 +73,23 @@ inputs:
     required: false
     default: ""
   output_file:
-    description: "Output file path for unified plugin CI payload"
+    description: "Output file path for unified project CI payload"
     required: false
     default: ""
 
 outputs:
   report_file:
-    description: "Generated unified plugin CI JSON report path"
+    description: "Generated unified project CI JSON report path"
     value: ${{ steps.build.outputs.report_file }}
 
 runs:
   using: composite
   steps:
-    - name: Build unified plugin CI JSON report
+    - name: Build unified project CI JSON report
       id: build
       shell: bash
       env:
-        PLUGIN_NAME: ${{ inputs.plugin_name }}
+        PROJECT_NAME: ${{ inputs.project_name || inputs.plugin_name }}
         PROJECT_PATH: ${{ inputs.project_path }}
         REPO_OWNER: ${{ inputs.repo_owner }}
         BRANCH: ${{ inputs.branch }}

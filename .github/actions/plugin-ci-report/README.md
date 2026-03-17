@@ -1,4 +1,6 @@
-# Plugin CI Report
+# Plugin CI Report (Deprecated Alias)
+
+Use `.github/actions/project-ci-report` for new integrations.
 
 Reusable composite action that builds a **single per-plugin CI payload** JSON combining:
 
