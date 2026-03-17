@@ -37,7 +37,7 @@ from github_reporting import (  # type: ignore  # noqa: E402
     create_check_run as _create_check_run,
     github_api as _github_api,
     normalize_pr_number as _normalize_pr_number,
-    resolve_check_run_id as _resolve_check_run_id,
+    resolve_pr_number_by_head as _resolve_pr_number_by_head,
     to_bool as _to_bool,
     upsert_pr_comment as _upsert_pr_comment,
     utc_now_iso as _utc_now_iso,
@@ -177,9 +177,12 @@ def main() -> int:
         except Exception:
             event = {}
     pr_number = _normalize_pr_number(event, explicit_value=pr_number_input)
+    if pr_number <= 0:
+        head_ref = str(event.get("pull_request", {}).get("head", {}).get("ref") or os.getenv("GITHUB_HEAD_REF", ""))
+        pr_number = _resolve_pr_number_by_head(owner, repo, github_token, head_ref)
     head_sha = _extract_head_sha(pr_number, event, github_token, owner, repo)
     short_sha = head_sha[:12] if head_sha else "unknown"
-    run_id = os.getenv("GITHUB_RUN_ID", "")
+    created_check_run = False
 
     check_run_id: int | None = None
     if update_check_details:
@@ -197,17 +200,9 @@ def main() -> int:
             check_name,
             "Aggregating SonarQube and FOSSA results...",
         )
+        created_check_run = check_run_id is not None
         if check_run_id is None:
-            check_run_id = _resolve_check_run_id(
-                owner=owner,
-                repo=repo,
-                token=github_token,
-                run_id=run_id,
-                head_sha=head_sha,
-                check_name=check_name,
-            )
-        if check_run_id is None:
-            print(f"Error: unable to create or resolve check run '{check_name}'.")
+            print(f"Error: unable to create dedicated check run '{check_name}'.")
             return 2
 
     plugin_payloads = _collect_plugin_payloads(results_dir)
@@ -345,11 +340,19 @@ def main() -> int:
     )
 
     comment_update_error: str | None = None
-    if update_pr_comment and pr_number > 0:
-        try:
-            _upsert_pr_comment(owner, repo, github_token, pr_number, comment_marker, report)
-        except Exception as err:
-            comment_update_error = str(err)
+    if update_pr_comment:
+        if pr_number <= 0:
+            comment_update_error = (
+                f"update_pr_comment=true for {check_name}, but PR number could not be resolved."
+            )
+        elif not github_token:
+            comment_update_error = "update_pr_comment=true but no github_token was provided."
+        else:
+            try:
+                _upsert_pr_comment(owner, repo, github_token, pr_number, comment_marker, report)
+                print(f"Upserted PR comment for #{pr_number} ({check_name}).")
+            except Exception as err:
+                comment_update_error = str(err)
 
     check_update_error: str | None = None
     if update_check_details and check_run_id:
@@ -370,7 +373,10 @@ def main() -> int:
                     },
                 },
             )
-            print(f"Updated release-readiness check run {check_run_id} for {check_name}")
+            if created_check_run:
+                print(f"Created and completed dedicated check run {check_run_id} for {check_name}")
+            else:
+                print(f"Updated existing check run {check_run_id} for {check_name}")
         except Exception as err:
             check_update_error = str(err)
 

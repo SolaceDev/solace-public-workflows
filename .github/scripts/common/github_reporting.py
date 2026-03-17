@@ -227,18 +227,23 @@ def upsert_pr_comment(
     list_url = f"{api_base}/repos/{owner}/{repo}/issues/{pr_number}/comments?per_page=100"
     comments_resp = github_api("GET", list_url, token, user_agent=user_agent)
     comments = comments_resp if isinstance(comments_resp, list) else []
-    existing_id = None
+    marker_token = f"<!-- {marker} -->"
+    normalized_body = body if marker in body or marker_token in body else f"{marker_token}\n{body}"
+    existing_ids: list[int] = []
     for comment in comments:
         comment_body = str(comment.get("body", ""))
-        if marker in comment_body and comment.get("user", {}).get("type") == "Bot":
-            existing_id = int(comment["id"])
-            break
+        user = comment.get("user", {}) if isinstance(comment, dict) else {}
+        user_type = str(user.get("type", "")).strip().lower()
+        user_login = str(user.get("login", "")).strip().lower()
+        is_bot_author = user_type == "bot" or user_login.endswith("[bot]")
+        if is_bot_author and (marker in comment_body or marker_token in comment_body):
+            existing_ids.append(int(comment["id"]))
 
-    if existing_id:
-        patch_url = f"{api_base}/repos/{owner}/{repo}/issues/comments/{existing_id}"
-        github_api("PATCH", patch_url, token, {"body": body}, user_agent=user_agent)
-        return
+    # Always replace prior bot comments for this marker with a fresh one.
+    for comment_id in existing_ids:
+        delete_url = f"{api_base}/repos/{owner}/{repo}/issues/comments/{comment_id}"
+        github_api("DELETE", delete_url, token, user_agent=user_agent)
 
     create_url = f"{api_base}/repos/{owner}/{repo}/issues/{pr_number}/comments"
-    github_api("POST", create_url, token, {"body": body}, user_agent=user_agent)
+    github_api("POST", create_url, token, {"body": normalized_body}, user_agent=user_agent)
 
