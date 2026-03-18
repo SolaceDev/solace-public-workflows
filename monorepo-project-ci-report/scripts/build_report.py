@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
+import xml.etree.ElementTree as ET
 
 
 def _bootstrap_common_module() -> None:
@@ -28,6 +29,87 @@ from github_reporting import write_output as write_github_output  # type: ignore
 
 def _as_dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
+
+
+def _collapse_whitespace(value: str) -> str:
+    return " ".join(value.split())
+
+
+def _truncate(value: str, limit: int = 2000) -> str:
+    if len(value) <= limit:
+        return value
+    return f"{value[:limit]}..."
+
+
+def _read_junit_report(path: str) -> dict[str, Any]:
+    if not path:
+        return {}
+    report_path = Path(path)
+    if not report_path.exists():
+        return {}
+
+    try:
+        root = ET.parse(report_path).getroot()
+    except Exception:
+        return {}
+
+    cases = list(root.iter("testcase"))
+    summary_tests = safe_int(root.attrib.get("tests"), default=len(cases)) if hasattr(root, "attrib") else len(cases)
+
+    failed_tests: list[dict[str, str]] = []
+    failures = 0
+    errors = 0
+    skipped = 0
+
+    for case in cases:
+        failure_node = case.find("failure")
+        error_node = case.find("error")
+        skipped_node = case.find("skipped")
+
+        if skipped_node is not None:
+            skipped += 1
+            continue
+
+        if failure_node is None and error_node is None:
+            continue
+
+        node = failure_node if failure_node is not None else error_node
+        if failure_node is not None:
+            failures += 1
+        if error_node is not None:
+            errors += 1
+
+        testcase_name = str(case.attrib.get("name", "")).strip() or "<unknown-test>"
+        class_name = str(case.attrib.get("classname", "")).strip()
+        full_name = f"{class_name}::{testcase_name}" if class_name else testcase_name
+
+        message_attr = str(node.attrib.get("message", "")).strip() if node is not None else ""
+        message_text = (node.text or "").strip() if node is not None else ""
+        if message_attr and message_text:
+            message = f"{message_attr}\n{message_text}"
+        else:
+            message = message_attr or message_text or "No failure message available."
+
+        failed_tests.append(
+            {
+                "name": full_name,
+                "message": _truncate(_collapse_whitespace(message), limit=2500),
+            }
+        )
+
+    failed_count = failures + errors
+    passed = max(summary_tests - failed_count - skipped, 0)
+    return {
+        "summary": {
+            "tests": summary_tests,
+            "passed": passed,
+            "failed": failed_count,
+            "skipped": skipped,
+            "failures": failures,
+            "errors": errors,
+        },
+        "failed_tests": failed_tests,
+    }
 
 
 def main() -> int:
@@ -52,6 +134,7 @@ def main() -> int:
     fossa_licensing_report = _as_dict(read_json_file(os.getenv("FOSSA_LICENSING_REPORT_PATH", ""), {}))
     fossa_vulnerability_report = _as_dict(read_json_file(os.getenv("FOSSA_VULNERABILITY_REPORT_PATH", ""), {}))
     unit_test_report = _as_dict(read_json_file(os.getenv("UNIT_TEST_REPORT_PATH", ""), {}))
+    unit_test_junit_report = _as_dict(_read_junit_report(os.getenv("UNIT_TEST_JUNIT_REPORT_PATH", "")))
 
     fossa_project_id = f"{repo_owner}_{project}" if repo_owner and project else ""
     project_locator = quote(f"custom+48578/{fossa_project_id}", safe="") if fossa_project_id else ""
@@ -78,6 +161,7 @@ def main() -> int:
         "fossa_licensing_report": fossa_licensing_report,
         "unit_test_result": unit_test_result,
         "unit_test_report": unit_test_report,
+        "unit_test_junit_report": unit_test_junit_report,
         "plugin": project,
         "tests_status": unit_test_result,
         "tests_present": tests_present,

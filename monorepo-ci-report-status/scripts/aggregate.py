@@ -21,7 +21,7 @@ def _bootstrap_common_module() -> None:
 
 _bootstrap_common_module()
 
-from ci_payload import read_json_file, to_bool  # type: ignore  # noqa: E402
+from ci_payload import read_json_file, safe_int, to_bool  # type: ignore  # noqa: E402
 from github_reporting import (  # type: ignore  # noqa: E402
     append_summary as append_job_summary,
     create_check_run,
@@ -35,6 +35,9 @@ from github_reporting import (  # type: ignore  # noqa: E402
 )
 
 SUPPORTED_CHECK_TYPES = {"sonarqube", "unit-tests"}
+UNKNOWN_TEST_NAME = "<unknown-test>"
+MAX_FAILED_TESTS_PER_PROJECT = 20
+MAX_FAILURE_MESSAGE_LENGTH = 2000
 
 
 def _normalize_projects(raw_projects: Any) -> list[str]:
@@ -135,7 +138,126 @@ def _build_sonar_rows(
     return all(not row["has_issues"] for row in rows), rows
 
 
-def _unit_status_label(status: str) -> str:
+def _collapse_whitespace(value: str) -> str:
+    return " ".join(value.split())
+
+
+def _truncate(value: str, limit: int = MAX_FAILURE_MESSAGE_LENGTH) -> str:
+    if len(value) <= limit:
+        return value
+    return f"{value[:limit]}..."
+
+
+def _normalize_failure_message(value: Any) -> str:
+    message = str(value or "").replace("```", "'''").strip()
+    if not message:
+        return "No failure message available."
+    return _truncate(message)
+
+
+def _extract_ctrf_results(unit_test_report: Any) -> dict[str, Any]:
+    if not isinstance(unit_test_report, dict):
+        return {}
+    nested_results = unit_test_report.get("results")
+    if isinstance(nested_results, dict):
+        return nested_results
+    if isinstance(unit_test_report.get("summary"), dict) and isinstance(unit_test_report.get("tests"), list):
+        return unit_test_report
+    return {}
+
+
+def _extract_ctrf_summary(unit_test_report: Any) -> dict[str, int]:
+    ctrf_results = _extract_ctrf_results(unit_test_report)
+    summary = ctrf_results.get("summary", {})
+    if not isinstance(summary, dict):
+        return {}
+    tests = safe_int(summary.get("tests"), default=0)
+    failed = safe_int(summary.get("failed"), default=0)
+    skipped = safe_int(summary.get("skipped"), default=0)
+    passed = safe_int(summary.get("passed"), default=max(tests - failed - skipped, 0))
+    return {
+        "tests": tests,
+        "passed": passed,
+        "failed": failed,
+        "skipped": skipped,
+    }
+
+
+def _extract_ctrf_failed_tests(unit_test_report: Any) -> list[dict[str, str]]:
+    ctrf_results = _extract_ctrf_results(unit_test_report)
+    tests = ctrf_results.get("tests", [])
+    if not isinstance(tests, list):
+        return []
+
+    failed_tests: list[dict[str, str]] = []
+    for test in tests:
+        if not isinstance(test, dict):
+            continue
+        status = str(test.get("status", "")).strip().lower()
+        if status in {"passed", "skipped"}:
+            continue
+        name = str(test.get("name") or test.get("file_path") or UNKNOWN_TEST_NAME).strip()
+        message = _normalize_failure_message(test.get("message") or test.get("trace") or test.get("raw_status"))
+        failed_tests.append({"name": name, "message": message})
+        if len(failed_tests) >= MAX_FAILED_TESTS_PER_PROJECT:
+            break
+    return failed_tests
+
+
+def _extract_junit_report(payload: dict[str, Any]) -> dict[str, Any]:
+    report = payload.get("unit_test_junit_report")
+    return report if isinstance(report, dict) else {}
+
+
+def _extract_junit_summary(payload: dict[str, Any]) -> dict[str, int]:
+    junit_report = _extract_junit_report(payload)
+    summary = junit_report.get("summary", {})
+    if not isinstance(summary, dict):
+        return {}
+    tests = safe_int(summary.get("tests"), default=0)
+    failed = safe_int(
+        summary.get("failed"),
+        default=safe_int(summary.get("failures"), default=0) + safe_int(summary.get("errors"), default=0),
+    )
+    skipped = safe_int(summary.get("skipped"), default=0)
+    passed = safe_int(summary.get("passed"), default=max(tests - failed - skipped, 0))
+    return {
+        "tests": tests,
+        "passed": passed,
+        "failed": failed,
+        "skipped": skipped,
+    }
+
+
+def _extract_junit_failed_tests(payload: dict[str, Any]) -> list[dict[str, str]]:
+    junit_report = _extract_junit_report(payload)
+    failed_tests_raw = junit_report.get("failed_tests", [])
+    if not isinstance(failed_tests_raw, list):
+        return []
+
+    failed_tests: list[dict[str, str]] = []
+    for entry in failed_tests_raw:
+        if not isinstance(entry, dict):
+            continue
+        name = str(entry.get("name") or UNKNOWN_TEST_NAME).strip()
+        message = _normalize_failure_message(entry.get("message"))
+        failed_tests.append({"name": name, "message": message})
+        if len(failed_tests) >= MAX_FAILED_TESTS_PER_PROJECT:
+            break
+    return failed_tests
+
+
+def _build_unit_status_label(status: str, summary: dict[str, int]) -> str:
+    failed = summary.get("failed", 0)
+    passed = summary.get("passed", 0)
+    skipped = summary.get("skipped", 0)
+
+    if failed > 0:
+        return f"❌ {failed} failed"
+    if passed > 0:
+        return f"✅ {passed} passed"
+    if skipped > 0:
+        return f"⏭️ {skipped} skipped"
     if status == "passed":
         return "✅ Passed"
     if status == "skipped":
@@ -156,21 +278,40 @@ def _build_unit_rows(
 
     for project in projects:
         payload = by_project.get(project, {})
-        status = str(payload.get("tests_status", "missing"))
-        has_issues = status not in {"passed", "skipped"}
+        status = str(payload.get("tests_status", "missing")).strip().lower()
+
+        ctrf_summary = _extract_ctrf_summary(payload.get("unit_test_report"))
+        junit_summary = _extract_junit_summary(payload)
+        summary = ctrf_summary if ctrf_summary.get("tests", 0) > 0 else junit_summary
+
+        failed_tests = _extract_ctrf_failed_tests(payload.get("unit_test_report"))
+        if not failed_tests:
+            failed_tests = _extract_junit_failed_tests(payload)
+
+        failed_count = summary.get("failed", 0)
+        if ctrf_summary.get("tests", 0) > 0:
+            summary_source = "ctrf"
+        elif junit_summary.get("tests", 0) > 0:
+            summary_source = "junit"
+        else:
+            summary_source = "none"
+
+        has_issues = status not in {"passed", "skipped"} or failed_count > 0
         if has_issues:
             failing_projects.append(project)
         if status == "missing":
             missing_projects.append(project)
+
         rows.append(
             {
                 "project": project,
                 "status": status,
-                "status_label": _unit_status_label(status),
-                "junit_exists": payload.get("junit_exists") is True,
-                "coverage_exists": payload.get("coverage_exists") is True,
+                "status_label": _build_unit_status_label(status, summary),
+                "tests_summary": summary,
                 "test_outcome": str(payload.get("test_outcome", "missing")),
                 "has_issues": has_issues,
+                "failed_tests": failed_tests,
+                "summary_source": summary_source,
             }
         )
 
@@ -216,14 +357,38 @@ def _render_unit_report(
         f"- Failing projects: {len(failing_projects)}",
         f"- Missing payloads: {len(missing_projects)}",
         "",
-        "| Project | Test Status | Step Outcome | JUnit | Coverage |",
-        "|---------|-------------|--------------|-------|----------|",
+        "### Test Results",
+        "",
+        "| Project | Test Status |",
+        "|---------|-------------|",
     ]
     for row in rows:
-        lines.append(
-            f"| `{row['project']}` | {row['status_label']} | {row['test_outcome']} | "
-            f"{'Yes' if row['junit_exists'] else 'No'} | {'Yes' if row['coverage_exists'] else 'No'} |"
+        lines.append(f"| `{row['project']}` | {row['status_label']} |")
+
+    detailed_failures = [row for row in rows if row.get("has_issues") and row.get("failed_tests")]
+    if detailed_failures:
+        lines.extend(["", "### Failed Tests", ""])
+        for row in detailed_failures:
+            lines.append(f"#### `{row['project']}`")
+            lines.append("```text")
+            for failed_test in row["failed_tests"]:
+                test_name = str(failed_test.get("name", UNKNOWN_TEST_NAME)).strip()
+                message = _normalize_failure_message(failed_test.get("message"))
+                lines.append(f"- {test_name}")
+                for message_line in message.splitlines():
+                    lines.append(f"  {message_line}")
+            lines.append("```")
+            lines.append("")
+    elif failing_projects:
+        lines.extend(
+            [
+                "",
+                "### Failed Tests",
+                "",
+                "Detailed failed-test output is not available for the failing projects (no CTRF/JUnit details found).",
+            ]
         )
+
     return "\n".join(lines)
 
 

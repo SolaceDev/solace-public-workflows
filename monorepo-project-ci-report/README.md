@@ -1,7 +1,7 @@
 # Monorepo Project CI Report
 
 Builds one normalized JSON payload for a single monorepo project.  
-This payload is designed to be uploaded as an artifact and consumed later by aggregation jobs (status checks, release-readiness checks, and CTRF merge/report steps).
+This payload is designed to be uploaded as an artifact and consumed later by aggregation jobs (status checks and release-readiness checks).
 
 ## What this action does
 
@@ -52,6 +52,7 @@ This keeps build jobs focused on scanning, while aggregation jobs operate on a s
     unit_test_result: ${{ steps.unit_test_normalized.outputs.result }}
     unit_test_outcome: ${{ steps.test.outcome }}
     unit_test_report_path: sam-foo/report.json
+    unit_test_junit_report_path: sam-foo/junit.xml
     tests_present: ${{ steps.test.outputs.tests_present }}
     junit_exists: ${{ steps.test.outputs.junit_exists }}
     coverage_exists: ${{ steps.test.outputs.coverage_exists }}
@@ -77,6 +78,7 @@ This keeps build jobs focused on scanning, while aggregation jobs operate on a s
 | `unit_test_result` | yes | - | Normalized test status (`passed/failed/skipped`) |
 | `unit_test_outcome` | no | `missing` | Raw unit test step outcome |
 | `unit_test_report_path` | no | `""` | Path to CTRF file |
+| `unit_test_junit_report_path` | no | `""` | Path to JUnit XML file (fallback failure details) |
 | `tests_present` | no | `false` | Whether test folder existed |
 | `junit_exists` | no | `false` | Whether junit XML exists |
 | `coverage_exists` | no | `false` | Whether coverage XML exists |
