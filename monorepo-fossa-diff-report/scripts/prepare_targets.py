@@ -13,7 +13,7 @@ from typing import Any
 def _bootstrap_common_module() -> None:
     script_path = Path(__file__).resolve()
     for parent in script_path.parents:
-        candidate = parent / ".github" / "scripts" / "common" / "github_reporting.py"
+        candidate = parent / "common" / "github_reporting.py"
         if candidate.exists():
             sys.path.insert(0, str(candidate.parent))
             return

@@ -39,7 +39,7 @@ This keeps build jobs focused on scanning, while aggregation jobs operate on a s
 
 ```yaml
 - name: Build project CI payload
-  uses: SolaceDev/solace-public-workflows/.github/actions/monorepo-project-ci-report@main
+  uses: SolaceDev/solace-public-workflows/monorepo-project-ci-report@main
   with:
     project_name: sam-foo
     project_path: sam-foo

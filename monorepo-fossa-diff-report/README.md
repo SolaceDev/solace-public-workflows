@@ -30,7 +30,7 @@ For each changed project from `projects_json`, the action:
 
 ```yaml
 - name: Aggregate FOSSA diff report
-  uses: SolaceDev/solace-public-workflows/.github/actions/monorepo-fossa-diff-report@main
+  uses: SolaceDev/solace-public-workflows/monorepo-fossa-diff-report@main
   with:
     projects_json: ${{ needs.label-pr.outputs.all_plugins }}
     results_dir: ci-plugin-results

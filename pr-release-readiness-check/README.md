@@ -37,7 +37,7 @@ jobs:
           path: ci-plugin-results
 
       - name: Run release readiness check
-        uses: SolaceDev/solace-public-workflows/.github/actions/pr-release-readiness-check@main
+        uses: SolaceDev/solace-public-workflows/pr-release-readiness-check@main
         with:
           pr_number: ${{ github.event.pull_request.number }}
           github_token: ${{ secrets.GITHUB_TOKEN }}

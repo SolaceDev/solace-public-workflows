@@ -27,7 +27,7 @@ Each payload must include `project` (or legacy `plugin`) and the relevant fields
 
 ```yaml
 - name: Publish SonarQube status
-  uses: SolaceDev/solace-public-workflows/.github/actions/monorepo-ci-report-status@main
+  uses: SolaceDev/solace-public-workflows/monorepo-ci-report-status@main
   with:
     check_type: sonarqube
     projects_json: ${{ needs.label-pr.outputs.all_plugins }}
@@ -40,7 +40,7 @@ Each payload must include `project` (or legacy `plugin`) and the relevant fields
 
 ```yaml
 - name: Publish Unit Test status
-  uses: SolaceDev/solace-public-workflows/.github/actions/monorepo-ci-report-status@main
+  uses: SolaceDev/solace-public-workflows/monorepo-ci-report-status@main
   with:
     check_type: unit-tests
     projects_json: ${{ needs.label-pr.outputs.all_plugins }}
