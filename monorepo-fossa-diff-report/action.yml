@@ -1,0 +1,82 @@
+name: Monorepo FOSSA Diff Report
+description: Aggregate per-project FOSSA diff results and publish one PR report/check.
+
+inputs:
+  projects_json:
+    description: "JSON array of changed projects (e.g. [{\"project_directory\":\"sam-x\"}])"
+    required: false
+    default: ""
+  repo_owner:
+    description: "Project owner prefix used in FOSSA project IDs"
+    required: false
+    default: ""
+  head_ref:
+    description: "PR head ref used as FOSSA revision"
+    required: false
+    default: ""
+  results_dir:
+    description: "Directory containing aggregated project result payloads"
+    required: false
+    default: "ci-plugin-results"
+  github_token:
+    description: "GitHub token used for comments/check updates"
+    required: false
+    default: ${{ github.token }}
+  check_name:
+    description: "Target check run name to update details for"
+    required: false
+    default: "FOSSA Report"
+  comment_on_pr:
+    description: "Whether to create/update a PR comment"
+    required: false
+    default: "true"
+  comment_marker:
+    description: "Marker string used to find/update an existing bot comment"
+    required: false
+    default: "FOSSA Guard (PR Diff)"
+  pr_number:
+    description: "Pull request number (optional explicit override)"
+    required: false
+    default: ""
+  update_check_details:
+    description: "Whether to update the current job check-run details"
+    required: false
+    default: "true"
+  fail_on_issues:
+    description: "Exit non-zero when new issues are found"
+    required: false
+    default: "true"
+
+outputs:
+  has_issues:
+    description: "true when one or more projects have new issues"
+    value: ${{ steps.aggregate.outputs.has_issues }}
+  projects_with_issues:
+    description: "JSON list of project names with new issues"
+    value: ${{ steps.aggregate.outputs.projects_with_issues }}
+  results_json:
+    description: "JSON list with per-project FOSSA aggregation details"
+    value: ${{ steps.aggregate.outputs.results_json }}
+  report_markdown:
+    description: "Rendered markdown report"
+    value: ${{ steps.aggregate.outputs.report_markdown }}
+
+runs:
+  using: composite
+  steps:
+    - name: Aggregate FOSSA diff report
+      id: aggregate
+      shell: bash
+      env:
+        PROJECTS_JSON: ${{ inputs.projects_json }}
+        REPO_OWNER: ${{ inputs.repo_owner }}
+        HEAD_REF: ${{ inputs.head_ref }}
+        RESULTS_DIR: ${{ inputs.results_dir }}
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+        CHECK_NAME: ${{ inputs.check_name }}
+        COMMENT_ON_PR: ${{ inputs.comment_on_pr }}
+        COMMENT_MARKER: ${{ inputs.comment_marker }}
+        PR_NUMBER: ${{ inputs.pr_number }}
+        UPDATE_CHECK_DETAILS: ${{ inputs.update_check_details }}
+        FAIL_ON_ISSUES: ${{ inputs.fail_on_issues }}
+      run: python3 "${{ github.action_path }}/scripts/aggregate.py"

@@ -1,0 +1,92 @@
+name: PR Release Readiness Check
+description: Aggregate SonarQube hotspots + FOSSA checks for release PRs and publish a unified check/comment.
+
+inputs:
+  pr_number:
+    description: "PR number to comment on (optional, auto-detected on pull_request events)"
+    required: false
+    default: ""
+  github_token:
+    description: "GitHub token used for checks/comments"
+    required: false
+    default: ${{ github.token }}
+  fossa_api_key:
+    description: "Deprecated (kept for backward compatibility)"
+    required: false
+    default: ""
+  sonarqube_token:
+    description: "SonarQube token"
+    required: true
+  sonarqube_host_url:
+    description: "SonarQube host URL"
+    required: true
+  repo_owner:
+    description: "Owner prefix used in project IDs (defaults to repository owner)"
+    required: false
+    default: ""
+  base_branch:
+    description: "Branch used as baseline for plugin detection and Sonar/FOSSA checks"
+    required: false
+    default: "main"
+  check_name:
+    description: "Unified check-run name"
+    required: false
+    default: "Release Readiness"
+  comment_marker:
+    description: "Marker used to find and update previous bot comment"
+    required: false
+    default: "Release Readiness Check Results"
+  update_pr_comment:
+    description: "Whether to create/update PR comment"
+    required: false
+    default: "true"
+  update_check_details:
+    description: "Whether to create/update unified check-run output"
+    required: false
+    default: "true"
+  fail_on_issues:
+    description: "Exit non-zero when release-readiness issues exist"
+    required: false
+    default: "true"
+  results_dir:
+    description: "Directory with aggregated plugin result JSON artifacts"
+    required: false
+    default: "ci-plugin-results"
+
+outputs:
+  conclusion:
+    description: "success or failure"
+    value: ${{ steps.run.outputs.conclusion }}
+  summary:
+    description: "Human-readable summary line"
+    value: ${{ steps.run.outputs.summary }}
+  projects_with_issues:
+    description: "JSON list of plugin names with issues"
+    value: ${{ steps.run.outputs.projects_with_issues }}
+  report_markdown:
+    description: "Rendered markdown report"
+    value: ${{ steps.run.outputs.report_markdown }}
+  report_file:
+    description: "Local path to generated markdown report"
+    value: ${{ steps.run.outputs.report_file }}
+
+runs:
+  using: composite
+  steps:
+    - name: Run release readiness aggregation
+      id: run
+      shell: bash
+      env:
+        PR_NUMBER: ${{ inputs.pr_number }}
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+        SONARQUBE_TOKEN: ${{ inputs.sonarqube_token }}
+        SONARQUBE_HOST_URL: ${{ inputs.sonarqube_host_url }}
+        REPO_OWNER: ${{ inputs.repo_owner }}
+        BASE_BRANCH: ${{ inputs.base_branch }}
+        CHECK_NAME: ${{ inputs.check_name }}
+        COMMENT_MARKER: ${{ inputs.comment_marker }}
+        UPDATE_PR_COMMENT: ${{ inputs.update_pr_comment }}
+        UPDATE_CHECK_DETAILS: ${{ inputs.update_check_details }}
+        FAIL_ON_ISSUES: ${{ inputs.fail_on_issues }}
+        RESULTS_DIR: ${{ inputs.results_dir }}
+      run: python3 "${{ github.action_path }}/scripts/run.py"

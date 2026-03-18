@@ -1,0 +1,84 @@
+name: Monorepo CI Report Status
+description: Aggregate project CI payloads and publish one SonarQube or Unit Test status report.
+
+inputs:
+  check_type:
+    description: "Aggregation mode: sonarqube or unit-tests"
+    required: true
+  projects_json:
+    description: "JSON array of changed projects (e.g. [{\"project_directory\":\"service-a\"}])"
+    required: false
+    default: ""
+  results_dir:
+    description: "Directory containing downloaded project CI artifacts"
+    required: false
+    default: "ci-plugin-results"
+  github_token:
+    description: "GitHub token used for comments/check-run updates"
+    required: false
+    default: ${{ github.token }}
+  sonarqube_host_url:
+    description: "SonarQube base URL (used for check_type=sonarqube)"
+    required: false
+    default: "https://sonarq.solace.com"
+  check_name:
+    description: "Override check-run name"
+    required: false
+    default: ""
+  comment_on_pr:
+    description: "Whether to create/update a PR comment"
+    required: false
+    default: "false"
+  comment_marker:
+    description: "Marker string used to upsert the PR comment"
+    required: false
+    default: ""
+  pr_number:
+    description: "Pull request number (optional explicit override)"
+    required: false
+    default: ""
+  update_check_details:
+    description: "Whether to update check-run output/details"
+    required: false
+    default: "true"
+  fail_on_issues:
+    description: "Exit non-zero when any project has issues"
+    required: false
+    default: "true"
+
+outputs:
+  all_passed:
+    description: "true when all project checks passed"
+    value: ${{ steps.aggregate.outputs.all_passed }}
+  project_results:
+    description: "JSON list of per-project aggregation rows"
+    value: ${{ steps.aggregate.outputs.project_results }}
+  failing_projects:
+    description: "JSON list of failing projects (unit-tests mode)"
+    value: ${{ steps.aggregate.outputs.failing_projects }}
+  missing_projects:
+    description: "JSON list of projects missing payloads (unit-tests mode)"
+    value: ${{ steps.aggregate.outputs.missing_projects }}
+  report_markdown:
+    description: "Rendered markdown report"
+    value: ${{ steps.aggregate.outputs.report_markdown }}
+
+runs:
+  using: composite
+  steps:
+    - name: Aggregate monorepo CI status
+      id: aggregate
+      shell: bash
+      env:
+        CHECK_TYPE: ${{ inputs.check_type }}
+        PROJECTS_JSON: ${{ inputs.projects_json }}
+        RESULTS_DIR: ${{ inputs.results_dir }}
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+        SONARQUBE_HOST_URL: ${{ inputs.sonarqube_host_url }}
+        CHECK_NAME: ${{ inputs.check_name }}
+        COMMENT_ON_PR: ${{ inputs.comment_on_pr }}
+        COMMENT_MARKER: ${{ inputs.comment_marker }}
+        PR_NUMBER: ${{ inputs.pr_number }}
+        UPDATE_CHECK_DETAILS: ${{ inputs.update_check_details }}
+        FAIL_ON_ISSUES: ${{ inputs.fail_on_issues }}
+      run: python3 "${{ github.action_path }}/scripts/aggregate.py"
