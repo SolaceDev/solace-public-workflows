@@ -18,9 +18,16 @@ from typing import Any
 def _bootstrap_common_module() -> None:
     script_path = Path(__file__).resolve()
     for parent in script_path.parents:
-        candidate = parent / ".github" / "scripts" / "common" / "github_reporting.py"
-        if candidate.exists():
-            sys.path.insert(0, str(candidate.parent))
+        # Current repository layout keeps shared helpers in `common/`.
+        current_candidate = parent / "common" / "github_reporting.py"
+        if current_candidate.exists():
+            sys.path.insert(0, str(current_candidate.parent))
+            return
+
+        # Backward compatibility for older layouts.
+        legacy_candidate = parent / ".github" / "scripts" / "common" / "github_reporting.py"
+        if legacy_candidate.exists():
+            sys.path.insert(0, str(legacy_candidate.parent))
             return
 
 
