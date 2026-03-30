@@ -3,6 +3,11 @@ name: Release Security Checks
 on:
   workflow_call:
     inputs:
+      git_ref:
+        type: string
+        required: false
+        default: ""
+        description: "Git ref (SHA/tag/branch) to checkout and evaluate"
       prisma_check:
         type: boolean
         required: false
@@ -18,6 +23,22 @@ on:
         required: false
         default: false
         description: "Run FOSSA Check"
+    outputs:
+      git_ref_used:
+        description: "Git ref used by this security check run"
+        value: ${{ jobs.security-checks.outputs.git_ref_used }}
+      fossa_licensing_result:
+        description: "Result of FOSSA licensing step"
+        value: ${{ jobs.security-checks.outputs.fossa_licensing_result }}
+      fossa_vulnerability_result:
+        description: "Result of FOSSA vulnerability step"
+        value: ${{ jobs.security-checks.outputs.fossa_vulnerability_result }}
+      prisma_result:
+        description: "Result of Prisma check step"
+        value: ${{ jobs.security-checks.outputs.prisma_result }}
+      sonarqube_hotspot_result:
+        description: "Result of SonarQube hotspot step"
+        value: ${{ jobs.security-checks.outputs.sonarqube_hotspot_result }}
     secrets:
       MANIFEST_AWS_REGION:
         description: "AWS region for the manifest"
@@ -63,39 +84,59 @@ jobs:
     name: Security Checks
     timeout-minutes: 15
     runs-on: ubuntu-latest
+    outputs:
+      git_ref_used: ${{ steps.resolve-ref.outputs.git_ref_used }}
+      fossa_licensing_result: ${{ steps.fossa_licensing.outcome }}
+      fossa_vulnerability_result: ${{ steps.fossa_vulnerability.outcome }}
+      prisma_result: ${{ steps.prisma.outcome }}
+      sonarqube_hotspot_result: ${{ steps.sonarqube_hotspots.outcome }}
     steps:
+      - name: Resolve git ref
+        id: resolve-ref
+        run: |
+          RESOLVED_REF="${{ inputs.git_ref }}"
+          if [[ -z "${RESOLVED_REF}" ]]; then
+            RESOLVED_REF="${{ github.sha }}"
+          fi
+          echo "git_ref_used=${RESOLVED_REF}" >> "$GITHUB_OUTPUT"
+          echo "Using git ref: ${RESOLVED_REF}"
+
       - name: Checkout
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
           fetch-depth: 0
+          ref: ${{ steps.resolve-ref.outputs.git_ref_used }}
 
       - name: FOSSA Guard - Block on Policy Violations
+        id: fossa_licensing
         uses: SolaceDev/solace-public-workflows/.github/actions/fossa-guard@main
-        if: github.ref_name == github.event.repository.default_branch && fromJson(inputs.fossa_check)
+        if: ${{ fromJson(inputs.fossa_check) }}
         continue-on-error: true
         with:
           fossa_api_key: ${{ secrets.FOSSA_API_KEY }}
           fossa_project_id: "${{ github.repository_owner }}_${{ github.event.repository.name }}"
           fossa_branch: ${{ github.event.repository.default_branch }}
-          fossa_revision: ${{ github.sha }}
+          fossa_revision: ${{ steps.resolve-ref.outputs.git_ref_used }}
           fossa_category: licensing
           fossa_mode: BLOCK
           block_on: policy_conflict
 
       - name: FOSSA Guard - Block on Security Vulnerabilities
+        id: fossa_vulnerability
         uses: SolaceDev/solace-public-workflows/.github/actions/fossa-guard@main
-        if: github.ref_name == github.event.repository.default_branch && fromJson(inputs.fossa_check)
+        if: ${{ fromJson(inputs.fossa_check) }}
         continue-on-error: true
         with:
           fossa_api_key: ${{ secrets.FOSSA_API_KEY }}
           fossa_project_id: "${{ github.repository_owner }}_${{ github.event.repository.name }}"
           fossa_branch: ${{ github.event.repository.default_branch }}
-          fossa_revision: ${{ github.sha }}
+          fossa_revision: ${{ steps.resolve-ref.outputs.git_ref_used }}
           fossa_category: vulnerability
           fossa_mode: BLOCK
           block_on: critical,high
 
       - name: Run Prisma Check
+        id: prisma
         if: ${{ fromJson(inputs.prisma_check) }}
         uses: docker://ghcr.io/solacedev/maas-build-actions:latest
         env:
@@ -112,7 +153,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_ORG: ${{ github.repository_owner }}
           GH_REPO: ${{ github.event.repository.name }}
-          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_SHA: ${{ steps.resolve-ref.outputs.git_ref_used }}
         with:
           entrypoint: /bin/sh
           args: >
@@ -122,6 +163,7 @@ jobs:
             "
 
       - name: Run SonarQube Hotspot Check
+        id: sonarqube_hotspots
         uses: docker://ghcr.io/solacedev/maas-build-actions:latest
         if: ${{ fromJson(inputs.sonarqube_hotspot_check) }}
         env:
