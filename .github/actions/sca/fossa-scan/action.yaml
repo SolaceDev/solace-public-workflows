@@ -114,11 +114,11 @@ runs:
           if curl --fail-with-body --request POST \
             --url "${GUARDIAN_URL}/api/v1/upload_scan_results" \
             --header "authorization: Bearer ${GUARDIAN_TOKEN}" \
-            --form "product_name=${PRODUCT_NAME}" \
-            --form "product_version=${PRODUCT_VERSION}" \
-            --form "product_full_version=${PRODUCT_FULL_VERSION}" \
-            --form "scan_time=${SCAN_TIME}" \
-            --form "fossa=${FOSSA_JSON}"; then
+            --form-string "product_name=${PRODUCT_NAME}" \
+            --form-string "product_version=${PRODUCT_VERSION}" \
+            --form-string "product_full_version=${PRODUCT_FULL_VERSION}" \
+            --form-string "scan_time=${SCAN_TIME}" \
+            --form-string "fossa=${FOSSA_JSON}"; then
             echo "✓ Guardian upload succeeded"
             UPLOAD_SUCCESS=true
             break
