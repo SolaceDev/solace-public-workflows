@@ -1,7 +1,15 @@
 name: "FOSSA Container Scan"
 description: "Scans container images using FOSSA CLI with FOSSA_API_KEY and CONTAINER_FOSSA_* env vars."
 
-inputs: {}
+inputs:
+  guardian_url:
+    description: "Guardian API base URL. Leave empty to skip upload."
+    required: false
+    default: ""
+  guardian_token:
+    description: "Bearer token for Guardian API authentication."
+    required: false
+    default: ""
 runs:
   using: "composite"
   steps:
@@ -61,4 +69,75 @@ runs:
         echo "::group::⏳ FOSSA Container Test - Wait For Results"
         echo "Running: fossa container test $CONTAINER_FOSSA_IMAGE $CONTAINER_FOSSA_TEST_ARGS"
         fossa container test $CONTAINER_FOSSA_IMAGE $CONTAINER_FOSSA_TEST_ARGS
+        echo "::endgroup::"
+
+    - name: FOSSA Container - Upload to Guardian
+      if: ${{ inputs.guardian_url != '' && github.event_name != 'pull_request' && github.ref_name == github.event.repository.default_branch }}
+      continue-on-error: true
+      shell: bash
+      env:
+        GUARDIAN_URL: ${{ inputs.guardian_url }}
+        GUARDIAN_TOKEN: ${{ inputs.guardian_token }}
+      run: |
+        echo "::group::📤 Uploading FOSSA container scan results to Guardian"
+
+        SCAN_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+        # product_name resolution hierarchy:
+        # 1. CONTAINER_FOSSA_PROJECT (set by caller) - strip org prefix
+        # 2. GitHub repo name (strip org from GITHUB_REPOSITORY)
+        PRODUCT_NAME=""
+
+        if [ -n "$CONTAINER_FOSSA_PROJECT" ]; then
+          PRODUCT_NAME="${CONTAINER_FOSSA_PROJECT#${GITHUB_REPOSITORY_OWNER}_}"
+        fi
+
+        if [ -z "$PRODUCT_NAME" ]; then
+          PRODUCT_NAME="${GITHUB_REPOSITORY##*/}"
+        fi
+
+        # product_version: prefer explicit FOSSA branch, fall back to GitHub ref name
+        PRODUCT_VERSION="${CONTAINER_FOSSA_BRANCH:-${GITHUB_REF_NAME:-}}"
+
+        # product_full_version: prefer explicit FOSSA revision, fall back to commit SHA
+        PRODUCT_FULL_VERSION="${CONTAINER_FOSSA_REVISION:-${GITHUB_SHA:-}}"
+
+        # fossa field: JSON object with revision value
+        FOSSA_REVISION="${CONTAINER_FOSSA_REVISION:-${GITHUB_SHA:-}}"
+        FOSSA_JSON=$(jq -n --arg rev "$FOSSA_REVISION" '{revision: $rev}')
+
+        echo "Uploading: product=${PRODUCT_NAME}, version=${PRODUCT_VERSION}, full_version=${PRODUCT_FULL_VERSION}"
+
+        MAX_RETRIES=3
+        RETRY_DELAY=5
+        ATTEMPT=0
+        UPLOAD_SUCCESS=false
+
+        while [ $ATTEMPT -lt $MAX_RETRIES ]; do
+          ATTEMPT=$((ATTEMPT + 1))
+          echo "Upload attempt ${ATTEMPT}/${MAX_RETRIES}..."
+
+          if curl --fail-with-body --request POST \
+            --url "${GUARDIAN_URL}/api/v1/upload_scan_results" \
+            --header "authorization: Bearer ${GUARDIAN_TOKEN}" \
+            --form-string "product_name=${PRODUCT_NAME}" \
+            --form-string "product_version=${PRODUCT_VERSION}" \
+            --form-string "product_full_version=${PRODUCT_FULL_VERSION}" \
+            --form-string "scan_time=${SCAN_TIME}" \
+            --form-string "fossa=${FOSSA_JSON}"; then
+            echo "✓ Guardian upload succeeded"
+            UPLOAD_SUCCESS=true
+            break
+          fi
+
+          if [ $ATTEMPT -lt $MAX_RETRIES ]; then
+            echo "⚠ Attempt ${ATTEMPT} failed, retrying in ${RETRY_DELAY}s..."
+            sleep $RETRY_DELAY
+          fi
+        done
+
+        if [ "$UPLOAD_SUCCESS" != "true" ]; then
+          echo "⚠ Guardian upload failed after ${MAX_RETRIES} attempts (non-blocking)"
+        fi
+
         echo "::endgroup::"
