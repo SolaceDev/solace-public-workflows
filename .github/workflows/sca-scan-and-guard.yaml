@@ -44,6 +44,11 @@ on:
         required: false
         type: string
         default: ''
+      guardian_url:
+        description: 'Guardian API base URL. Overrides config file value if provided. Leave empty to use config file or skip upload.'
+        required: false
+        type: string
+        default: ''
 
       # Dependency Setup Configuration
       setup_actions:
@@ -137,6 +142,9 @@ on:
         required: false
       NUGET_AUTH_TOKEN:
         description: 'NuGet auth token for private feed access (defaults to GITHUB_TOKEN)'
+        required: false
+      GUARDIAN_API_TOKEN:
+        description: 'Bearer token for Guardian API. Required when GUARDIAN_URL is provided.'
         required: false
 
 permissions:
@@ -279,6 +287,7 @@ jobs:
           CONFIG_FOSSA_PROJECT_ID: ${{ steps.config_loader.outputs.fossa_project_id }}
           CONFIG_FOSSA_TEAM: ${{ steps.config_loader.outputs.fossa_team }}
           CONFIG_FOSSA_LABELS: ${{ steps.config_loader.outputs.fossa_labels }}
+          CONFIG_GUARDIAN_URL: ${{ steps.config_loader.outputs.guardian_url }}
         run: |
           # Priority: config file > defaults
           if [[ -n "$CONFIG_FILE" ]]; then
@@ -302,6 +311,7 @@ jobs:
             echo "fossa_project_override=${CONFIG_FOSSA_PROJECT_ID}" >> $GITHUB_OUTPUT
             echo "fossa_team=${CONFIG_FOSSA_TEAM}" >> $GITHUB_OUTPUT
             echo "fossa_labels=${CONFIG_FOSSA_LABELS}" >> $GITHUB_OUTPUT
+            echo "guardian_url=${CONFIG_GUARDIAN_URL}" >> $GITHUB_OUTPUT
           else
             echo "📝 Using default configuration"
             echo "vault_url=" >> $GITHUB_OUTPUT
@@ -316,6 +326,7 @@ jobs:
             echo "fossa_project_override=" >> $GITHUB_OUTPUT
             echo "fossa_team=" >> $GITHUB_OUTPUT
             echo "fossa_labels=" >> $GITHUB_OUTPUT
+            echo "guardian_url=" >> $GITHUB_OUTPUT
           fi
 
       - name: Validate Vault Configuration
@@ -368,11 +379,12 @@ jobs:
           exportToken: true
           secrets: |
             ${{ steps.config.outputs.vault_secret_path }} FOSSA_FULL_API_TOKEN | FOSSA_API_KEY ;
+            ${{ steps.config.outputs.vault_secret_path }} GUARDIAN_API_TOKEN | GUARDIAN_API_TOKEN ;
             ${{ inputs.vault_secrets != '' && inputs.vault_secrets || steps.config.outputs.vault_secret_mappings }}
 
       - name: Setup SCA Dependencies
         id: setup_deps
-        uses: SolaceDev/solace-public-workflows/sca-setup-deps@sca_setup_guard_doc_updates
+        uses: SolaceDev/solace-public-workflows/sca-setup-deps@main
         with:
           setup_actions: ${{ inputs.setup_actions }}
           java_version: ${{ inputs.java_version }}
@@ -422,6 +434,32 @@ jobs:
             echo "FOSSA_KEY=${SECRET_FOSSA_KEY}" >> $GITHUB_OUTPUT
             echo "✅ FOSSA API key retrieved from GitHub Secrets"
           fi
+
+      - name: Resolve Guardian credentials
+        id: guardian_key
+        shell: bash
+        run: |
+          GUARDIAN_URL="${{ inputs.guardian_url != '' && inputs.guardian_url || steps.config.outputs.guardian_url }}"
+          if [ "${{ inputs.use_vault }}" == "true" ]; then
+            GUARDIAN_TOKEN="${{ steps.vault_secrets.outputs.GUARDIAN_API_TOKEN }}"
+          else
+            GUARDIAN_TOKEN="${{ secrets.GUARDIAN_API_TOKEN }}"
+          fi
+
+          # Mask both values so they never appear in logs
+          if [ -n "$GUARDIAN_URL" ]; then
+            echo "::add-mask::$GUARDIAN_URL"
+          fi
+          if [ -n "$GUARDIAN_TOKEN" ]; then
+            echo "::add-mask::$GUARDIAN_TOKEN"
+          fi
+
+          if [ -n "$GUARDIAN_URL" ] && [ -z "$GUARDIAN_TOKEN" ]; then
+            echo "⚠ Warning: GUARDIAN_URL is set but GUARDIAN_TOKEN is empty. Upload may fail."
+          fi
+
+          echo "GUARDIAN_URL=$GUARDIAN_URL" >> "$GITHUB_OUTPUT"
+          echo "GUARDIAN_TOKEN=$GUARDIAN_TOKEN" >> "$GITHUB_OUTPUT"
 
       - name: Determine FOSSA Project ID
         id: fossa_project
@@ -501,6 +539,8 @@ jobs:
           scanners: "fossa"
           additional_scan_params: ${{ steps.fossa_params.outputs.params }}
           fossa_api_key: ${{ steps.fossa_key.outputs.FOSSA_KEY }}
+          guardian_url: ${{ steps.guardian_key.outputs.GUARDIAN_URL }}
+          guardian_token: ${{ steps.guardian_key.outputs.GUARDIAN_TOKEN }}
 
       - name: FOSSA Policy/Licensing Check
         id: fossa_licensing

@@ -91,6 +91,11 @@ No config file needed - pass secrets directly to workflows.
 | `fossa_team` | FOSSA team name for project assignment |
 | `fossa_labels` | Comma-separated FOSSA project labels |
 
+### Guardian Configuration
+| Output | Description |
+|--------|-------------|
+| `guardian_url` | Guardian API base URL (from `sca_scanning.guardian.url`) |
+
 ### General Configuration
 | Output | Description |
 |--------|-------------|
@@ -204,7 +209,10 @@ When fields are not specified, the action uses these defaults:
     }
   },
   "sca_scanning": {
-    "enabled": true
+    "enabled": true,
+    "guardian": {
+      "url": "https://guardian.example.com"
+    }
   }
 }
 ```

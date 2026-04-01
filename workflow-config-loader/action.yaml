@@ -53,6 +53,9 @@ outputs:
   fossa_labels:
     description: "Comma-separated FOSSA project labels"
     value: ${{ steps.parse.outputs.fossa_labels }}
+  guardian_url:
+    description: "Guardian API base URL"
+    value: ${{ steps.parse.outputs.guardian_url }}
 
 runs:
   using: "composite"
@@ -161,6 +164,10 @@ runs:
         FOSSA_LABELS=$(echo "$CONFIG" | jq -r ".${CONFIG_TYPE}.fossa.labels // [] | join(\",\")")
         echo "fossa_labels=${FOSSA_LABELS}" >> $GITHUB_OUTPUT
 
+        # Parse Guardian URL
+        GUARDIAN_URL=$(echo "$CONFIG" | jq -r ".${CONFIG_TYPE}.guardian.url // \"\"")
+        echo "guardian_url=${GUARDIAN_URL}" >> $GITHUB_OUTPUT
+
         echo "✅ Configuration parsed successfully"
         echo ""
         echo "Parsed values:"
@@ -174,3 +181,4 @@ runs:
         echo "  - FOSSA project ID: ${FOSSA_PROJECT:-<default>}"
         echo "  - FOSSA team: ${FOSSA_TEAM:-<not set>}"
         echo "  - FOSSA labels: ${FOSSA_LABELS:-<not set>}"
+        echo "  - Guardian URL: $([ -n "${GUARDIAN_URL}" ] && echo '<set>' || echo '<not set>')"

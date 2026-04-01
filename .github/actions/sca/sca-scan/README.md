@@ -62,6 +62,8 @@ This action serves as a unified interface for running various SCA scanners (curr
 | `scanners` | Comma-separated list of scanners to run | No | `"fossa"` |
 | `additional_scan_params` | Scanner-specific parameters (see below) | No | `""` |
 | `fossa_api_key` | API key for FOSSA scanner | No (required if using FOSSA) | `""` |
+| `guardian_url` | Guardian API base URL. Leave empty to skip upload. | No | `""` |
+| `guardian_token` | Bearer token for Guardian API authentication. | No | `""` |
 
 ## Additional Scan Parameters
 

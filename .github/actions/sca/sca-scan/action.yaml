@@ -22,6 +22,15 @@ inputs:
     required: false
     default: ""
 
+  guardian_url:
+    description: "Guardian API base URL (e.g. https://guardian.example.com). Leave empty to skip upload."
+    required: false
+    default: ""
+  guardian_token:
+    description: "Bearer token for Guardian API authentication."
+    required: false
+    default: ""
+
 runs:
   using: "composite"
   steps:
@@ -67,5 +76,8 @@ runs:
     - name: SCA - Run Fossa scan
       if: contains(inputs.scanners, 'fossa')
       uses: SolaceDev/solace-public-workflows/.github/actions/sca/fossa-scan@main
+      with:
+        guardian_url: ${{ inputs.guardian_url }}
+        guardian_token: ${{ inputs.guardian_token }}
       env:
         FOSSA_API_KEY: ${{ inputs.fossa_api_key }}
