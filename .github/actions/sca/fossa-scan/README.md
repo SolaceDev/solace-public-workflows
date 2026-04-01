@@ -130,6 +130,36 @@ These parameters control the GitHub Action behavior and are not FOSSA CLI flags.
 | `fossa.skip_test` | flag | Skip the `fossa test` step after analyze (useful for container scans or when extending other FOSSA commands) |
 | `fossa.fail_on_issue` | flag | Allow `fossa test` to throw errors on policy violations |
 
+## Guardian Upload
+
+After a successful `fossa analyze`, the action can optionally POST scan metadata to the Solace Guardian REST API.
+
+### Inputs
+
+| Input | Description | Required | Default |
+|-------|-------------|----------|---------|
+| `guardian_url` | Guardian API base URL (e.g. `https://guardian.example.com`). Leave empty to skip upload. | No | `""` |
+| `guardian_token` | Bearer token for Guardian API authentication. | No | `""` |
+
+### Execution Conditions
+
+The upload step runs only when **all** of the following are true:
+- `guardian_url` is non-empty
+- The event is not a pull request
+- The current branch is the repository's default branch
+
+### product_name Resolution
+
+`product_name` is resolved in priority order:
+
+1. `SCA_FOSSA_PROJECT` env var (set by `sca-scan-and-guard`) — org prefix stripped via `GITHUB_REPOSITORY_OWNER`
+2. `project.name` from `.fossa.yml` — path resolved from `SCA_FOSSA_CONFIG_FILE` or `${SCA_FOSSA_PATH:-.}/.fossa.yml` (requires `yq`)
+3. `GITHUB_REPOSITORY` repo name (org prefix stripped)
+
+### Retry Behaviour
+
+The upload retries up to 3 times with a 5-second delay between attempts. After all retries are exhausted the step logs a warning but does **not** fail the workflow (`continue-on-error: true`).
+
 ### Common Parameters (analyze & test)
 
 | Parameter | Type | FOSSA Flag | Description |
