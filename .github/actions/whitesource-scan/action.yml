@@ -55,5 +55,5 @@ runs:
   using: composite
   steps:
     - name: No_Op whitesource
-      shell: 
+      shell: bash
       run: echo "Whitesource is deprecated"
