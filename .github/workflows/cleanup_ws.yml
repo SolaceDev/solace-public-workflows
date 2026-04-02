@@ -25,4 +25,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: No-op
-        run: echo "This job is a placeholder to trigger the workflow on pull request events. The actual cleanup is done in the post job step."
+        run: echo "Whitesource is deptecated"
