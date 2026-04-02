@@ -24,18 +24,5 @@ jobs:
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
-      - name: Cleanup WhiteSource Project for PR ${{ github.event.number }}
-        id: whitesource-policy-gate
-        uses: docker://ghcr.io/solacedev/maas-build-actions:latest
-        env:
-          WS_API_KEY: ${{ secrets.WS_API_KEY }}
-          WS_PRODUCT_NAME: ${{ inputs.ws_product_name }}
-          WS_PROJECT_NAMES: ${{ inputs.ws_project_names }}
-        with:
-          entrypoint: /bin/sh
-          args: >
-            -c "
-            . $VIRTUAL_ENV/bin/activate &&
-            cd $ACTIONS_PATH/whitesource-project-remover &&
-            python whitesource_project_remover.py
-            "
+      - name: No-op
+        run: echo "This job is a placeholder to trigger the workflow on pull request events. The actual cleanup is done in the post job step."
