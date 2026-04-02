@@ -56,6 +56,17 @@ runs:
         $FOSSA_CMD $SCA_FOSSA_ADDITIONAL_ARGS
         echo "::endgroup::"
 
+    - name: FOSSA - Scan Wait For Results
+      if: ${{ env.SCA_FOSSA_SKIP_TEST != 'true' }}
+      continue-on-error: ${{ env.SCA_FOSSA_FAIL_ON_ISSUE != 'true' }}
+      shell: bash
+      working-directory: ${{ env.SCA_FOSSA_PATH || '.' }}
+      run: |
+        echo "::group::⏳ Fossa Wait For Results"
+        echo "Running: fossa test $SCA_FOSSA_TEST_ARGS"
+        fossa test $SCA_FOSSA_TEST_ARGS
+        echo "::endgroup::"
+
     - name: Fossa - Upload to Guardian
       if: ${{ inputs.guardian_url != '' && github.event_name != 'pull_request' && github.ref_name == github.event.repository.default_branch }}
       continue-on-error: true
@@ -134,15 +145,4 @@ runs:
           echo "⚠ Guardian upload failed after ${MAX_RETRIES} attempts (non-blocking)"
         fi
 
-        echo "::endgroup::"
-
-    - name: FOSSA - Scan Wait For Results
-      if: ${{ env.SCA_FOSSA_SKIP_TEST != 'true' }}
-      continue-on-error: ${{ env.SCA_FOSSA_FAIL_ON_ISSUE != 'true' }}
-      shell: bash
-      working-directory: ${{ env.SCA_FOSSA_PATH || '.' }}
-      run: |
-        echo "::group::⏳ Fossa Wait For Results"
-        echo "Running: fossa test $SCA_FOSSA_TEST_ARGS"
-        fossa test $SCA_FOSSA_TEST_ARGS
         echo "::endgroup::"
