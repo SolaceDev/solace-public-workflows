@@ -83,7 +83,7 @@ inputs:
   enable_privacy_mode:
     description: "Hide detailed violation information in GitHub step summary (true/false)"
     required: false
-    default: "false"
+    default: ${{ github.event.repository.visibility == 'public' }}
 
 runs:
   using: docker
