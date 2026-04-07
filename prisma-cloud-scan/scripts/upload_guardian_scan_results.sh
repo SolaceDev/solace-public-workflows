@@ -6,7 +6,6 @@ GUARDIAN_KEY=""
 PRODUCT_NAME=""
 PRODUCT_VERSION=""
 PRODUCT_FULL_VERSION=""
-SCAN_TIME=""
 PRISMA_FILE=""
 PRISMA_SCAN_URL=""
 
@@ -20,7 +19,6 @@ Required:
   --product-name <name>
   --product-version <version>
   --product-full-version <full-version>
-  --scan-time <utc-iso8601>
   --prisma-file <path>
 
 Optional:
@@ -44,14 +42,6 @@ require_value() {
     echo "ERROR: missing required argument: $flag" >&2
     usage
     exit 1
-  fi
-}
-
-set_output() {
-  local name="$1"
-  local value="$2"
-  if [ -n "${GITHUB_OUTPUT:-}" ]; then
-    printf '%s=%s\n' "$name" "$value" >> "$GITHUB_OUTPUT"
   fi
 }
 
@@ -93,10 +83,6 @@ while [ $# -gt 0 ]; do
       PRODUCT_FULL_VERSION="$2"
       shift 2
       ;;
-    --scan-time)
-      SCAN_TIME="$2"
-      shift 2
-      ;;
     --prisma-file)
       PRISMA_FILE="$2"
       shift 2
@@ -125,7 +111,6 @@ require_value --guardian-key "$GUARDIAN_KEY"
 require_value --product-name "$PRODUCT_NAME"
 require_value --product-version "$PRODUCT_VERSION"
 require_value --product-full-version "$PRODUCT_FULL_VERSION"
-require_value --scan-time "$SCAN_TIME"
 require_value --prisma-file "$PRISMA_FILE"
 
 if [ ! -f "$PRISMA_FILE" ]; then
@@ -135,6 +120,7 @@ fi
 
 GUARDIAN_URL="${GUARDIAN_URL%/}"
 RESPONSE_FILE="$(mktemp)"
+SCAN_TIME="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 
 SCAN_URLS_JSON='{}'
 if [ -n "$PRISMA_SCAN_URL" ]; then
@@ -146,6 +132,7 @@ echo "  Product: $PRODUCT_NAME"
 echo "  Product version: $PRODUCT_VERSION"
 echo "  Product full version: $PRODUCT_FULL_VERSION"
 echo "  Prisma file: $PRISMA_FILE"
+echo "  Scan time: $SCAN_TIME"
 
 HTTP_STATUS="$(
   curl -sS \
@@ -176,10 +163,6 @@ echo "Guardian upload completed"
 echo "  S3 bucket: $S3_BUCKET"
 echo "  S3 path: $S3_PATH"
 echo "  Saved files: $SAVED_FILES"
-
-set_output s3_bucket "$S3_BUCKET"
-set_output s3_path "$S3_PATH"
-set_output saved_files "$SAVED_FILES"
 
 append_step_summary "### Guardian Prisma Upload"
 append_step_summary "- Product: \`$PRODUCT_NAME\`"

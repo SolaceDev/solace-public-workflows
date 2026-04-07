@@ -175,8 +175,6 @@ jobs:
 | `vuln_low`      | Number of low severity vulnerabilities found                                          |
 | `console_link`  | Deep link to Prisma Cloud Console results (when available)                           |
 | `guardian_upload_status` | Guardian upload status: `success`, `failure`, or `skipped`                |
-| `guardian_s3_bucket` | Guardian archive bucket returned by the upload API on success                  |
-| `guardian_s3_path` | Guardian archive path returned by the upload API on success                     |
 
 ## Blocking Behavior
 
@@ -246,7 +244,7 @@ If your image is in a private registry, you must authenticate **before** calling
 5. **Blocks on issues**: Fails the action if critical or high severity issues are found
 6. **Outputs results**: Provides detailed counts as action outputs for downstream jobs
 7. **Publishes check run details**: Adds a rich check run overview with severity totals, blocking counts, and Prisma Console link
-8. **Optionally uploads to Guardian**: When Guardian inputs are provided, converts Prisma output into Guardian-compatible `prisma_scan.json` and uploads it through `POST /api/v1/upload_scan_results`
+8. **Optionally uploads to Guardian**: When `guardian_url` and `guardian_key` are provided, converts Prisma output into Guardian-compatible `prisma_scan.json` and uploads it through `POST /api/v1/upload_scan_results`
 
 ### Check Run Details
 

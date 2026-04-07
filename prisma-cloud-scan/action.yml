@@ -80,13 +80,7 @@ outputs:
     value: ${{ steps.scan_image.outputs.console_link }}
   guardian_upload_status:
     description: "Guardian upload status: `success`, `failure`, or `skipped`."
-    value: ${{ steps.guardian_result.outputs.guardian_upload_status }}
-  guardian_s3_bucket:
-    description: "Guardian archive bucket returned by the upload API when upload succeeds."
-    value: ${{ steps.guardian_result.outputs.guardian_s3_bucket }}
-  guardian_s3_path:
-    description: "Guardian archive path returned by the upload API when upload succeeds."
-    value: ${{ steps.guardian_result.outputs.guardian_s3_path }}
+    value: ${{ steps.guardian_upload.outputs.guardian_upload_status || 'skipped' }}
 
 runs:
   using: "composite"
@@ -439,111 +433,48 @@ runs:
         retention-days: 30
         if-no-files-found: warn
 
-    - name: Resolve Guardian upload configuration
-      id: guardian_config
-      if: always()
+    - name: Upload Prisma results to Guardian
+      id: guardian_upload
+      if: ${{ always() && inputs.guardian_url != '' && inputs.guardian_key != '' }}
       shell: bash
       env:
-        INPUT_GUARDIAN_URL: ${{ inputs.guardian_url }}
-        INPUT_GUARDIAN_KEY: ${{ inputs.guardian_key }}
-        INPUT_GUARDIAN_PRODUCT_VERSION: ${{ inputs.guardian_product_version }}
-        INPUT_GUARDIAN_PRODUCT_FULL_VERSION: ${{ inputs.guardian_product_full_version }}
-        DEFAULT_PRODUCT_NAME: ${{ steps.set_repo_name.outputs.repo_name }}
+        ACTION_PATH: ${{ github.action_path }}
+        GUARDIAN_URL: ${{ inputs.guardian_url }}
+        GUARDIAN_KEY: ${{ inputs.guardian_key }}
+        PRODUCT_NAME: ${{ steps.set_repo_name.outputs.repo_name }}
+        PRODUCT_VERSION: ${{ inputs.guardian_product_version }}
+        PRODUCT_FULL_VERSION: ${{ inputs.guardian_product_full_version }}
+        PRISMA_FILE: prisma_scan.json
+        PRISMA_SCAN_URL: ${{ steps.scan_image.outputs.console_link }}
       run: |
-        set -euo pipefail
+        set +e
 
-        REQUESTED=false
-        for value in \
-          "$INPUT_GUARDIAN_URL" \
-          "$INPUT_GUARDIAN_KEY" \
-          "$INPUT_GUARDIAN_PRODUCT_VERSION" \
-          "$INPUT_GUARDIAN_PRODUCT_FULL_VERSION"; do
-          if [ -n "$value" ]; then
-            REQUESTED=true
-            break
-          fi
-        done
-
-        if [ "$REQUESTED" != "true" ]; then
-          echo "requested=false" >> "$GITHUB_OUTPUT"
-          exit 0
-        fi
-
-        PRODUCT_NAME="$DEFAULT_PRODUCT_NAME"
-        SCAN_TIME="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-
-        MISSING=()
-        [ -z "$INPUT_GUARDIAN_URL" ] && MISSING+=("guardian_url")
-        [ -z "$INPUT_GUARDIAN_KEY" ] && MISSING+=("guardian_key")
-        [ -z "$INPUT_GUARDIAN_PRODUCT_VERSION" ] && MISSING+=("guardian_product_version")
-        [ -z "$INPUT_GUARDIAN_PRODUCT_FULL_VERSION" ] && MISSING+=("guardian_product_full_version")
-
-        if [ "${#MISSING[@]}" -gt 0 ]; then
-          echo "Guardian upload was requested but required inputs are missing: ${MISSING[*]}" >&2
+        if [ -z "$PRODUCT_VERSION" ] || [ -z "$PRODUCT_FULL_VERSION" ]; then
+          echo "Guardian upload requires guardian_product_version and guardian_product_full_version." >&2
+          echo "guardian_upload_status=failure" >> "$GITHUB_OUTPUT"
           exit 1
         fi
 
-        echo "::add-mask::$INPUT_GUARDIAN_KEY"
-        echo "requested=true" >> "$GITHUB_OUTPUT"
-        echo "guardian_url=$INPUT_GUARDIAN_URL" >> "$GITHUB_OUTPUT"
-        echo "guardian_key=$INPUT_GUARDIAN_KEY" >> "$GITHUB_OUTPUT"
-        echo "product_name=$PRODUCT_NAME" >> "$GITHUB_OUTPUT"
-        echo "product_version=$INPUT_GUARDIAN_PRODUCT_VERSION" >> "$GITHUB_OUTPUT"
-        echo "product_full_version=$INPUT_GUARDIAN_PRODUCT_FULL_VERSION" >> "$GITHUB_OUTPUT"
-        echo "scan_time=$SCAN_TIME" >> "$GITHUB_OUTPUT"
+        if [ ! -f "$PRISMA_FILE" ]; then
+          echo "Guardian upload requires prisma_scan.json, but it was not generated." >&2
+          echo "guardian_upload_status=failure" >> "$GITHUB_OUTPUT"
+          exit 1
+        fi
 
-    - name: Upload Prisma results to Guardian
-      id: guardian_upload
-      if: always() && steps.guardian_config.outputs.requested == 'true'
-      continue-on-error: true
-      shell: bash
-      env:
-        PRISMA_SCAN_URL: ${{ steps.scan_image.outputs.console_link }}
-        ACTION_PATH: ${{ github.action_path }}
-        GUARDIAN_URL: ${{ steps.guardian_config.outputs.guardian_url }}
-        GUARDIAN_KEY: ${{ steps.guardian_config.outputs.guardian_key }}
-        PRODUCT_NAME: ${{ steps.guardian_config.outputs.product_name }}
-        PRODUCT_VERSION: ${{ steps.guardian_config.outputs.product_version }}
-        PRODUCT_FULL_VERSION: ${{ steps.guardian_config.outputs.product_full_version }}
-        GUARDIAN_SCAN_TIME: ${{ steps.guardian_config.outputs.scan_time }}
-        PRISMA_FILE: ${{ steps.guardian_payload.outputs.file }}
-      run: |
         bash "$ACTION_PATH/scripts/upload_guardian_scan_results.sh" \
           --guardian-url "$GUARDIAN_URL" \
           --guardian-key "$GUARDIAN_KEY" \
           --product-name "$PRODUCT_NAME" \
           --product-version "$PRODUCT_VERSION" \
           --product-full-version "$PRODUCT_FULL_VERSION" \
-          --scan-time "$GUARDIAN_SCAN_TIME" \
           --prisma-file "$PRISMA_FILE" \
           --prisma-scan-url "${PRISMA_SCAN_URL}"
+        GUARDIAN_UPLOAD_EXIT=$?
+        set -e
 
-    - name: Finalize Guardian upload outputs
-      id: guardian_result
-      if: always()
-      shell: bash
-      env:
-        GUARDIAN_REQUESTED: ${{ steps.guardian_config.outputs.requested }}
-        GUARDIAN_UPLOAD_OUTCOME: ${{ steps.guardian_upload.outcome }}
-        GUARDIAN_S3_BUCKET: ${{ steps.guardian_upload.outputs.s3_bucket }}
-        GUARDIAN_S3_PATH: ${{ steps.guardian_upload.outputs.s3_path }}
-      run: |
-        STATUS="skipped"
-        if [ "$GUARDIAN_REQUESTED" = "true" ]; then
-          if [ "$GUARDIAN_UPLOAD_OUTCOME" = "success" ]; then
-            STATUS="success"
-          else
-            STATUS="failure"
-          fi
+        if [ "$GUARDIAN_UPLOAD_EXIT" -eq 0 ]; then
+          echo "guardian_upload_status=success" >> "$GITHUB_OUTPUT"
+        else
+          echo "guardian_upload_status=failure" >> "$GITHUB_OUTPUT"
+          exit "$GUARDIAN_UPLOAD_EXIT"
         fi
-
-        echo "guardian_upload_status=$STATUS" >> "$GITHUB_OUTPUT"
-        echo "guardian_s3_bucket=$GUARDIAN_S3_BUCKET" >> "$GITHUB_OUTPUT"
-        echo "guardian_s3_path=$GUARDIAN_S3_PATH" >> "$GITHUB_OUTPUT"
-
-    - name: Enforce Guardian upload result
-      if: always() && steps.guardian_config.outputs.requested == 'true' && steps.guardian_result.outputs.guardian_upload_status != 'success'
-      shell: bash
-      run: |
-        echo "Guardian upload failed." >&2
-        exit 1
