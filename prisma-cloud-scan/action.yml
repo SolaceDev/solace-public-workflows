@@ -50,20 +50,12 @@ inputs:
     description: "Optional Guardian API bearer token. When set with `guardian_url`, the action uploads normalized Prisma results to Guardian."
     required: false
     default: ""
-  guardian_product_name:
-    description: "Optional Guardian product name. Defaults to the resolved image repository name."
-    required: false
-    default: ""
   guardian_product_version:
     description: "Optional Guardian product version path segment. Required when Guardian upload is enabled."
     required: false
     default: ""
   guardian_product_full_version:
     description: "Optional Guardian product full version path segment. Required when Guardian upload is enabled."
-    required: false
-    default: ""
-  guardian_scan_time:
-    description: "Optional Guardian scan timestamp in UTC ISO-8601 format. Defaults to the current UTC time."
     required: false
     default: ""
 
@@ -102,12 +94,15 @@ runs:
     - name: Set Image Repository Name
       id: set_repo_name
       shell: bash
+      env:
+        INPUT_IMAGE_REPO: ${{ inputs.image_repo }}
+        DEFAULT_REPO_NAME: ${{ github.event.repository.name }}
       run: |
-        if [ -z "${{ inputs.image_repo }}" ]; then
+        if [ -z "$INPUT_IMAGE_REPO" ]; then
           # Use GitHub repository name if image_repo is not provided
-          REPO_NAME="${{ github.event.repository.name }}"
+          REPO_NAME="$DEFAULT_REPO_NAME"
         else
-          REPO_NAME="${{ inputs.image_repo }}"
+          REPO_NAME="$INPUT_IMAGE_REPO"
         fi
         echo "repo_name=$REPO_NAME" >> $GITHUB_OUTPUT
         echo "Using image repository: $REPO_NAME"
@@ -115,13 +110,17 @@ runs:
     - name: Download twistcli
       id: download_twistcli
       shell: bash
+      env:
+        PCC_USER: ${{ inputs.pcc_user }}
+        PCC_PASS: ${{ inputs.pcc_pass }}
+        PCC_CONSOLE_URL: ${{ inputs.pcc_console_url }}
       run: |
         echo "📥 Downloading twistcli from Prisma Cloud Console..."
 
         ARCH="$(uname -m)"
-        CONSOLE_VERSION_RAW=$(curl -k -u "${{ inputs.pcc_user }}:${{ inputs.pcc_pass }}" \
+        CONSOLE_VERSION_RAW=$(curl -k -u "$PCC_USER:$PCC_PASS" \
           --fail --silent --show-error \
-          "${{ inputs.pcc_console_url }}/api/v1/version" 2>/dev/null || true)
+          "$PCC_CONSOLE_URL/api/v1/version" 2>/dev/null || true)
         API_VERSION=$(echo "$CONSOLE_VERSION_RAW" | awk 'match($0, /[0-9]+\.[0-9]+/){print substr($0, RSTART, RLENGTH); exit}')
 
         declare -a TWISTCLI_ENDPOINTS
@@ -154,10 +153,10 @@ runs:
         DOWNLOAD_SUCCESS=0
         for ENDPOINT in "${TWISTCLI_ENDPOINTS[@]}"; do
           echo "Trying endpoint: $ENDPOINT"
-          if curl -k -u "${{ inputs.pcc_user }}:${{ inputs.pcc_pass }}" \
+          if curl -k -u "$PCC_USER:$PCC_PASS" \
             --fail --location --silent --show-error \
             --output ./twistcli \
-            "${{ inputs.pcc_console_url }}${ENDPOINT}"; then
+            "$PCC_CONSOLE_URL${ENDPOINT}"; then
             chmod +x ./twistcli
             if ./twistcli --version > /dev/null 2>&1 || ./twistcli > /dev/null 2>&1; then
               DOWNLOAD_SUCCESS=1
@@ -187,8 +186,12 @@ runs:
       id: pull_image
       if: ${{ inputs.skip_image_pull != 'true' }}
       shell: bash
+      env:
+        IMAGE_REGISTRY: ${{ inputs.image_registry }}
+        REPO_NAME: ${{ steps.set_repo_name.outputs.repo_name }}
+        IMAGE_TAG: ${{ inputs.image_tag }}
       run: |
-        IMAGE_NAME="${{ inputs.image_registry }}/${{ steps.set_repo_name.outputs.repo_name }}:${{ inputs.image_tag }}"
+        IMAGE_NAME="${IMAGE_REGISTRY}/${REPO_NAME}:${IMAGE_TAG}"
         echo "🐳 Pulling image: $IMAGE_NAME"
 
         if docker pull "$IMAGE_NAME"; then
@@ -228,8 +231,12 @@ runs:
       id: local_image
       if: ${{ inputs.skip_image_pull == 'true' }}
       shell: bash
+      env:
+        IMAGE_REGISTRY: ${{ inputs.image_registry }}
+        REPO_NAME: ${{ steps.set_repo_name.outputs.repo_name }}
+        IMAGE_TAG: ${{ inputs.image_tag }}
       run: |
-        IMAGE_NAME="${{ inputs.image_registry }}/${{ steps.set_repo_name.outputs.repo_name }}:${{ inputs.image_tag }}"
+        IMAGE_NAME="${IMAGE_REGISTRY}/${REPO_NAME}:${IMAGE_TAG}"
         echo "🐳 Using local image: $IMAGE_NAME"
 
         # Verify image exists locally
@@ -247,24 +254,33 @@ runs:
     - name: Scan Image with twistcli
       id: scan_image
       shell: bash
+      env:
+        IMAGE_NAME: ${{ steps.pull_image.outputs.image_name || steps.local_image.outputs.image_name }}
+        INPUT_TWISTCLI_PUBLISH: ${{ inputs.twistcli_publish }}
+        REPOSITORY_VISIBILITY: ${{ github.event.repository.visibility }}
+        INPUT_SHOW_DETAILED_LOGS: ${{ inputs.show_detailed_logs }}
+        PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        GITHUB_SHA_VALUE: ${{ github.sha }}
+        PCC_CONSOLE_URL: ${{ inputs.pcc_console_url }}
+        PCC_USER: ${{ inputs.pcc_user }}
+        PCC_PASS: ${{ inputs.pcc_pass }}
       run: |
-        IMAGE_NAME="${{ steps.pull_image.outputs.image_name || steps.local_image.outputs.image_name }}"
         echo "image_name=$IMAGE_NAME" >> $GITHUB_OUTPUT
         echo "🔍 Scanning image with Prisma Cloud twistcli..."
 
         # Determine publish flag
-        if [ "${{ inputs.twistcli_publish }}" = "true" ]; then
+        if [ "$INPUT_TWISTCLI_PUBLISH" = "true" ]; then
           PUBLISH_FLAG="--publish"
         else
           PUBLISH_FLAG=""
         fi
 
-        REPO_VISIBILITY="${{ github.event.repository.visibility }}"
+        REPO_VISIBILITY="$REPOSITORY_VISIBILITY"
         if [ -z "$REPO_VISIBILITY" ]; then
           REPO_VISIBILITY="private"
         fi
 
-        SHOW_DETAILED_LOGS="${{ inputs.show_detailed_logs }}"
+        SHOW_DETAILED_LOGS="$INPUT_SHOW_DETAILED_LOGS"
         if [ -z "$SHOW_DETAILED_LOGS" ]; then
           if [ "$REPO_VISIBILITY" = "public" ]; then
             SHOW_DETAILED_LOGS="false"
@@ -278,12 +294,12 @@ runs:
 
         # Resolve commit SHA for dedicated check run targeting.
         # Prefer PR head SHA when available, then checked-out HEAD, then github.sha.
-        TARGET_SHA="${{ github.event.pull_request.head.sha }}"
+        TARGET_SHA="$PR_HEAD_SHA"
         if [ -z "$TARGET_SHA" ]; then
           TARGET_SHA=$(git rev-parse HEAD 2>/dev/null || true)
         fi
         if [ -z "$TARGET_SHA" ]; then
-          TARGET_SHA="${{ github.sha }}"
+          TARGET_SHA="$GITHUB_SHA_VALUE"
         fi
         echo "target_sha=$TARGET_SHA" >> $GITHUB_OUTPUT
 
@@ -299,9 +315,9 @@ runs:
         set +e
         if [ "$SHOW_DETAILED_LOGS" = "true" ]; then
           ./twistcli images scan \
-            --address "${{ inputs.pcc_console_url }}" \
-            --user "${{ inputs.pcc_user }}" \
-            --password "${{ inputs.pcc_pass }}" \
+            --address "$PCC_CONSOLE_URL" \
+            --user "$PCC_USER" \
+            --password "$PCC_PASS" \
             --output-file pcc_scan_results.json \
             $DETAILS_FLAG \
             $PUBLISH_FLAG \
@@ -309,9 +325,9 @@ runs:
           SCAN_EXIT_CODE=${PIPESTATUS[0]}
         else
           ./twistcli images scan \
-            --address "${{ inputs.pcc_console_url }}" \
-            --user "${{ inputs.pcc_user }}" \
-            --password "${{ inputs.pcc_pass }}" \
+            --address "$PCC_CONSOLE_URL" \
+            --user "$PCC_USER" \
+            --password "$PCC_PASS" \
             --output-file pcc_scan_results.json \
             $DETAILS_FLAG \
             $PUBLISH_FLAG \
@@ -371,8 +387,9 @@ runs:
         GRACE_PERIOD_DAYS: ${{ inputs.vulnerability_grace_period_days }}
         CONSOLE_LINK: ${{ steps.scan_image.outputs.console_link }}
         PCC_CONSOLE_URL: ${{ inputs.pcc_console_url }}
+        ACTION_PATH: ${{ github.action_path }}
       run: |
-        python3 "${{ github.action_path }}/scripts/analyze_scan_results.py"
+        python3 "$ACTION_PATH/scripts/analyze_scan_results.py"
 
     - name: Post Prisma Check Run
       id: post_status
@@ -389,25 +406,29 @@ runs:
         CONSOLE_LINK: ${{ steps.scan_image.outputs.console_link }}
         PCC_CONSOLE_URL: ${{ inputs.pcc_console_url }}
         FALLBACK_IMAGE: ${{ inputs.image_registry }}/${{ steps.set_repo_name.outputs.repo_name }}:${{ inputs.image_tag }}
+        ACTION_PATH: ${{ github.action_path }}
       run: |
-        python3 "${{ github.action_path }}/scripts/post_prisma_check_run.py"
+        python3 "$ACTION_PATH/scripts/post_prisma_check_run.py"
 
     - name: Prepare Scan Artifact Name
       id: artifact_name
       if: always()
       shell: bash
+      env:
+        RAW_TAG: ${{ inputs.image_tag }}
+        RUNNER_OS_VALUE: ${{ runner.os }}
+        RUNNER_ARCH_VALUE: ${{ runner.arch }}
       run: |
-        RAW_TAG="${{ inputs.image_tag }}"
         SAFE_TAG=$(echo "$RAW_TAG" | tr '/:@ ' '-' | tr -cd '[:alnum:]._-' )
         if [ -z "$SAFE_TAG" ]; then
           SAFE_TAG="scan"
         fi
-        echo "name=prisma-cloud-scan-results-${{ runner.os }}-${{ runner.arch }}-${SAFE_TAG}" >> $GITHUB_OUTPUT
+        echo "name=prisma-cloud-scan-results-${RUNNER_OS_VALUE}-${RUNNER_ARCH_VALUE}-${SAFE_TAG}" >> $GITHUB_OUTPUT
 
     - name: Upload Scan Results
       id: upload_artifacts
       if: always()
-      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
       with:
         name: ${{ steps.artifact_name.outputs.name }}
         path: |
@@ -425,10 +446,8 @@ runs:
       env:
         INPUT_GUARDIAN_URL: ${{ inputs.guardian_url }}
         INPUT_GUARDIAN_KEY: ${{ inputs.guardian_key }}
-        INPUT_GUARDIAN_PRODUCT_NAME: ${{ inputs.guardian_product_name }}
         INPUT_GUARDIAN_PRODUCT_VERSION: ${{ inputs.guardian_product_version }}
         INPUT_GUARDIAN_PRODUCT_FULL_VERSION: ${{ inputs.guardian_product_full_version }}
-        INPUT_GUARDIAN_SCAN_TIME: ${{ inputs.guardian_scan_time }}
         DEFAULT_PRODUCT_NAME: ${{ steps.set_repo_name.outputs.repo_name }}
       run: |
         set -euo pipefail
@@ -437,10 +456,8 @@ runs:
         for value in \
           "$INPUT_GUARDIAN_URL" \
           "$INPUT_GUARDIAN_KEY" \
-          "$INPUT_GUARDIAN_PRODUCT_NAME" \
           "$INPUT_GUARDIAN_PRODUCT_VERSION" \
-          "$INPUT_GUARDIAN_PRODUCT_FULL_VERSION" \
-          "$INPUT_GUARDIAN_SCAN_TIME"; do
+          "$INPUT_GUARDIAN_PRODUCT_FULL_VERSION"; do
           if [ -n "$value" ]; then
             REQUESTED=true
             break
@@ -452,20 +469,12 @@ runs:
           exit 0
         fi
 
-        PRODUCT_NAME="$INPUT_GUARDIAN_PRODUCT_NAME"
-        if [ -z "$PRODUCT_NAME" ]; then
-          PRODUCT_NAME="$DEFAULT_PRODUCT_NAME"
-        fi
-
-        SCAN_TIME="$INPUT_GUARDIAN_SCAN_TIME"
-        if [ -z "$SCAN_TIME" ]; then
-          SCAN_TIME="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-        fi
+        PRODUCT_NAME="$DEFAULT_PRODUCT_NAME"
+        SCAN_TIME="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 
         MISSING=()
         [ -z "$INPUT_GUARDIAN_URL" ] && MISSING+=("guardian_url")
         [ -z "$INPUT_GUARDIAN_KEY" ] && MISSING+=("guardian_key")
-        [ -z "$PRODUCT_NAME" ] && MISSING+=("guardian_product_name")
         [ -z "$INPUT_GUARDIAN_PRODUCT_VERSION" ] && MISSING+=("guardian_product_version")
         [ -z "$INPUT_GUARDIAN_PRODUCT_FULL_VERSION" ] && MISSING+=("guardian_product_full_version")
 
@@ -490,25 +499,38 @@ runs:
       shell: bash
       env:
         PRISMA_SCAN_URL: ${{ steps.scan_image.outputs.console_link }}
+        ACTION_PATH: ${{ github.action_path }}
+        GUARDIAN_URL: ${{ steps.guardian_config.outputs.guardian_url }}
+        GUARDIAN_KEY: ${{ steps.guardian_config.outputs.guardian_key }}
+        PRODUCT_NAME: ${{ steps.guardian_config.outputs.product_name }}
+        PRODUCT_VERSION: ${{ steps.guardian_config.outputs.product_version }}
+        PRODUCT_FULL_VERSION: ${{ steps.guardian_config.outputs.product_full_version }}
+        GUARDIAN_SCAN_TIME: ${{ steps.guardian_config.outputs.scan_time }}
+        PRISMA_FILE: ${{ steps.guardian_payload.outputs.file }}
       run: |
-        bash "${{ github.action_path }}/scripts/upload_guardian_scan_results.sh" \
-          --guardian-url "${{ steps.guardian_config.outputs.guardian_url }}" \
-          --guardian-key "${{ steps.guardian_config.outputs.guardian_key }}" \
-          --product-name "${{ steps.guardian_config.outputs.product_name }}" \
-          --product-version "${{ steps.guardian_config.outputs.product_version }}" \
-          --product-full-version "${{ steps.guardian_config.outputs.product_full_version }}" \
-          --scan-time "${{ steps.guardian_config.outputs.scan_time }}" \
-          --prisma-file "${{ steps.guardian_payload.outputs.file }}" \
+        bash "$ACTION_PATH/scripts/upload_guardian_scan_results.sh" \
+          --guardian-url "$GUARDIAN_URL" \
+          --guardian-key "$GUARDIAN_KEY" \
+          --product-name "$PRODUCT_NAME" \
+          --product-version "$PRODUCT_VERSION" \
+          --product-full-version "$PRODUCT_FULL_VERSION" \
+          --scan-time "$GUARDIAN_SCAN_TIME" \
+          --prisma-file "$PRISMA_FILE" \
           --prisma-scan-url "${PRISMA_SCAN_URL}"
 
     - name: Finalize Guardian upload outputs
       id: guardian_result
       if: always()
       shell: bash
+      env:
+        GUARDIAN_REQUESTED: ${{ steps.guardian_config.outputs.requested }}
+        GUARDIAN_UPLOAD_OUTCOME: ${{ steps.guardian_upload.outcome }}
+        GUARDIAN_S3_BUCKET: ${{ steps.guardian_upload.outputs.s3_bucket }}
+        GUARDIAN_S3_PATH: ${{ steps.guardian_upload.outputs.s3_path }}
       run: |
         STATUS="skipped"
-        if [ "${{ steps.guardian_config.outputs.requested }}" = "true" ]; then
-          if [ "${{ steps.guardian_upload.outcome }}" = "success" ]; then
+        if [ "$GUARDIAN_REQUESTED" = "true" ]; then
+          if [ "$GUARDIAN_UPLOAD_OUTCOME" = "success" ]; then
             STATUS="success"
           else
             STATUS="failure"
@@ -516,8 +538,8 @@ runs:
         fi
 
         echo "guardian_upload_status=$STATUS" >> "$GITHUB_OUTPUT"
-        echo "guardian_s3_bucket=${{ steps.guardian_upload.outputs.s3_bucket }}" >> "$GITHUB_OUTPUT"
-        echo "guardian_s3_path=${{ steps.guardian_upload.outputs.s3_path }}" >> "$GITHUB_OUTPUT"
+        echo "guardian_s3_bucket=$GUARDIAN_S3_BUCKET" >> "$GITHUB_OUTPUT"
+        echo "guardian_s3_path=$GUARDIAN_S3_PATH" >> "$GITHUB_OUTPUT"
 
     - name: Enforce Guardian upload result
       if: always() && steps.guardian_config.outputs.requested == 'true' && steps.guardian_result.outputs.guardian_upload_status != 'success'

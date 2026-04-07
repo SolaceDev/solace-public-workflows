@@ -161,10 +161,8 @@ jobs:
 | `show_detailed_logs` | No | auto | Force detailed logs (`true`/`false`). Auto mode = hidden for public repos, shown otherwise |
 | `guardian_url` | No | empty | Guardian API base URL. When set with `guardian_key`, uploads normalized Prisma results to Guardian |
 | `guardian_key` | No | empty | Guardian API bearer token. When set with `guardian_url`, uploads normalized Prisma results to Guardian |
-| `guardian_product_name` | No | resolved `image_repo` | Guardian product name to use for the upload |
 | `guardian_product_version` | No | empty | Guardian product version path segment. Required when Guardian upload is enabled |
 | `guardian_product_full_version` | No | empty | Guardian product full version path segment. Required when Guardian upload is enabled |
-| `guardian_scan_time` | No | current UTC timestamp | Scan timestamp stored in Guardian metadata |
 
 ## Outputs
 
