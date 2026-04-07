@@ -102,6 +102,22 @@ runs:
 
         echo "Uploading: product=${PRODUCT_NAME}, version=${PRODUCT_VERSION}, full_version=${PRODUCT_FULL_VERSION}"
 
+        # Build Slack notification payload (always included)
+        # Prefer the event payload (exact message GitHub recorded) with git log as fallback
+        COMMIT_MESSAGE=""
+        if [ -f "$GITHUB_EVENT_PATH" ]; then
+          COMMIT_MESSAGE=$(jq -r '.head_commit.message // empty' "$GITHUB_EVENT_PATH" 2>/dev/null | head -1)
+        fi
+        if [ -z "$COMMIT_MESSAGE" ]; then
+          COMMIT_MESSAGE=$(git log -1 --pretty=%s 2>/dev/null || echo "")
+        fi
+        SLACK_JSON=$(jq -n \
+          --argjson report true \
+          --arg revision "$FOSSA_REVISION" \
+          --arg branch "$PRODUCT_VERSION" \
+          --arg commit_message "$COMMIT_MESSAGE" \
+          '{report: $report, revision: $revision, branch: $branch, commit_message: $commit_message}')
+
         MAX_RETRIES=3
         RETRY_DELAY=5
         ATTEMPT=0
@@ -118,7 +134,8 @@ runs:
             --form-string "product_version=${PRODUCT_VERSION}" \
             --form-string "product_full_version=${PRODUCT_FULL_VERSION}" \
             --form-string "scan_time=${SCAN_TIME}" \
-            --form-string "fossa=${FOSSA_JSON}"; then
+            --form-string "fossa=${FOSSA_JSON}" \
+            --form-string "slack=${SLACK_JSON}"; then
             echo "✓ Guardian upload succeeded"
             UPLOAD_SUCCESS=true
             break
