@@ -122,12 +122,58 @@ runs:
         if [ -z "$COMMIT_MESSAGE" ]; then
           COMMIT_MESSAGE=$(git log -1 --pretty=%s 2>/dev/null || echo "")
         fi
+
+        # If head commit is a release commit, capture all commits since the previous release
+        # to surface Jira issue IDs from PR titles merged in this release window.
+        #
+        # Release commit pattern: ^chore\(release\):
+        #   ^            - must be at the start of the subject line
+        #   chore        - conventional commit type
+        #   \(release\)  - escaped parens around the release scope
+        #   :            - conventional commit delimiter
+        #
+        # Examples matched: "chore(release): 1.2.3"
+        #                   "chore(release): version bump root-1.8.74 [ci skip]"
+        if echo "$COMMIT_MESSAGE" | grep -qE '^chore\(release\):'; then
+          # Find the SHA of the previous release commit (skip HEAD, match first release line)
+          # Anchored to start of subject (^[^ ]+ matches the SHA) to avoid false matches
+          # where "chore(release):" appears mid-subject in a non-release commit.
+          PREV_RELEASE_SHA=$(git log --skip=1 --format="%H %s" 2>/dev/null \
+            | awk '/^[^ ]+ chore\(release\):/{print $1; exit}')
+
+          if [ -n "$PREV_RELEASE_SHA" ]; then
+            # Collect all non-release commit subjects between the two release commits:
+            #   --skip=1                   skips HEAD (the current release commit)
+            #   PREV_RELEASE_SHA..HEAD     commits after the previous release up to HEAD
+            #   grep -vE '^chore\(release\):'  strips any intermediate release commits
+            #     -v  invert match (exclude lines that match)
+            #     -E  extended regex
+            #     ^chore\(release\):  same pattern as above
+            # awk join inserts " | " only between records, preserving any literal "|"
+            # characters that may exist inside individual commit subjects.
+            BETWEEN_COMMITS=$(git log --skip=1 --pretty=%s "${PREV_RELEASE_SHA}..HEAD" 2>/dev/null \
+              | grep -vE '^chore\(release\):' \
+              | awk 'NR==1 {printf "%s", $0; next} {printf " | %s", $0} END {printf "\n"}')
+          else
+            # No prior release found (first release or shallow clone) — grab the previous commit.
+            # sed -n '2p' prints only the 2nd log line; returns empty on a single-commit history
+            # (e.g. fetch-depth: 1), avoiding a duplicate of HEAD in the payload.
+            BETWEEN_COMMITS=$(git log -2 --pretty=%s 2>/dev/null | sed -n '2p')
+          fi
+
+          if [ -n "$BETWEEN_COMMITS" ]; then
+            COMMIT_MESSAGE="${BETWEEN_COMMITS} | ${COMMIT_MESSAGE}"
+          fi
+        fi
+        # BUILD_URL: full link to this workflow run for Slack notification deep-linking
+        BUILD_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
         SLACK_JSON=$(jq -n \
           --argjson report true \
           --arg revision "$FOSSA_REVISION" \
           --arg branch "$PRODUCT_VERSION" \
           --arg commit_message "$COMMIT_MESSAGE" \
-          '{report: $report, revision: $revision, branch: $branch, commit_message: $commit_message}')
+          --arg build_url "$BUILD_URL" \
+          '{report: $report, revision: $revision, branch: $branch, commit_message: $commit_message, build_url: $build_url}')
 
         MAX_RETRIES=3
         RETRY_DELAY=5
