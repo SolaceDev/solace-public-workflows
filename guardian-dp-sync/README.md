@@ -12,7 +12,6 @@ This action does not upload scan files and does not run the vulnerability gate. 
 ## Optional Inputs
 
 - `product-name`
-- `product-version`
 - `product-full-version`
 - `collection`
 - `jira-collection-name`
@@ -38,7 +37,6 @@ steps:
     with:
       guardian-url: ${{ secrets.GUARDIAN_API_URL }}
       guardian-key: ${{ secrets.GUARDIAN_API_TOKEN }}
-      product-version: main
       product-full-version: 1.110.9
       collection: test_collection
       jira-collection-name: test_collection_jira_metadata
@@ -58,5 +56,6 @@ steps:
 ## Notes
 
 - If `product-name` is omitted, the action defaults it to `${GITHUB_REPOSITORY#*/}`.
-- The calling workflow is responsible for uploading scan results first. When `product-name`, `product-version`, and `product-full-version` are all available, this action derives `scan_path` as `scan-backups/<product-name>/<product-version>/<product-full-version>`. Otherwise it forwards the available values and lets Guardian resolve the missing context.
+- Guardian now resolves `product_version` from product config and `product_full_version` from the latest uploaded scan metadata when it is not provided.
+- The calling workflow is responsible for uploading scan results first. This action sends `product_name` and optionally `product_full_version`, then lets Guardian resolve the canonical scan path.
 - Set `upload-logs: "true"` to upload the db sync response directory as a workflow artifact for debugging.

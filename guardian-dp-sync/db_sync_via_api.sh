@@ -4,7 +4,6 @@ set -euo pipefail
 GUARDIAN_URL=""
 GUARDIAN_KEY=""
 PRODUCT_NAME=""
-PRODUCT_VERSION=""
 PRODUCT_FULL_VERSION=""
 COLLECTION=""
 JIRA_COLLECTION_NAME=""
@@ -22,7 +21,6 @@ Required:
 
 Optional:
   --product-name <name>            Defaults to the repository name without the org
-  --product-version <version>
   --product-full-version <full-version>
   --collection <name>
   --jira-collection-name <name>
@@ -35,8 +33,7 @@ Example:
   guardian-dp-sync/db_sync_via_api.sh \
     --guardian-url https://guardian.com \
     --guardian-key "$GUARDIAN_API_TOKEN" \
-    --product-name some-repo\
-    --product-version main \
+    --product-name some-repo \
     --product-full-version 0.0.1225 \
     --collection test_collection \
     --jira-collection-name test_jira_metadata
@@ -147,10 +144,6 @@ while [ $# -gt 0 ]; do
       PRODUCT_NAME="$2"
       shift 2
       ;;
-    --product-version)
-      PRODUCT_VERSION="$2"
-      shift 2
-      ;;
     --product-full-version)
       PRODUCT_FULL_VERSION="$2"
       shift 2
@@ -197,15 +190,9 @@ if [ -z "$PRODUCT_NAME" ]; then
   PRODUCT_NAME="$(default_product_name)"
 fi
 
+require_value --product-name "$PRODUCT_NAME"
+
 GUARDIAN_URL="${GUARDIAN_URL%/}"
-SCAN_PATH=""
-if [ -n "$PRODUCT_NAME" ] && [ -n "$PRODUCT_VERSION" ] && [ -n "$PRODUCT_FULL_VERSION" ]; then
-  SCAN_PATH="scan-backups/${PRODUCT_NAME}/${PRODUCT_VERSION}/${PRODUCT_FULL_VERSION}"
-fi
-DISPLAY_SCAN_PATH="$SCAN_PATH"
-if [ -z "$DISPLAY_SCAN_PATH" ]; then
-  DISPLAY_SCAN_PATH="API resolved"
-fi
 
 if [ -n "$OUTPUT_DIR" ]; then
   mkdir -p "$OUTPUT_DIR"
@@ -216,20 +203,16 @@ fi
 
 REQUEST_BODY="$(
   jq -n \
-    --arg scan_path "$SCAN_PATH" \
     --arg product_name "$PRODUCT_NAME" \
-    --arg product_version "$PRODUCT_VERSION" \
     --arg product_full_version "$PRODUCT_FULL_VERSION" \
     --arg collection "$COLLECTION" \
     --arg jira_metadata_collection_name "$JIRA_COLLECTION_NAME" \
     --arg jira_profile "$JIRA_PROFILE" \
     --argjson jira_dry_run "$JIRA_DRY_RUN" \
     '{
+      product_name: $product_name,
       jira_dry_run: $jira_dry_run
     }
-    + (if $scan_path != "" then {scan_path: $scan_path} else {} end)
-    + (if $product_name != "" then {product_name: $product_name} else {} end)
-    + (if $product_version != "" then {product_version: $product_version} else {} end)
     + (if $product_full_version != "" then {product_full_version: $product_full_version} else {} end)
     + (if $collection != "" then {collection: $collection} else {} end)
     + (if $jira_metadata_collection_name != "" then {jira_metadata_collection_name: $jira_metadata_collection_name} else {} end)
@@ -237,16 +220,10 @@ REQUEST_BODY="$(
 )"
 
 echo "Running Guardian sync and report via $GUARDIAN_URL/api/v1/db_synch_and_report"
-if [ -n "$PRODUCT_NAME" ]; then
-  echo "  Product: $PRODUCT_NAME"
-fi
-if [ -n "$PRODUCT_VERSION" ]; then
-  echo "  Product version: $PRODUCT_VERSION"
-fi
+echo "  Product: $PRODUCT_NAME"
 if [ -n "$PRODUCT_FULL_VERSION" ]; then
-  echo "  Product full version: $PRODUCT_FULL_VERSION"
+  echo "  Product full version override: $PRODUCT_FULL_VERSION"
 fi
-echo "  Scan path: $DISPLAY_SCAN_PATH"
 echo "  S3 bucket: API default"
 if [ -n "$COLLECTION" ]; then
   echo "  Vulnerability collection: $COLLECTION"
@@ -285,5 +262,4 @@ set_json_output_from_file response_json "$RESPONSE_FILE"
 append_step_summary "### Guardian Sync and Report"
 append_step_summary "- Product: \`$PRODUCT_NAME\`"
 append_step_summary "- Version: \`$PRODUCT_VERSION\`"
-append_step_summary "- Scan path: \`$DISPLAY_SCAN_PATH\`"
 append_step_summary "- DB summary: \`$DB_SUMMARY\`"

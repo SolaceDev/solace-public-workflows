@@ -12,12 +12,8 @@ inputs:
     description: "Guardian product name. Defaults to the repository name without the org."
     required: false
     default: ""
-  product-version:
-    description: "Guardian product version tag used in the archive path. Guardian can resolve it when omitted."
-    required: false
-    default: ""
   product-full-version:
-    description: "Full build version used in the archive path. Guardian can resolve it when omitted."
+    description: "Optional full build version override. When omitted, Guardian resolves it from the latest uploaded scan metadata."
     required: false
     default: ""
   collection:
@@ -72,7 +68,6 @@ runs:
       shell: bash
       env:
         INPUT_PRODUCT_NAME: ${{ inputs.product-name }}
-        PRODUCT_VERSION: ${{ inputs.product-version }}
         PRODUCT_FULL_VERSION: ${{ inputs.product-full-version }}
         JOB_NAME: ${{ github.job }}
         REPOSITORY_NAME: ${{ github.repository }}
@@ -88,15 +83,11 @@ runs:
         fi
 
         PRODUCT_NAME_SAFE="$(sanitize "$PRODUCT_NAME")"
-        PRODUCT_VERSION_SAFE="$(sanitize "$PRODUCT_VERSION")"
         PRODUCT_FULL_VERSION_SAFE="$(sanitize "$PRODUCT_FULL_VERSION")"
         JOB_NAME_SAFE="$(sanitize "$JOB_NAME")"
 
         if [ -z "$PRODUCT_NAME_SAFE" ]; then
           PRODUCT_NAME_SAFE="repository"
-        fi
-        if [ -z "$PRODUCT_VERSION_SAFE" ]; then
-          PRODUCT_VERSION_SAFE="auto"
         fi
         if [ -z "$PRODUCT_FULL_VERSION_SAFE" ]; then
           PRODUCT_FULL_VERSION_SAFE="auto"
@@ -105,28 +96,31 @@ runs:
           JOB_NAME_SAFE="job"
         fi
 
-        echo "name=guardian-sync-and-report-${JOB_NAME_SAFE}-${PRODUCT_NAME_SAFE}-${PRODUCT_VERSION_SAFE}-${PRODUCT_FULL_VERSION_SAFE}" >> "$GITHUB_OUTPUT"
+        echo "name=guardian-sync-and-report-${JOB_NAME_SAFE}-${PRODUCT_NAME_SAFE}-${PRODUCT_FULL_VERSION_SAFE}" >> "$GITHUB_OUTPUT"
 
     - name: Synchronize Guardian DB and Jira
       id: sync
       shell: bash
+      env:
+        INPUT_PRODUCT_NAME: ${{ inputs.product-name }}
+        REPOSITORY_NAME: ${{ github.repository }}
       run: |
+        PRODUCT_NAME="$INPUT_PRODUCT_NAME"
+        if [ -z "$PRODUCT_NAME" ]; then
+          PRODUCT_NAME="${REPOSITORY_NAME#*/}"
+        fi
+
         response_dir="${RUNNER_TEMP}/guardian-sync-and-report"
         mkdir -p "$response_dir"
 
         args=(
           --guardian-url "${{ inputs.guardian-url }}"
           --guardian-key "${{ inputs.guardian-key }}"
+          --product-name "$PRODUCT_NAME"
           --jira-dry-run "${{ inputs.jira-dry-run }}"
           --output-dir "$response_dir"
         )
 
-        if [ -n "${{ inputs.product-name }}" ]; then
-          args+=(--product-name "${{ inputs.product-name }}")
-        fi
-        if [ -n "${{ inputs.product-version }}" ]; then
-          args+=(--product-version "${{ inputs.product-version }}")
-        fi
         if [ -n "${{ inputs.product-full-version }}" ]; then
           args+=(--product-full-version "${{ inputs.product-full-version }}")
         fi
