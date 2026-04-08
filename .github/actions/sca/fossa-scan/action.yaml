@@ -162,12 +162,15 @@ runs:
             COMMIT_MESSAGE="${BETWEEN_COMMITS} | ${COMMIT_MESSAGE}"
           fi
         fi
+        # BUILD_URL: full link to this workflow run for Slack notification deep-linking
+        BUILD_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
         SLACK_JSON=$(jq -n \
           --argjson report true \
           --arg revision "$FOSSA_REVISION" \
           --arg branch "$PRODUCT_VERSION" \
           --arg commit_message "$COMMIT_MESSAGE" \
-          '{report: $report, revision: $revision, branch: $branch, commit_message: $commit_message}')
+          --arg build_url "$BUILD_URL" \
+          '{report: $report, revision: $revision, branch: $branch, commit_message: $commit_message, build_url: $build_url}')
 
         MAX_RETRIES=3
         RETRY_DELAY=5
