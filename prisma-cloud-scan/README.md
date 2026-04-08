@@ -12,9 +12,11 @@ A composite GitHub Action that scans Docker container images using Prisma Cloud'
 - Provides detailed scan results as outputs
 - Posts a GitHub Check Run (`Prisma Image Scan (<OS>/<ARCH>)`) linked to Prisma Cloud scan results
 - Uploads `pcc_scan_results.json` and `pcc_scan_output.txt` as artifacts
+- Uploads normalized `prisma_scan.json` as an artifact for Guardian-compatible consumers
 - Hides detailed vulnerability/compliance logs by default for public repositories
 - Helpful error messages for authentication issues
 - Automatically publishes results to Prisma Cloud Console (configurable)
+- Optionally uploads Prisma scan results directly to Guardian via the REST API
 
 ## Usage
 
@@ -117,6 +119,30 @@ jobs:
           echo "Low Vulnerabilities: ${{ steps.prisma_scan.outputs.vuln_low }}"
 ```
 
+### With Guardian Upload
+
+```yaml
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Scan Docker Image and upload to Guardian
+        uses: SolaceDev/solace-public-workflows/prisma-cloud-scan@main
+        with:
+          image_registry: "868978040651.dkr.ecr.us-east-1.amazonaws.com"
+          image_repo: "solace-agent-mesh-enterprise"
+          image_tag: "1.110.16-abcdef1234"
+          pcc_console_url: ${{ secrets.PRISMACLOUD_CONSOLE_URL }}
+          pcc_user: ${{ secrets.PRISMACLOUD_ACCESS_KEY_ID }}
+          pcc_pass: ${{ secrets.PRISMACLOUD_SECRET_KEY }}
+          guardian_url: ${{ secrets.GUARDIAN_API_URL }}
+          guardian_key: ${{ secrets.GUARDIAN_API_TOKEN }}
+          guardian_product_full_version: "1.110.16"
+```
+
 ## Inputs
 
 | Name | Required | Default | Description |
@@ -132,6 +158,10 @@ jobs:
 | `vulnerability_grace_period_days` | No | `7` | Grace period for new vulnerabilities before they become blocking |
 | `skip_image_pull` | No | `false` | Skip Docker pull and scan image already present locally |
 | `show_detailed_logs` | No | auto | Force detailed logs (`true`/`false`). Auto mode = hidden for public repos, shown otherwise |
+| `guardian_url` | No | empty | Guardian API base URL. When set with `guardian_key`, uploads normalized Prisma results to Guardian |
+| `guardian_key` | No | empty | Guardian API bearer token. When set with `guardian_url`, uploads normalized Prisma results to Guardian |
+| `guardian_product_version` | No | repo default branch | Guardian product version path segment. Defaults to the repository default branch when Guardian upload is enabled |
+| `guardian_product_full_version` | No | empty | Guardian product full version path segment. Required when Guardian upload is enabled |
 
 ## Outputs
 
@@ -143,6 +173,7 @@ jobs:
 | `vuln_medium`   | Number of medium severity vulnerabilities found                                       |
 | `vuln_low`      | Number of low severity vulnerabilities found                                          |
 | `console_link`  | Deep link to Prisma Cloud Console results (when available)                           |
+| `guardian_upload_status` | Guardian upload status: `success`, `failure`, or `skipped`                |
 
 ## Blocking Behavior
 
@@ -212,6 +243,7 @@ If your image is in a private registry, you must authenticate **before** calling
 5. **Blocks on issues**: Fails the action if critical or high severity issues are found
 6. **Outputs results**: Provides detailed counts as action outputs for downstream jobs
 7. **Publishes check run details**: Adds a rich check run overview with severity totals, blocking counts, and Prisma Console link
+8. **Optionally uploads to Guardian**: When `guardian_url` and `guardian_key` are provided, converts Prisma output into Guardian-compatible `prisma_scan.json` and uploads it through `POST /api/v1/upload_scan_results`
 
 ### Check Run Details
 

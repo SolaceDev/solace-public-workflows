@@ -42,6 +42,22 @@ inputs:
     description: "Force detailed scan output in workflow logs (`true`/`false`). Defaults to `false` for public repos and `true` otherwise."
     required: false
     default: ""
+  guardian_url:
+    description: "Optional Guardian API base URL. When set with `guardian_key`, the action uploads normalized Prisma results to Guardian."
+    required: false
+    default: ""
+  guardian_key:
+    description: "Optional Guardian API bearer token. When set with `guardian_url`, the action uploads normalized Prisma results to Guardian."
+    required: false
+    default: ""
+  guardian_product_version:
+    description: "Optional Guardian product version path segment. Defaults to the repository default branch when Guardian upload is enabled."
+    required: false
+    default: ""
+  guardian_product_full_version:
+    description: "Optional Guardian product full version path segment. Required when Guardian upload is enabled."
+    required: false
+    default: ""
 
 outputs:
   scan_passed:
@@ -62,6 +78,9 @@ outputs:
   console_link:
     description: "Deep link to Prisma Cloud Console scan results when available"
     value: ${{ steps.scan_image.outputs.console_link }}
+  guardian_upload_status:
+    description: "Guardian upload status: `success`, `failure`, or `skipped`."
+    value: ${{ steps.guardian_upload.outputs.guardian_upload_status || 'skipped' }}
 
 runs:
   using: "composite"
@@ -69,12 +88,15 @@ runs:
     - name: Set Image Repository Name
       id: set_repo_name
       shell: bash
+      env:
+        INPUT_IMAGE_REPO: ${{ inputs.image_repo }}
+        DEFAULT_REPO_NAME: ${{ github.event.repository.name }}
       run: |
-        if [ -z "${{ inputs.image_repo }}" ]; then
+        if [ -z "$INPUT_IMAGE_REPO" ]; then
           # Use GitHub repository name if image_repo is not provided
-          REPO_NAME="${{ github.event.repository.name }}"
+          REPO_NAME="$DEFAULT_REPO_NAME"
         else
-          REPO_NAME="${{ inputs.image_repo }}"
+          REPO_NAME="$INPUT_IMAGE_REPO"
         fi
         echo "repo_name=$REPO_NAME" >> $GITHUB_OUTPUT
         echo "Using image repository: $REPO_NAME"
@@ -82,13 +104,17 @@ runs:
     - name: Download twistcli
       id: download_twistcli
       shell: bash
+      env:
+        PCC_USER: ${{ inputs.pcc_user }}
+        PCC_PASS: ${{ inputs.pcc_pass }}
+        PCC_CONSOLE_URL: ${{ inputs.pcc_console_url }}
       run: |
         echo "📥 Downloading twistcli from Prisma Cloud Console..."
 
         ARCH="$(uname -m)"
-        CONSOLE_VERSION_RAW=$(curl -k -u "${{ inputs.pcc_user }}:${{ inputs.pcc_pass }}" \
+        CONSOLE_VERSION_RAW=$(curl -k -u "$PCC_USER:$PCC_PASS" \
           --fail --silent --show-error \
-          "${{ inputs.pcc_console_url }}/api/v1/version" 2>/dev/null || true)
+          "$PCC_CONSOLE_URL/api/v1/version" 2>/dev/null || true)
         API_VERSION=$(echo "$CONSOLE_VERSION_RAW" | awk 'match($0, /[0-9]+\.[0-9]+/){print substr($0, RSTART, RLENGTH); exit}')
 
         declare -a TWISTCLI_ENDPOINTS
@@ -121,10 +147,10 @@ runs:
         DOWNLOAD_SUCCESS=0
         for ENDPOINT in "${TWISTCLI_ENDPOINTS[@]}"; do
           echo "Trying endpoint: $ENDPOINT"
-          if curl -k -u "${{ inputs.pcc_user }}:${{ inputs.pcc_pass }}" \
+          if curl -k -u "$PCC_USER:$PCC_PASS" \
             --fail --location --silent --show-error \
             --output ./twistcli \
-            "${{ inputs.pcc_console_url }}${ENDPOINT}"; then
+            "$PCC_CONSOLE_URL${ENDPOINT}"; then
             chmod +x ./twistcli
             if ./twistcli --version > /dev/null 2>&1 || ./twistcli > /dev/null 2>&1; then
               DOWNLOAD_SUCCESS=1
@@ -154,8 +180,12 @@ runs:
       id: pull_image
       if: ${{ inputs.skip_image_pull != 'true' }}
       shell: bash
+      env:
+        IMAGE_REGISTRY: ${{ inputs.image_registry }}
+        REPO_NAME: ${{ steps.set_repo_name.outputs.repo_name }}
+        IMAGE_TAG: ${{ inputs.image_tag }}
       run: |
-        IMAGE_NAME="${{ inputs.image_registry }}/${{ steps.set_repo_name.outputs.repo_name }}:${{ inputs.image_tag }}"
+        IMAGE_NAME="${IMAGE_REGISTRY}/${REPO_NAME}:${IMAGE_TAG}"
         echo "🐳 Pulling image: $IMAGE_NAME"
 
         if docker pull "$IMAGE_NAME"; then
@@ -195,8 +225,12 @@ runs:
       id: local_image
       if: ${{ inputs.skip_image_pull == 'true' }}
       shell: bash
+      env:
+        IMAGE_REGISTRY: ${{ inputs.image_registry }}
+        REPO_NAME: ${{ steps.set_repo_name.outputs.repo_name }}
+        IMAGE_TAG: ${{ inputs.image_tag }}
       run: |
-        IMAGE_NAME="${{ inputs.image_registry }}/${{ steps.set_repo_name.outputs.repo_name }}:${{ inputs.image_tag }}"
+        IMAGE_NAME="${IMAGE_REGISTRY}/${REPO_NAME}:${IMAGE_TAG}"
         echo "🐳 Using local image: $IMAGE_NAME"
 
         # Verify image exists locally
@@ -214,24 +248,33 @@ runs:
     - name: Scan Image with twistcli
       id: scan_image
       shell: bash
+      env:
+        IMAGE_NAME: ${{ steps.pull_image.outputs.image_name || steps.local_image.outputs.image_name }}
+        INPUT_TWISTCLI_PUBLISH: ${{ inputs.twistcli_publish }}
+        REPOSITORY_VISIBILITY: ${{ github.event.repository.visibility }}
+        INPUT_SHOW_DETAILED_LOGS: ${{ inputs.show_detailed_logs }}
+        PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        GITHUB_SHA_VALUE: ${{ github.sha }}
+        PCC_CONSOLE_URL: ${{ inputs.pcc_console_url }}
+        PCC_USER: ${{ inputs.pcc_user }}
+        PCC_PASS: ${{ inputs.pcc_pass }}
       run: |
-        IMAGE_NAME="${{ steps.pull_image.outputs.image_name || steps.local_image.outputs.image_name }}"
         echo "image_name=$IMAGE_NAME" >> $GITHUB_OUTPUT
         echo "🔍 Scanning image with Prisma Cloud twistcli..."
 
         # Determine publish flag
-        if [ "${{ inputs.twistcli_publish }}" = "true" ]; then
+        if [ "$INPUT_TWISTCLI_PUBLISH" = "true" ]; then
           PUBLISH_FLAG="--publish"
         else
           PUBLISH_FLAG=""
         fi
 
-        REPO_VISIBILITY="${{ github.event.repository.visibility }}"
+        REPO_VISIBILITY="$REPOSITORY_VISIBILITY"
         if [ -z "$REPO_VISIBILITY" ]; then
           REPO_VISIBILITY="private"
         fi
 
-        SHOW_DETAILED_LOGS="${{ inputs.show_detailed_logs }}"
+        SHOW_DETAILED_LOGS="$INPUT_SHOW_DETAILED_LOGS"
         if [ -z "$SHOW_DETAILED_LOGS" ]; then
           if [ "$REPO_VISIBILITY" = "public" ]; then
             SHOW_DETAILED_LOGS="false"
@@ -245,12 +288,12 @@ runs:
 
         # Resolve commit SHA for dedicated check run targeting.
         # Prefer PR head SHA when available, then checked-out HEAD, then github.sha.
-        TARGET_SHA="${{ github.event.pull_request.head.sha }}"
+        TARGET_SHA="$PR_HEAD_SHA"
         if [ -z "$TARGET_SHA" ]; then
           TARGET_SHA=$(git rev-parse HEAD 2>/dev/null || true)
         fi
         if [ -z "$TARGET_SHA" ]; then
-          TARGET_SHA="${{ github.sha }}"
+          TARGET_SHA="$GITHUB_SHA_VALUE"
         fi
         echo "target_sha=$TARGET_SHA" >> $GITHUB_OUTPUT
 
@@ -266,9 +309,9 @@ runs:
         set +e
         if [ "$SHOW_DETAILED_LOGS" = "true" ]; then
           ./twistcli images scan \
-            --address "${{ inputs.pcc_console_url }}" \
-            --user "${{ inputs.pcc_user }}" \
-            --password "${{ inputs.pcc_pass }}" \
+            --address "$PCC_CONSOLE_URL" \
+            --user "$PCC_USER" \
+            --password "$PCC_PASS" \
             --output-file pcc_scan_results.json \
             $DETAILS_FLAG \
             $PUBLISH_FLAG \
@@ -276,9 +319,9 @@ runs:
           SCAN_EXIT_CODE=${PIPESTATUS[0]}
         else
           ./twistcli images scan \
-            --address "${{ inputs.pcc_console_url }}" \
-            --user "${{ inputs.pcc_user }}" \
-            --password "${{ inputs.pcc_pass }}" \
+            --address "$PCC_CONSOLE_URL" \
+            --user "$PCC_USER" \
+            --password "$PCC_PASS" \
             --output-file pcc_scan_results.json \
             $DETAILS_FLAG \
             $PUBLISH_FLAG \
@@ -317,6 +360,19 @@ runs:
 
         echo "✅ Scan completed"
 
+    - name: Prepare Guardian Prisma payload
+      id: guardian_payload
+      if: always()
+      shell: bash
+      run: |
+        if [ ! -f "pcc_scan_results.json" ]; then
+          echo "file=" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        jq '. = [.results[0]]' "pcc_scan_results.json" > "prisma_scan.json"
+        echo "file=prisma_scan.json" >> "$GITHUB_OUTPUT"
+
     - name: Check Scan Results and Block on Issues
       id: check_results
       shell: bash
@@ -325,8 +381,9 @@ runs:
         GRACE_PERIOD_DAYS: ${{ inputs.vulnerability_grace_period_days }}
         CONSOLE_LINK: ${{ steps.scan_image.outputs.console_link }}
         PCC_CONSOLE_URL: ${{ inputs.pcc_console_url }}
+        ACTION_PATH: ${{ github.action_path }}
       run: |
-        python3 "${{ github.action_path }}/scripts/analyze_scan_results.py"
+        python3 "$ACTION_PATH/scripts/analyze_scan_results.py"
 
     - name: Post Prisma Check Run
       id: post_status
@@ -343,30 +400,87 @@ runs:
         CONSOLE_LINK: ${{ steps.scan_image.outputs.console_link }}
         PCC_CONSOLE_URL: ${{ inputs.pcc_console_url }}
         FALLBACK_IMAGE: ${{ inputs.image_registry }}/${{ steps.set_repo_name.outputs.repo_name }}:${{ inputs.image_tag }}
+        ACTION_PATH: ${{ github.action_path }}
       run: |
-        python3 "${{ github.action_path }}/scripts/post_prisma_check_run.py"
+        python3 "$ACTION_PATH/scripts/post_prisma_check_run.py"
 
     - name: Prepare Scan Artifact Name
       id: artifact_name
       if: always()
       shell: bash
+      env:
+        RAW_TAG: ${{ inputs.image_tag }}
+        RUNNER_OS_VALUE: ${{ runner.os }}
+        RUNNER_ARCH_VALUE: ${{ runner.arch }}
       run: |
-        RAW_TAG="${{ inputs.image_tag }}"
         SAFE_TAG=$(echo "$RAW_TAG" | tr '/:@ ' '-' | tr -cd '[:alnum:]._-' )
         if [ -z "$SAFE_TAG" ]; then
           SAFE_TAG="scan"
         fi
-        echo "name=prisma-cloud-scan-results-${{ runner.os }}-${{ runner.arch }}-${SAFE_TAG}" >> $GITHUB_OUTPUT
+        echo "name=prisma-cloud-scan-results-${RUNNER_OS_VALUE}-${RUNNER_ARCH_VALUE}-${SAFE_TAG}" >> $GITHUB_OUTPUT
 
     - name: Upload Scan Results
       id: upload_artifacts
       if: always()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
       with:
         name: ${{ steps.artifact_name.outputs.name }}
         path: |
           pcc_scan_results.json
+          prisma_scan.json
           pcc_scan_output.txt
           pcc_scan_analysis.json
         retention-days: 30
         if-no-files-found: warn
+
+    - name: Upload Prisma results to Guardian
+      id: guardian_upload
+      if: ${{ always() && inputs.guardian_url != '' && inputs.guardian_key != '' }}
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        GUARDIAN_URL: ${{ inputs.guardian_url }}
+        GUARDIAN_KEY: ${{ inputs.guardian_key }}
+        PRODUCT_NAME: ${{ steps.set_repo_name.outputs.repo_name }}
+        INPUT_PRODUCT_VERSION: ${{ inputs.guardian_product_version }}
+        DEFAULT_BRANCH: ${{ github.event.repository.default_branch || '' }}
+        PRODUCT_FULL_VERSION: ${{ inputs.guardian_product_full_version }}
+        PRISMA_FILE: prisma_scan.json
+        PRISMA_SCAN_URL: ${{ steps.scan_image.outputs.console_link }}
+      run: |
+        set +e
+
+        PRODUCT_VERSION="$INPUT_PRODUCT_VERSION"
+        if [ -z "$PRODUCT_VERSION" ]; then
+          PRODUCT_VERSION="$DEFAULT_BRANCH"
+        fi
+
+        if [ -z "$PRODUCT_VERSION" ] || [ -z "$PRODUCT_FULL_VERSION" ]; then
+          echo "Guardian upload requires guardian_product_full_version and either guardian_product_version or github.event.repository.default_branch." >&2
+          echo "guardian_upload_status=failure" >> "$GITHUB_OUTPUT"
+          exit 1
+        fi
+
+        if [ ! -f "$PRISMA_FILE" ]; then
+          echo "Guardian upload requires prisma_scan.json, but it was not generated." >&2
+          echo "guardian_upload_status=failure" >> "$GITHUB_OUTPUT"
+          exit 1
+        fi
+
+        bash "$ACTION_PATH/scripts/upload_guardian_scan_results.sh" \
+          --guardian-url "$GUARDIAN_URL" \
+          --guardian-key "$GUARDIAN_KEY" \
+          --product-name "$PRODUCT_NAME" \
+          --product-version "$PRODUCT_VERSION" \
+          --product-full-version "$PRODUCT_FULL_VERSION" \
+          --prisma-file "$PRISMA_FILE" \
+          --prisma-scan-url "${PRISMA_SCAN_URL}"
+        GUARDIAN_UPLOAD_EXIT=$?
+        set -e
+
+        if [ "$GUARDIAN_UPLOAD_EXIT" -eq 0 ]; then
+          echo "guardian_upload_status=success" >> "$GITHUB_OUTPUT"
+        else
+          echo "guardian_upload_status=failure" >> "$GITHUB_OUTPUT"
+          exit "$GUARDIAN_UPLOAD_EXIT"
+        fi
