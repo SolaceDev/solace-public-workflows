@@ -33,7 +33,7 @@ Some large JSON outputs may be omitted automatically to stay within GitHub Actio
 steps:
   - name: Sync Guardian DB and Jira
     id: guardian-sync
-    uses: SolaceDev/solace-public-workflows/guardian-dp-sync@main
+    uses: SolaceDev/solace-public-workflows/guardian-db-sync@main
     with:
       guardian-url: ${{ secrets.GUARDIAN_API_URL }}
       guardian-key: ${{ secrets.GUARDIAN_API_TOKEN }}

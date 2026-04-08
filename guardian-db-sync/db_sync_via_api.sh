@@ -30,7 +30,7 @@ Optional:
   -h, --help
 
 Example:
-  guardian-dp-sync/db_sync_via_api.sh \
+  guardian-db-sync/db_sync_via_api.sh \
     --guardian-url https://guardian.com \
     --guardian-key "$GUARDIAN_API_TOKEN" \
     --product-name some-repo \
