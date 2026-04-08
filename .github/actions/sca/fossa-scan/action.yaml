@@ -136,8 +136,10 @@ runs:
         #                   "chore(release): version bump root-1.8.74 [ci skip]"
         if echo "$COMMIT_MESSAGE" | grep -qE '^chore\(release\):'; then
           # Find the SHA of the previous release commit (skip HEAD, match first release line)
+          # Anchored to start of subject (^[^ ]+ matches the SHA) to avoid false matches
+          # where "chore(release):" appears mid-subject in a non-release commit.
           PREV_RELEASE_SHA=$(git log --skip=1 --format="%H %s" 2>/dev/null \
-            | awk '/chore\(release\):/{print $1; exit}')
+            | awk '/^[^ ]+ chore\(release\):/{print $1; exit}')
 
           if [ -n "$PREV_RELEASE_SHA" ]; then
             # Collect all non-release commit subjects between the two release commits:
@@ -147,15 +149,16 @@ runs:
             #     -v  invert match (exclude lines that match)
             #     -E  extended regex
             #     ^chore\(release\):  same pattern as above
+            # awk join inserts " | " only between records, preserving any literal "|"
+            # characters that may exist inside individual commit subjects.
             BETWEEN_COMMITS=$(git log --skip=1 --pretty=%s "${PREV_RELEASE_SHA}..HEAD" 2>/dev/null \
               | grep -vE '^chore\(release\):' \
-              | tr '\n' '|' | sed 's/|$//; s/|/ | /g')
-            # tr '\n' '|'      joins lines with a pipe character
-            # s/|$//           removes the trailing pipe left by tr
-            # s/|/ | /g        pads every pipe into a readable " | " separator
+              | awk 'NR==1 {printf "%s", $0; next} {printf " | %s", $0} END {printf "\n"}')
           else
-            # No prior release found (first release or shallow clone) — grab the previous commit
-            BETWEEN_COMMITS=$(git log -2 --pretty=%s 2>/dev/null | tail -1)
+            # No prior release found (first release or shallow clone) — grab the previous commit.
+            # sed -n '2p' prints only the 2nd log line; returns empty on a single-commit history
+            # (e.g. fetch-depth: 1), avoiding a duplicate of HEAD in the payload.
+            BETWEEN_COMMITS=$(git log -2 --pretty=%s 2>/dev/null | sed -n '2p')
           fi
 
           if [ -n "$BETWEEN_COMMITS" ]; then
