@@ -34,11 +34,11 @@ Some large JSON outputs may be omitted automatically to stay within GitHub Actio
 steps:
   - name: Sync Guardian DB and Jira
     id: guardian-sync
-    uses: SolaceDev/pubsubplus-guardian/.github/actions/guardian-upload-sync@main
+    uses: SolaceDev/solace-public-workflows/guardian-db-sync@main
     with:
       guardian-url: ${{ secrets.GUARDIAN_API_URL }}
       guardian-key: ${{ secrets.GUARDIAN_API_TOKEN }}
-      product-name: solace-agent-mesh-enterprise
+      product-name: some-product
       product-version: main
       product-full-version: 1.110.9
       collection: test_collection
@@ -46,7 +46,7 @@ steps:
       jira-profile: CICDSOL
 
   - name: Run Guardian vulnerability gate
-    uses: SolaceDev/pubsubplus-guardian/.github/actions/guardian-vulnerability-gate@main
+    uses: SolaceDev/solace-public-workflows/guardian-vulnerability-gate@main
     with:
       guardian-url: ${{ secrets.GUARDIAN_API_URL }}
       guardian-key: ${{ secrets.GUARDIAN_API_TOKEN }}
@@ -58,6 +58,5 @@ steps:
 
 ## Notes
 
-- The calling workflow is responsible for uploading scan results first. This action derives `scan_path` as `scan-backups/<product-name>/<product-version>/<product-full-version>` and relies on the Guardian API default archive bucket.
-- The action path stays `.github/actions/guardian-upload-sync` for compatibility, but the action now only performs sync and Jira reporting.
+- The calling workflow is responsible for uploading scan results first. This action derives `scan_path` as `scan-backups/<product-name>/<product-version>/<product-full-version>` and relies on the Guardian API defaults
 - Set `upload-logs: "true"` to upload the db sync response directory as a workflow artifact for debugging.

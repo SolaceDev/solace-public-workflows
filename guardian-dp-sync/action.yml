@@ -116,7 +116,7 @@ runs:
           args+=(--jira-profile "${{ inputs.jira-profile }}")
         fi
 
-        bash "${{ github.action_path }}/upload_and_db_sync_via_api.sh" "${args[@]}"
+        bash "${{ github.action_path }}/db_sync_via_api.sh" "${args[@]}"
 
     - name: Upload Guardian sync logs
       if: ${{ always() && inputs.upload-logs == 'true' }}

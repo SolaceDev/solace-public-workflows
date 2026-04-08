@@ -32,10 +32,10 @@ Optional:
   -h, --help
 
 Example:
-  .github/actions/guardian-upload-sync/upload_and_db_sync_via_api.sh \
+  guardian-dp-sync/db_sync_via_api.sh \
     --guardian-url https://guardian.com \
     --guardian-key "$GUARDIAN_API_TOKEN" \
-    --product-name maas-gateway \
+    --product-name some-repo\
     --product-version main \
     --product-full-version 0.0.1225 \
     --collection test_collection \
