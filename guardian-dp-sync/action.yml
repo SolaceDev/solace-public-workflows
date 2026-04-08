@@ -9,14 +9,17 @@ inputs:
     description: "Guardian API bearer token."
     required: true
   product-name:
-    description: "Guardian product name."
-    required: true
+    description: "Guardian product name. Defaults to the repository name without the org."
+    required: false
+    default: ""
   product-version:
-    description: "Guardian product version tag used in the archive path."
-    required: true
+    description: "Guardian product version tag used in the archive path. Guardian can resolve it when omitted."
+    required: false
+    default: ""
   product-full-version:
-    description: "Full build version used in the archive path."
-    required: true
+    description: "Full build version used in the archive path. Guardian can resolve it when omitted."
+    required: false
+    default: ""
   collection:
     description: "Optional vulnerability collection override."
     required: false
@@ -68,21 +71,36 @@ runs:
       if: ${{ inputs.upload-logs == 'true' }}
       shell: bash
       env:
-        PRODUCT_NAME: ${{ inputs.product-name }}
+        INPUT_PRODUCT_NAME: ${{ inputs.product-name }}
         PRODUCT_VERSION: ${{ inputs.product-version }}
         PRODUCT_FULL_VERSION: ${{ inputs.product-full-version }}
         JOB_NAME: ${{ github.job }}
+        REPOSITORY_NAME: ${{ github.repository }}
       run: |
         set -euo pipefail
         sanitize() {
           printf '%s' "$1" | tr '/:@ ' '-' | tr -cd '[:alnum:]._-'
         }
 
+        PRODUCT_NAME="$INPUT_PRODUCT_NAME"
+        if [ -z "$PRODUCT_NAME" ]; then
+          PRODUCT_NAME="${REPOSITORY_NAME#*/}"
+        fi
+
         PRODUCT_NAME_SAFE="$(sanitize "$PRODUCT_NAME")"
         PRODUCT_VERSION_SAFE="$(sanitize "$PRODUCT_VERSION")"
         PRODUCT_FULL_VERSION_SAFE="$(sanitize "$PRODUCT_FULL_VERSION")"
         JOB_NAME_SAFE="$(sanitize "$JOB_NAME")"
 
+        if [ -z "$PRODUCT_NAME_SAFE" ]; then
+          PRODUCT_NAME_SAFE="repository"
+        fi
+        if [ -z "$PRODUCT_VERSION_SAFE" ]; then
+          PRODUCT_VERSION_SAFE="auto"
+        fi
+        if [ -z "$PRODUCT_FULL_VERSION_SAFE" ]; then
+          PRODUCT_FULL_VERSION_SAFE="auto"
+        fi
         if [ -z "$JOB_NAME_SAFE" ]; then
           JOB_NAME_SAFE="job"
         fi
@@ -99,13 +117,19 @@ runs:
         args=(
           --guardian-url "${{ inputs.guardian-url }}"
           --guardian-key "${{ inputs.guardian-key }}"
-          --product-name "${{ inputs.product-name }}"
-          --product-version "${{ inputs.product-version }}"
-          --product-full-version "${{ inputs.product-full-version }}"
           --jira-dry-run "${{ inputs.jira-dry-run }}"
           --output-dir "$response_dir"
         )
 
+        if [ -n "${{ inputs.product-name }}" ]; then
+          args+=(--product-name "${{ inputs.product-name }}")
+        fi
+        if [ -n "${{ inputs.product-version }}" ]; then
+          args+=(--product-version "${{ inputs.product-version }}")
+        fi
+        if [ -n "${{ inputs.product-full-version }}" ]; then
+          args+=(--product-full-version "${{ inputs.product-full-version }}")
+        fi
         if [ -n "${{ inputs.collection }}" ]; then
           args+=(--collection "${{ inputs.collection }}")
         fi

@@ -8,12 +8,12 @@ This action does not upload scan files and does not run the vulnerability gate. 
 
 - `guardian-url`
 - `guardian-key`
-- `product-name`
-- `product-version`
-- `product-full-version`
 
 ## Optional Inputs
 
+- `product-name`
+- `product-version`
+- `product-full-version`
 - `collection`
 - `jira-collection-name`
 - `jira-profile`
@@ -34,11 +34,10 @@ Some large JSON outputs may be omitted automatically to stay within GitHub Actio
 steps:
   - name: Sync Guardian DB and Jira
     id: guardian-sync
-    uses: SolaceDev/solace-public-workflows/guardian-db-sync@main
+    uses: SolaceDev/solace-public-workflows/guardian-dp-sync@main
     with:
       guardian-url: ${{ secrets.GUARDIAN_API_URL }}
       guardian-key: ${{ secrets.GUARDIAN_API_TOKEN }}
-      product-name: some-product
       product-version: main
       product-full-version: 1.110.9
       collection: test_collection
@@ -58,5 +57,6 @@ steps:
 
 ## Notes
 
-- The calling workflow is responsible for uploading scan results first. This action derives `scan_path` as `scan-backups/<product-name>/<product-version>/<product-full-version>` and relies on the Guardian API defaults
+- If `product-name` is omitted, the action defaults it to `${GITHUB_REPOSITORY#*/}`.
+- The calling workflow is responsible for uploading scan results first. When `product-name`, `product-version`, and `product-full-version` are all available, this action derives `scan_path` as `scan-backups/<product-name>/<product-version>/<product-full-version>`. Otherwise it forwards the available values and lets Guardian resolve the missing context.
 - Set `upload-logs: "true"` to upload the db sync response directory as a workflow artifact for debugging.
