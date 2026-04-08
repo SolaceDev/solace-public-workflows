@@ -122,6 +122,46 @@ runs:
         if [ -z "$COMMIT_MESSAGE" ]; then
           COMMIT_MESSAGE=$(git log -1 --pretty=%s 2>/dev/null || echo "")
         fi
+
+        # If head commit is a release commit, capture all commits since the previous release
+        # to surface Jira issue IDs from PR titles merged in this release window.
+        #
+        # Release commit pattern: ^chore\(release\):
+        #   ^            - must be at the start of the subject line
+        #   chore        - conventional commit type
+        #   \(release\)  - escaped parens around the release scope
+        #   :            - conventional commit delimiter
+        #
+        # Examples matched: "chore(release): 1.2.3"
+        #                   "chore(release): version bump root-1.8.74 [ci skip]"
+        if echo "$COMMIT_MESSAGE" | grep -qE '^chore\(release\):'; then
+          # Find the SHA of the previous release commit (skip HEAD, match first release line)
+          PREV_RELEASE_SHA=$(git log --skip=1 --format="%H %s" 2>/dev/null \
+            | awk '/chore\(release\):/{print $1; exit}')
+
+          if [ -n "$PREV_RELEASE_SHA" ]; then
+            # Collect all non-release commit subjects between the two release commits:
+            #   --skip=1                   skips HEAD (the current release commit)
+            #   PREV_RELEASE_SHA..HEAD     commits after the previous release up to HEAD
+            #   grep -vE '^chore\(release\):'  strips any intermediate release commits
+            #     -v  invert match (exclude lines that match)
+            #     -E  extended regex
+            #     ^chore\(release\):  same pattern as above
+            BETWEEN_COMMITS=$(git log --skip=1 --pretty=%s "${PREV_RELEASE_SHA}..HEAD" 2>/dev/null \
+              | grep -vE '^chore\(release\):' \
+              | tr '\n' '|' | sed 's/|$//; s/|/ | /g')
+            # tr '\n' '|'      joins lines with a pipe character
+            # s/|$//           removes the trailing pipe left by tr
+            # s/|/ | /g        pads every pipe into a readable " | " separator
+          else
+            # No prior release found (first release or shallow clone) — grab the previous commit
+            BETWEEN_COMMITS=$(git log -2 --pretty=%s 2>/dev/null | tail -1)
+          fi
+
+          if [ -n "$BETWEEN_COMMITS" ]; then
+            COMMIT_MESSAGE="${BETWEEN_COMMITS} | ${COMMIT_MESSAGE}"
+          fi
+        fi
         SLACK_JSON=$(jq -n \
           --argjson report true \
           --arg revision "$FOSSA_REVISION" \
