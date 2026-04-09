@@ -48,6 +48,11 @@ runs:
       run: |
         OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
 
+        # Authenticate to GHCR using the calling workflow's token so internal
+        # org packages can be pulled. runs.using: docker did this automatically;
+        # with composite + docker run we handle it explicitly.
+        echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
         # Map INPUT_* vars to the names the container scripts expect, then pass
         # each to docker via -e KEY (by reference from the current process env).
         # This is the safer approach: secrets are never written to disk and never
