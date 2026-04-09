@@ -91,7 +91,7 @@ inputs:
 
 runs:
   using: docker
-  image: docker://ghcr.io/solacedev/maas-build-actions:master
+  image: docker://ghcr.io/${{ github.repository_owner }}/maas-build-actions:master
   entrypoint: /bin/sh
   args:
     - -c

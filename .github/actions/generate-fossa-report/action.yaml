@@ -42,7 +42,7 @@ inputs:
 
 runs:
   using: docker
-  image: docker://ghcr.io/solacedev/maas-build-actions:latest
+  image: docker://ghcr.io/${{ github.repository_owner }}/maas-build-actions:latest
   entrypoint: /bin/sh
   args:
     - -c
