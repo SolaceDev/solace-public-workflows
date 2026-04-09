@@ -16,6 +16,10 @@ inputs:
     description: "Optional full build version override. When omitted, Guardian resolves it from the latest uploaded scan metadata."
     required: false
     default: ""
+  unifiers:
+    description: "Optional comma-separated list of scan unifiers to sync (for example: fossa,prisma). When omitted, Guardian uses metadata.json."
+    required: false
+    default: ""
   collection:
     description: "Optional vulnerability collection override."
     required: false
@@ -123,6 +127,9 @@ runs:
 
         if [ -n "${{ inputs.product-full-version }}" ]; then
           args+=(--product-full-version "${{ inputs.product-full-version }}")
+        fi
+        if [ -n "${{ inputs.unifiers }}" ]; then
+          args+=(--unifiers "${{ inputs.unifiers }}")
         fi
         if [ -n "${{ inputs.collection }}" ]; then
           args+=(--collection "${{ inputs.collection }}")

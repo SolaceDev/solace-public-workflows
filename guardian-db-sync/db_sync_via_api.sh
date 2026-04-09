@@ -5,6 +5,7 @@ GUARDIAN_URL=""
 GUARDIAN_KEY=""
 PRODUCT_NAME=""
 PRODUCT_FULL_VERSION=""
+UNIFIERS=""
 COLLECTION=""
 JIRA_COLLECTION_NAME=""
 JIRA_PROFILE=""
@@ -22,6 +23,7 @@ Required:
 Optional:
   --product-name <name>            Defaults to the repository name without the org
   --product-full-version <full-version>
+  --unifiers <csv>                 Comma-separated unifiers, e.g. fossa,prisma
   --collection <name>
   --jira-collection-name <name>
   --jira-profile <name>
@@ -35,6 +37,7 @@ Example:
     --guardian-key "$GUARDIAN_API_TOKEN" \
     --product-name some-repo \
     --product-full-version 0.0.1225 \
+    --unifiers fossa,prisma \
     --collection test_collection \
     --jira-collection-name test_jira_metadata
 EOF
@@ -148,6 +151,10 @@ while [ $# -gt 0 ]; do
       PRODUCT_FULL_VERSION="$2"
       shift 2
       ;;
+    --unifiers)
+      UNIFIERS="$2"
+      shift 2
+      ;;
     --collection)
       COLLECTION="$2"
       shift 2
@@ -201,10 +208,16 @@ else
   RESPONSE_FILE="$(mktemp)"
 fi
 
+UNIFIERS_JSON='[]'
+if [ -n "$UNIFIERS" ]; then
+  UNIFIERS_JSON="$(printf '%s' "$UNIFIERS" | jq -Rc 'split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0))')"
+fi
+
 REQUEST_BODY="$(
   jq -n \
     --arg product_name "$PRODUCT_NAME" \
     --arg product_full_version "$PRODUCT_FULL_VERSION" \
+    --argjson unifiers "$UNIFIERS_JSON" \
     --arg collection "$COLLECTION" \
     --arg jira_metadata_collection_name "$JIRA_COLLECTION_NAME" \
     --arg jira_profile "$JIRA_PROFILE" \
@@ -214,6 +227,7 @@ REQUEST_BODY="$(
       jira_dry_run: $jira_dry_run
     }
     + (if $product_full_version != "" then {product_full_version: $product_full_version} else {} end)
+    + (if ($unifiers | length) > 0 then {unifiers: $unifiers} else {} end)
     + (if $collection != "" then {collection: $collection} else {} end)
     + (if $jira_metadata_collection_name != "" then {jira_metadata_collection_name: $jira_metadata_collection_name} else {} end)
     + (if $jira_profile != "" then {jira_profile: $jira_profile} else {} end)'
@@ -223,6 +237,9 @@ echo "Running Guardian sync and report via $GUARDIAN_URL/api/v1/db_synch_and_rep
 echo "  Product: $PRODUCT_NAME"
 if [ -n "$PRODUCT_FULL_VERSION" ]; then
   echo "  Product full version override: $PRODUCT_FULL_VERSION"
+fi
+if [ -n "$UNIFIERS" ]; then
+  echo "  Unifiers: $UNIFIERS"
 fi
 echo "  S3 bucket: API default"
 if [ -n "$COLLECTION" ]; then
@@ -262,4 +279,7 @@ set_json_output_from_file response_json "$RESPONSE_FILE"
 append_step_summary "### Guardian Sync and Report"
 append_step_summary "- Product: \`$PRODUCT_NAME\`"
 append_step_summary "- Version: \`$PRODUCT_VERSION\`"
+if [ -n "$UNIFIERS" ]; then
+  append_step_summary "- Unifiers: \`$UNIFIERS\`"
+fi
 append_step_summary "- DB summary: \`$DB_SUMMARY\`"

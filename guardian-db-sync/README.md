@@ -13,6 +13,7 @@ This action does not upload scan files and does not run the vulnerability gate. 
 
 - `product-name`
 - `product-full-version`
+- `unifiers`
 - `collection`
 - `jira-collection-name`
 - `jira-profile`
@@ -38,6 +39,7 @@ steps:
       guardian-url: ${{ secrets.GUARDIAN_API_URL }}
       guardian-key: ${{ secrets.GUARDIAN_API_TOKEN }}
       product-full-version: 1.110.9
+      unifiers: "fossa,prisma"
       collection: test_collection
       jira-collection-name: test_collection_jira_metadata
       jira-profile: CICDSOL
@@ -57,5 +59,6 @@ steps:
 
 - If `product-name` is omitted, the action defaults it to `${GITHUB_REPOSITORY#*/}`.
 - Guardian now resolves `product_version` from product config and `product_full_version` from the latest uploaded scan metadata when it is not provided.
+- Set `unifiers` when you want to explicitly restrict sync to specific uploaded scanner results instead of relying on metadata autodetection.
 - The calling workflow is responsible for uploading scan results first. This action sends `product_name` and optionally `product_full_version`, then lets Guardian resolve the canonical scan path.
 - Set `upload-logs: "true"` to upload the db sync response directory as a workflow artifact for debugging.
