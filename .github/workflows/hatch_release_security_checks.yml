@@ -57,6 +57,7 @@ permissions:
   contents: read
   checks: write
   pull-requests: read
+  packages: read
 
 jobs:
   security-checks:
