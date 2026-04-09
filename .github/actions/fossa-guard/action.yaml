@@ -98,13 +98,14 @@ runs:
         # with composite + docker run we handle it explicitly.
         echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
-        # Use ${{ inputs.xxx }} syntax (evaluated by GitHub before bash runs) to
-        # reliably populate env vars from action inputs. This is required for
-        # composite actions — INPUT_* env vars are not always available in
-        # composite action shell steps. Secrets are masked as *** in logs.
-        # Values are then passed to docker via -e KEY (by reference), so they
-        # are never visible as command-line argument values in the process list.
-        export FOSSA_API_KEY="${{ inputs.fossa_api_key }}"
+        # FOSSA_API_KEY uses INPUT_* (set by GitHub Actions for all action inputs)
+        # rather than inline ${{ inputs.fossa_api_key }} substitution. Inline
+        # substitution registers the secret for masking, and if the API key
+        # contains common substrings (e.g. "main"), GitHub will over-mask
+        # unrelated non-secret values like branch names and project IDs.
+        # All other inputs use ${{ inputs.xxx }} which is the reliable way to
+        # read non-secret values in composite action shell steps.
+        export FOSSA_API_KEY="${INPUT_FOSSA_API_KEY}"
         export FOSSA_PROJECT_ID="${{ inputs.fossa_project_id }}"
         export FOSSA_CATEGORY="${{ inputs.fossa_category }}"
         [ -n "${{ inputs.fossa_mode }}" ]               && export FOSSA_MODE="${{ inputs.fossa_mode }}"
