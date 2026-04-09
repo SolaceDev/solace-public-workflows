@@ -122,9 +122,9 @@ runs:
         [ -n "${{ inputs.github_run_id }}" ]            && export GITHUB_RUN_ID="${{ inputs.github_run_id }}"
         [ -n "${{ inputs.github_server_url }}" ]        && export GITHUB_SERVER_URL="${{ inputs.github_server_url }}"
         # GITHUB_TOKEN is inherited from the runner environment via -e GITHUB_TOKEN
-        # in the docker run below — no explicit export needed, and skipping the
-        # inline ${{ inputs.github_token }} substitution prevents the token value
-        # from being registered for masking (which would over-mask branch/project values).
+        # in the docker run below — no explicit export needed. Avoiding any
+        # inline expression substitution for the token prevents its value from
+        # being registered for masking (which would over-mask branch/project values).
         [ -n "${{ inputs.enable_pr_comment }}" ]        && export ENABLE_PR_COMMENT="${{ inputs.enable_pr_comment }}"
         [ -n "${{ inputs.enable_status_check }}" ]      && export ENABLE_STATUS_CHECK="${{ inputs.enable_status_check }}"
         [ -n "${{ inputs.status_check_name }}" ]        && export STATUS_CHECK_NAME="${{ inputs.status_check_name }}"
