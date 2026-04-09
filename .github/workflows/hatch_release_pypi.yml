@@ -140,6 +140,7 @@ jobs:
           GH_REPO: ${{ github.event.repository.name }}
           GITHUB_SHA: ${{ github.sha }}
         run: |
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           docker run --rm \
             -e AWS_ACCESS_KEY_ID \
             -e AWS_SECRET_ACCESS_KEY \
@@ -155,7 +156,7 @@ jobs:
             -e GH_ORG \
             -e GH_REPO \
             -e GITHUB_SHA \
-            ghcr.io/${{ github.repository_owner }}/maas-build-actions:latest \
+            ghcr.io/${OWNER}/maas-build-actions:latest \
             /bin/sh -c '. $VIRTUAL_ENV/bin/activate && cd $ACTIONS_PATH/prisma-vulnerability-checker && python prisma_vulnerability_checker.py'
       - name: Run SonarQube Hotspot Check
         if: ${{ fromJson(inputs.sonarqube_hotspot_check) }}
@@ -165,12 +166,13 @@ jobs:
           SONARQUBE_QUERY_TOKEN: ${{ secrets.SONARQUBE_QUERY_TOKEN }}
           SONARQUBE_HOTSPOTS_API_URL: ${{ secrets.SONARQUBE_HOTSPOTS_API_URL }}
         run: |
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           docker run --rm \
             -e SONARQUBE_PROJECT_KEY \
             -e SONARQUBE_PROJECT_MAIN_BRANCH \
             -e SONARQUBE_QUERY_TOKEN \
             -e SONARQUBE_HOTSPOTS_API_URL \
-            ghcr.io/${{ github.repository_owner }}/maas-build-actions:latest \
+            ghcr.io/${OWNER}/maas-build-actions:latest \
             /bin/sh -c '. $VIRTUAL_ENV/bin/activate && cd $ACTIONS_PATH/sonarqube-hotspot-checker && python sonarqube_checker.py'
 
       - name: Setup Node.js

@@ -86,67 +86,79 @@ inputs:
     default: "false"
 
 runs:
-  using: docker
-  image: docker://ghcr.io/${{ github.repository_owner }}/maas-build-actions:latest
-  entrypoint: /bin/sh
-  args:
-    - -c
-    - |
-      export FOSSA_API_KEY="$INPUT_FOSSA_API_KEY"
-      export FOSSA_PROJECT_ID="$INPUT_FOSSA_PROJECT_ID"
-      export FOSSA_CATEGORY="$INPUT_FOSSA_CATEGORY"
-      if [ -n "$INPUT_FOSSA_MODE" ]; then export FOSSA_MODE="$INPUT_FOSSA_MODE"; fi
-      if [ -n "$INPUT_BLOCK_ON" ]; then export BLOCK_ON="$INPUT_BLOCK_ON"; fi
-      if [ -n "$INPUT_FOSSA_BRANCH" ]; then export FOSSA_BRANCH="$INPUT_FOSSA_BRANCH"; fi
-      if [ -n "$INPUT_FOSSA_REVISION" ]; then export FOSSA_REVISION="$INPUT_FOSSA_REVISION"; fi
-      if [ -n "$INPUT_FOSSA_REVISION_SCAN_ID" ]; then export FOSSA_REVISION_SCAN_ID="$INPUT_FOSSA_REVISION_SCAN_ID"; fi
-      if [ -n "$INPUT_FOSSA_RELEASE" ]; then export FOSSA_RELEASE="$INPUT_FOSSA_RELEASE"; fi
-      if [ -n "$INPUT_FOSSA_RELEASE_SCAN_ID" ]; then export FOSSA_RELEASE_SCAN_ID="$INPUT_FOSSA_RELEASE_SCAN_ID"; fi
-      if [ -n "$INPUT_SLACK_TOKEN" ]; then export SLACK_TOKEN="$INPUT_SLACK_TOKEN"; fi
-      if [ -n "$INPUT_SLACK_CHANNEL" ]; then export SLACK_CHANNEL="$INPUT_SLACK_CHANNEL"; fi
-      if [ -n "$INPUT_SLACK_THREAD_TS" ]; then export SLACK_THREAD_TS="$INPUT_SLACK_THREAD_TS"; fi
-      if [ -n "$INPUT_GITHUB_REPOSITORY" ]; then export GITHUB_REPOSITORY="$INPUT_GITHUB_REPOSITORY"; fi
-      if [ -n "$INPUT_GITHUB_RUN_ID" ]; then export GITHUB_RUN_ID="$INPUT_GITHUB_RUN_ID"; fi
-      if [ -n "$INPUT_GITHUB_SERVER_URL" ]; then export GITHUB_SERVER_URL="$INPUT_GITHUB_SERVER_URL"; fi
-      if [ -n "$INPUT_GITHUB_TOKEN" ]; then export GITHUB_TOKEN="$INPUT_GITHUB_TOKEN"; fi
-      if [ -n "$INPUT_ENABLE_PR_COMMENT" ]; then export ENABLE_PR_COMMENT="$INPUT_ENABLE_PR_COMMENT"; fi
-      if [ -n "$INPUT_ENABLE_STATUS_CHECK" ]; then export ENABLE_STATUS_CHECK="$INPUT_ENABLE_STATUS_CHECK"; fi
-      if [ -n "$INPUT_STATUS_CHECK_NAME" ]; then export STATUS_CHECK_NAME="$INPUT_STATUS_CHECK_NAME"; fi
-      if [ -n "$INPUT_PR_COMMENT_MAX_VIOLATIONS" ]; then export PR_COMMENT_MAX_VIOLATIONS="$INPUT_PR_COMMENT_MAX_VIOLATIONS"; fi
-      if [ -n "$INPUT_ENABLE_DIFF_MODE" ]; then export ENABLE_DIFF_MODE="$INPUT_ENABLE_DIFF_MODE"; fi
-      if [ -n "$INPUT_DIFF_BASE_REVISION_SHA" ]; then export DIFF_BASE_REVISION_SHA="$INPUT_DIFF_BASE_REVISION_SHA"; fi
-      if [ -n "$INPUT_ENABLE_LICENSE_ENRICHMENT" ]; then export ENABLE_LICENSE_ENRICHMENT="$INPUT_ENABLE_LICENSE_ENRICHMENT"; fi
-      if [ -n "$INPUT_ENABLE_PRIVACY_MODE" ]; then export ENABLE_PRIVACY_MODE="$INPUT_ENABLE_PRIVACY_MODE"; fi
-      echo "Debug: Inputs:"
-      echo "FOSSA_API_KEY: [REDACTED]"
-      echo "FOSSA_PROJECT_ID: $FOSSA_PROJECT_ID"
-      echo "FOSSA_CATEGORY: $FOSSA_CATEGORY"
-      echo "FOSSA_MODE: $FOSSA_MODE"
-      echo "BLOCK_ON: $BLOCK_ON"
-      echo "FOSSA_BRANCH: $FOSSA_BRANCH"
-      echo "FOSSA_REVISION: $FOSSA_REVISION"
-      echo "FOSSA_REVISION_SCAN_ID: $FOSSA_REVISION_SCAN_ID"
-      echo "FOSSA_RELEASE: $FOSSA_RELEASE"
-      echo "FOSSA_RELEASE_SCAN_ID: $FOSSA_RELEASE_SCAN_ID"
-      echo "SLACK_TOKEN: [REDACTED]"
-      echo "SLACK_CHANNEL: $SLACK_CHANNEL"
-      echo "SLACK_THREAD_TS: $SLACK_THREAD_TS"
-      echo "GITHUB_REPOSITORY: $GITHUB_REPOSITORY"
-      echo "GITHUB_RUN_ID: $GITHUB_RUN_ID"
-      echo "GITHUB_SERVER_URL: $GITHUB_SERVER_URL"
-      echo "GITHUB_TOKEN: [REDACTED]"
-      echo "ENABLE_PR_COMMENT: $ENABLE_PR_COMMENT"
-      echo "ENABLE_STATUS_CHECK: $ENABLE_STATUS_CHECK"
-      echo "STATUS_CHECK_NAME: $STATUS_CHECK_NAME"
-      echo "PR_COMMENT_MAX_VIOLATIONS: $PR_COMMENT_MAX_VIOLATIONS"
-      echo "ENABLE_DIFF_MODE: $ENABLE_DIFF_MODE"
-      echo "DIFF_BASE_REVISION_SHA: $DIFF_BASE_REVISION_SHA"
-      echo "ENABLE_LICENSE_ENRICHMENT: $ENABLE_LICENSE_ENRICHMENT"
-      echo "ENABLE_PRIVACY_MODE: $ENABLE_PRIVACY_MODE"
-      echo "GITHUB_EVENT_NAME: $GITHUB_EVENT_NAME"
-      echo "GITHUB_REF: $GITHUB_REF"
-      echo "GITHUB_SHA: $GITHUB_SHA"
-      echo "GITHUB_HEAD_REF: $GITHUB_HEAD_REF"
-      echo "GITHUB_BASE_REF: $GITHUB_BASE_REF"
-      source /maas-build-actions/venv/bin/activate
-      python3 /maas-build-actions/scripts/fossa-guard/fossa_guard.py
+  using: composite
+  steps:
+    - name: Run Fossa Guard
+      shell: bash
+      run: |
+        OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+
+        # Map INPUT_* vars to the names the container scripts expect, then pass
+        # each to docker via -e KEY (by reference from the current process env).
+        # This is the safer approach: secrets are never written to disk and never
+        # appear as command-line argument values visible in the process list.
+        export FOSSA_API_KEY="${INPUT_FOSSA_API_KEY}"
+        export FOSSA_PROJECT_ID="${INPUT_FOSSA_PROJECT_ID}"
+        export FOSSA_CATEGORY="${INPUT_FOSSA_CATEGORY}"
+        [ -n "${INPUT_FOSSA_MODE}" ]              && export FOSSA_MODE="${INPUT_FOSSA_MODE}"
+        [ -n "${INPUT_BLOCK_ON}" ]                && export BLOCK_ON="${INPUT_BLOCK_ON}"
+        [ -n "${INPUT_FOSSA_BRANCH}" ]            && export FOSSA_BRANCH="${INPUT_FOSSA_BRANCH}"
+        [ -n "${INPUT_FOSSA_REVISION}" ]          && export FOSSA_REVISION="${INPUT_FOSSA_REVISION}"
+        [ -n "${INPUT_FOSSA_REVISION_SCAN_ID}" ]  && export FOSSA_REVISION_SCAN_ID="${INPUT_FOSSA_REVISION_SCAN_ID}"
+        [ -n "${INPUT_FOSSA_RELEASE}" ]           && export FOSSA_RELEASE="${INPUT_FOSSA_RELEASE}"
+        [ -n "${INPUT_FOSSA_RELEASE_SCAN_ID}" ]   && export FOSSA_RELEASE_SCAN_ID="${INPUT_FOSSA_RELEASE_SCAN_ID}"
+        [ -n "${INPUT_SLACK_TOKEN}" ]             && export SLACK_TOKEN="${INPUT_SLACK_TOKEN}"
+        [ -n "${INPUT_SLACK_CHANNEL}" ]           && export SLACK_CHANNEL="${INPUT_SLACK_CHANNEL}"
+        [ -n "${INPUT_SLACK_THREAD_TS}" ]         && export SLACK_THREAD_TS="${INPUT_SLACK_THREAD_TS}"
+        [ -n "${INPUT_GITHUB_REPOSITORY}" ]       && export GITHUB_REPOSITORY="${INPUT_GITHUB_REPOSITORY}"
+        [ -n "${INPUT_GITHUB_RUN_ID}" ]           && export GITHUB_RUN_ID="${INPUT_GITHUB_RUN_ID}"
+        [ -n "${INPUT_GITHUB_SERVER_URL}" ]       && export GITHUB_SERVER_URL="${INPUT_GITHUB_SERVER_URL}"
+        [ -n "${INPUT_GITHUB_TOKEN}" ]            && export GITHUB_TOKEN="${INPUT_GITHUB_TOKEN}"
+        [ -n "${INPUT_ENABLE_PR_COMMENT}" ]       && export ENABLE_PR_COMMENT="${INPUT_ENABLE_PR_COMMENT}"
+        [ -n "${INPUT_ENABLE_STATUS_CHECK}" ]     && export ENABLE_STATUS_CHECK="${INPUT_ENABLE_STATUS_CHECK}"
+        [ -n "${INPUT_STATUS_CHECK_NAME}" ]       && export STATUS_CHECK_NAME="${INPUT_STATUS_CHECK_NAME}"
+        [ -n "${INPUT_PR_COMMENT_MAX_VIOLATIONS}" ] && export PR_COMMENT_MAX_VIOLATIONS="${INPUT_PR_COMMENT_MAX_VIOLATIONS}"
+        [ -n "${INPUT_ENABLE_DIFF_MODE}" ]        && export ENABLE_DIFF_MODE="${INPUT_ENABLE_DIFF_MODE}"
+        [ -n "${INPUT_DIFF_BASE_REVISION_SHA}" ]  && export DIFF_BASE_REVISION_SHA="${INPUT_DIFF_BASE_REVISION_SHA}"
+        [ -n "${INPUT_ENABLE_LICENSE_ENRICHMENT}" ] && export ENABLE_LICENSE_ENRICHMENT="${INPUT_ENABLE_LICENSE_ENRICHMENT}"
+        [ -n "${INPUT_ENABLE_PRIVACY_MODE}" ]     && export ENABLE_PRIVACY_MODE="${INPUT_ENABLE_PRIVACY_MODE}"
+
+        docker run --rm \
+          -e FOSSA_API_KEY \
+          -e FOSSA_PROJECT_ID \
+          -e FOSSA_CATEGORY \
+          -e FOSSA_MODE \
+          -e BLOCK_ON \
+          -e FOSSA_BRANCH \
+          -e FOSSA_REVISION \
+          -e FOSSA_REVISION_SCAN_ID \
+          -e FOSSA_RELEASE \
+          -e FOSSA_RELEASE_SCAN_ID \
+          -e SLACK_TOKEN \
+          -e SLACK_CHANNEL \
+          -e SLACK_THREAD_TS \
+          -e GITHUB_REPOSITORY \
+          -e GITHUB_RUN_ID \
+          -e GITHUB_SERVER_URL \
+          -e GITHUB_TOKEN \
+          -e ENABLE_PR_COMMENT \
+          -e ENABLE_STATUS_CHECK \
+          -e STATUS_CHECK_NAME \
+          -e PR_COMMENT_MAX_VIOLATIONS \
+          -e ENABLE_DIFF_MODE \
+          -e DIFF_BASE_REVISION_SHA \
+          -e ENABLE_LICENSE_ENRICHMENT \
+          -e ENABLE_PRIVACY_MODE \
+          -e GITHUB_REF \
+          -e GITHUB_SHA \
+          -e GITHUB_HEAD_REF \
+          -e GITHUB_BASE_REF \
+          -e GITHUB_EVENT_NAME \
+          -e GITHUB_EVENT_PATH \
+          -e GITHUB_OUTPUT \
+          -e GITHUB_STEP_SUMMARY \
+          -v "${GITHUB_WORKSPACE}:/github/workspace" \
+          -v "${RUNNER_TEMP}:${RUNNER_TEMP}" \
+          --workdir /github/workspace \
+          "ghcr.io/${OWNER}/maas-build-actions:latest" \
+          /bin/sh -c 'source /maas-build-actions/venv/bin/activate && python3 /maas-build-actions/scripts/fossa-guard/fossa_guard.py'
