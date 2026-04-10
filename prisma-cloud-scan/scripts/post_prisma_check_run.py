@@ -180,26 +180,39 @@ def format_fix_status(value: Any) -> str:
     return text
 
 
-def parse_image_reference(image_ref: str) -> tuple[str, str, str]:
+def parse_image_reference(image_ref: str) -> tuple[str, str, str, str]:
     raw = norm(image_ref)
     if not raw:
-        return "", "", ""
-    name_part, sep, tag = raw.rpartition(":")
-    if not sep or "/" not in name_part:
-        return "", raw, ""
-    registry, _, repository = name_part.partition("/")
-    return registry, repository, tag
+        return "", "", "", ""
+
+    name_part = raw
+    digest = ""
+    if "@" in raw:
+        name_part, digest = raw.split("@", 1)
+
+    last_slash = name_part.rfind("/")
+    last_colon = name_part.rfind(":")
+    tag = ""
+    if last_colon > last_slash:
+        tag = name_part[last_colon + 1 :]
+        name_part = name_part[:last_colon]
+
+    if "/" not in name_part:
+        return "", name_part, tag, digest
+
+    registry, repository = name_part.split("/", 1)
+    return registry, repository, tag, digest
 
 
-def build_ecr_repository_url(registry: str, repository: str) -> str:
+def build_ecr_image_url(registry: str, repository: str, image_digest: str) -> str:
     match = re.match(r"^(?P<account>\d+)\.dkr\.ecr\.(?P<region>[a-z0-9-]+)\.amazonaws\.com(?:\.cn)?$", registry)
-    if not match or not repository:
+    if not match or not repository or not image_digest:
         return ""
     account = match.group("account")
     region = match.group("region")
     return (
         f"https://{region}.console.aws.amazon.com/ecr/repositories/private/"
-        f"{account}/{repository}?region={region}"
+        f"{account}/{repository}/_/image/{image_digest}/details?region={region}"
     )
 
 
@@ -211,13 +224,21 @@ def build_commit_url(target_sha: str) -> str:
     return f"{server_url}/{repository}/commit/{target_sha}"
 
 
-def build_image_markdown(image_ref: str) -> tuple[str, str]:
-    registry, repository, tag = parse_image_reference(image_ref)
-    if repository and tag:
-        image_label = md_code(f"{repository}:{tag}")
+def build_image_markdown(image_ref: str, image_digest: str) -> tuple[str, str]:
+    registry, repository, tag, embedded_digest = parse_image_reference(image_ref)
+    resolved_digest = norm(image_digest) or embedded_digest
+
+    if registry and repository:
+        if tag:
+            image_label = md_code(f"{repository}:{tag}")
+        elif resolved_digest:
+            image_label = md_code(f"{repository}@{resolved_digest}")
+        else:
+            image_label = md_code(repository)
     else:
         image_label = md_code(image_ref or "unknown")
-    image_url = build_ecr_repository_url(registry, repository)
+
+    image_url = build_ecr_image_url(registry, repository, resolved_digest)
     image_markdown = f"[{image_label}]({image_url})" if image_url else image_label
     return image_markdown, md_code(registry) if registry else "-"
 
@@ -474,6 +495,7 @@ def main() -> int:
     )
 
     image_name = get_env("IMAGE_NAME")
+    image_digest = get_env("IMAGE_DIGEST")
     repo_visibility = get_env("REPO_VISIBILITY", "private")
     show_detailed_logs = bool_env("SHOW_DETAILED_LOGS", default=False)
     detailed_tables_enabled = show_detailed_logs and repo_visibility != "public"
@@ -495,7 +517,7 @@ def main() -> int:
 
     fallback_image = get_env("FALLBACK_IMAGE")
     resolved_image = image_name or fallback_image
-    image_markdown, registry_markdown = build_image_markdown(resolved_image)
+    image_markdown, registry_markdown = build_image_markdown(resolved_image, image_digest)
     commit_url = build_commit_url(target_sha)
     sha_markdown = f"[{md_code(target_sha)}]({commit_url})" if commit_url else md_code(target_sha)
     vulnerability_total = vuln_critical + vuln_high + vuln_medium + vuln_low
