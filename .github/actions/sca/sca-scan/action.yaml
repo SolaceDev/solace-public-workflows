@@ -75,7 +75,7 @@ runs:
 
     - name: SCA - Run Fossa scan
       if: contains(inputs.scanners, 'fossa')
-      uses: SolaceDev/solace-public-workflows/.github/actions/sca/fossa-scan@main
+      uses: SolaceDev/solace-public-workflows/.github/actions/sca/fossa-scan@test-guardian
       with:
         guardian_url: ${{ inputs.guardian_url }}
         guardian_token: ${{ inputs.guardian_token }}

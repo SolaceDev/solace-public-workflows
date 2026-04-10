@@ -534,7 +534,7 @@ jobs:
           } >> $GITHUB_OUTPUT
 
       - name: SCA Scan - FOSSA
-        uses: SolaceDev/solace-public-workflows/.github/actions/sca/sca-scan@main
+        uses: SolaceDev/solace-public-workflows/.github/actions/sca/sca-scan@test-guardian
         with:
           scanners: "fossa"
           additional_scan_params: ${{ steps.fossa_params.outputs.params }}
