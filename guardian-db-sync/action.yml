@@ -1,0 +1,153 @@
+name: "Guardian Sync and Report"
+description: "Runs Guardian /api/v1/db_synch_and_report for scan results that were already uploaded."
+
+inputs:
+  guardian-url:
+    description: "Guardian API base URL."
+    required: true
+  guardian-key:
+    description: "Guardian API bearer token."
+    required: true
+  product-name:
+    description: "Guardian product name. Defaults to the repository name without the org."
+    required: false
+    default: ""
+  product-full-version:
+    description: "Optional full build version override. When omitted, Guardian resolves it from the latest uploaded scan metadata."
+    required: false
+    default: ""
+  unifiers:
+    description: "Optional comma-separated list of scan unifiers to sync (for example: fossa,prisma). When omitted, Guardian uses metadata.json."
+    required: false
+    default: ""
+  collection:
+    description: "Optional vulnerability collection override."
+    required: false
+    default: ""
+  jira-collection-name:
+    description: "Optional JIRA metadata collection override."
+    required: false
+    default: ""
+  jira-profile:
+    description: "Optional JIRA profile override."
+    required: false
+    default: ""
+  jira-dry-run:
+    description: "Whether Jira reporting should run in dry-run mode."
+    required: false
+    default: "false"
+  upload-logs:
+    description: "Upload db sync request logs as a workflow artifact."
+    required: false
+    default: "false"
+
+outputs:
+  product_name:
+    description: "Product name reported by db_synch_and_report."
+    value: ${{ steps.sync.outputs.product_name }}
+  product_version:
+    description: "Product version reported by db_synch_and_report."
+    value: ${{ steps.sync.outputs.product_version }}
+  response_json:
+    description: "Compact JSON response returned by db_synch_and_report."
+    value: ${{ steps.sync.outputs.response_json }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Validate Guardian API inputs
+      shell: bash
+      run: |
+        echo "::add-mask::${{ inputs.guardian-url }}"
+        echo "::add-mask::${{ inputs.guardian-key }}"
+
+        if [ -z "${{ inputs.guardian-url }}" ] || [ -z "${{ inputs.guardian-key }}" ]; then
+          echo "guardian-url and guardian-key are required." >&2
+          exit 1
+        fi
+
+    - name: Prepare Guardian sync log artifact name
+      id: log_artifact
+      if: ${{ inputs.upload-logs == 'true' }}
+      shell: bash
+      env:
+        INPUT_PRODUCT_NAME: ${{ inputs.product-name }}
+        PRODUCT_FULL_VERSION: ${{ inputs.product-full-version }}
+        JOB_NAME: ${{ github.job }}
+        REPOSITORY_NAME: ${{ github.repository }}
+      run: |
+        set -euo pipefail
+        sanitize() {
+          printf '%s' "$1" | tr '/:@ ' '-' | tr -cd '[:alnum:]._-'
+        }
+
+        PRODUCT_NAME="$INPUT_PRODUCT_NAME"
+        if [ -z "$PRODUCT_NAME" ]; then
+          PRODUCT_NAME="${REPOSITORY_NAME#*/}"
+        fi
+
+        PRODUCT_NAME_SAFE="$(sanitize "$PRODUCT_NAME")"
+        PRODUCT_FULL_VERSION_SAFE="$(sanitize "$PRODUCT_FULL_VERSION")"
+        JOB_NAME_SAFE="$(sanitize "$JOB_NAME")"
+
+        if [ -z "$PRODUCT_NAME_SAFE" ]; then
+          PRODUCT_NAME_SAFE="repository"
+        fi
+        if [ -z "$PRODUCT_FULL_VERSION_SAFE" ]; then
+          PRODUCT_FULL_VERSION_SAFE="auto"
+        fi
+        if [ -z "$JOB_NAME_SAFE" ]; then
+          JOB_NAME_SAFE="job"
+        fi
+
+        echo "name=guardian-sync-and-report-${JOB_NAME_SAFE}-${PRODUCT_NAME_SAFE}-${PRODUCT_FULL_VERSION_SAFE}" >> "$GITHUB_OUTPUT"
+
+    - name: Synchronize Guardian DB and Jira
+      id: sync
+      shell: bash
+      env:
+        INPUT_PRODUCT_NAME: ${{ inputs.product-name }}
+        REPOSITORY_NAME: ${{ github.repository }}
+      run: |
+        PRODUCT_NAME="$INPUT_PRODUCT_NAME"
+        if [ -z "$PRODUCT_NAME" ]; then
+          PRODUCT_NAME="${REPOSITORY_NAME#*/}"
+        fi
+
+        response_dir="${RUNNER_TEMP}/guardian-sync-and-report"
+        mkdir -p "$response_dir"
+
+        args=(
+          --guardian-url "${{ inputs.guardian-url }}"
+          --guardian-key "${{ inputs.guardian-key }}"
+          --product-name "$PRODUCT_NAME"
+          --jira-dry-run "${{ inputs.jira-dry-run }}"
+          --output-dir "$response_dir"
+        )
+
+        if [ -n "${{ inputs.product-full-version }}" ]; then
+          args+=(--product-full-version "${{ inputs.product-full-version }}")
+        fi
+        if [ -n "${{ inputs.unifiers }}" ]; then
+          args+=(--unifiers "${{ inputs.unifiers }}")
+        fi
+        if [ -n "${{ inputs.collection }}" ]; then
+          args+=(--collection "${{ inputs.collection }}")
+        fi
+        if [ -n "${{ inputs.jira-collection-name }}" ]; then
+          args+=(--jira-collection-name "${{ inputs.jira-collection-name }}")
+        fi
+        if [ -n "${{ inputs.jira-profile }}" ]; then
+          args+=(--jira-profile "${{ inputs.jira-profile }}")
+        fi
+
+        bash "${{ github.action_path }}/db_sync_via_api.sh" "${args[@]}"
+
+    - name: Upload Guardian sync logs
+      if: ${{ always() && inputs.upload-logs == 'true' }}
+      uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+      with:
+        name: ${{ steps.log_artifact.outputs.name }}
+        path: ${{ runner.temp }}/guardian-sync-and-report
+        retention-days: 30
+        if-no-files-found: warn

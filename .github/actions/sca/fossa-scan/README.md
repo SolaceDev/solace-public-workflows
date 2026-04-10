@@ -146,7 +146,6 @@ After a successful `fossa analyze`, the action can optionally POST scan metadata
 The upload step runs only when **all** of the following are true:
 - `guardian_url` is non-empty
 - The event is not a pull request
-- The current branch is the repository's default branch
 
 ### product_name Resolution
 
