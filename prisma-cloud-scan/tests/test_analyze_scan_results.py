@@ -142,6 +142,49 @@ class TestAnalyzeScanResults(unittest.TestCase):
             self.assertEqual(outputs.get("vuln_high"), "1")
             self.assertEqual(outputs.get("blocking_vuln_high"), "1")
 
+    def test_main_does_not_block_vulnerabilities_when_guardian_enabled(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            results = {
+                "results": [
+                    {
+                        "vulnerabilities": [
+                            {"severity": "critical", "publishedDate": "2026-01-01"},
+                            {"severity": "high", "publishedDate": "2026-01-01"},
+                        ],
+                        "compliances": [],
+                    }
+                ]
+            }
+            (root / "pcc_scan_results.json").write_text(json.dumps(results), encoding="utf-8")
+            output_file = root / "github_output.txt"
+
+            env = {
+                "GITHUB_OUTPUT": str(output_file),
+                "BLOCK_ON_COMPLIANCE": "false",
+                "GRACE_PERIOD_DAYS": "0",
+                "GUARDIAN_ENABLED": "true",
+                "PCC_CONSOLE_URL": "https://example.prisma",
+            }
+
+            cwd = os.getcwd()
+            os.chdir(root)
+            try:
+                with patch.dict(os.environ, env, clear=False):
+                    rc = analyze_scan_results.main()
+            finally:
+                os.chdir(cwd)
+
+            self.assertEqual(rc, 0)
+            outputs = self._read_outputs(output_file)
+            self.assertEqual(outputs.get("scan_passed"), "true")
+            self.assertEqual(outputs.get("blocking_vuln_critical"), "0")
+            self.assertEqual(outputs.get("blocking_vuln_high"), "0")
+            self.assertEqual(outputs.get("guardian_managed_vulnerabilities"), "true")
+
+            analysis = json.loads((root / "pcc_scan_analysis.json").read_text(encoding="utf-8"))
+            self.assertTrue(analysis["guardian_managed_vulnerabilities"])
+
 
 if __name__ == "__main__":
     unittest.main()

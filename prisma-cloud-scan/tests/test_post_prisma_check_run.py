@@ -10,7 +10,9 @@ from unittest.mock import patch
 
 
 def _load_module():
-    script_path = Path(__file__).resolve().parent.parent / "scripts" / "post_prisma_check_run.py"
+    script_path = (
+        Path(__file__).resolve().parent.parent / "scripts" / "post_prisma_check_run.py"
+    )
     spec = importlib.util.spec_from_file_location("post_prisma_check_run", script_path)
     module = importlib.util.module_from_spec(spec)
     assert spec is not None and spec.loader is not None
@@ -23,9 +25,11 @@ post_prisma_check_run = _load_module()
 
 class TestPostPrismaCheckRun(unittest.TestCase):
     def test_parse_datetime_to_epoch(self):
-        self.assertIsInstance(post_prisma_check_run.parse_datetime_to_epoch("2026-03-10"), int)
-        self.assertEqual(post_prisma_check_run.parse_datetime_to_epoch(""), None)
-        self.assertEqual(post_prisma_check_run.parse_datetime_to_epoch(None), None)
+        self.assertIsInstance(
+            post_prisma_check_run.parse_datetime_to_epoch("2026-03-10"), int
+        )
+        self.assertIsNone(post_prisma_check_run.parse_datetime_to_epoch(""))
+        self.assertIsNone(post_prisma_check_run.parse_datetime_to_epoch(None))
 
     def test_resolve_target_sha_prefers_pull_request_head(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -41,7 +45,9 @@ class TestPostPrismaCheckRun(unittest.TestCase):
                 "GITHUB_SHA": "github-sha-333",
             }
             with patch.dict(os.environ, env, clear=False):
-                self.assertEqual(post_prisma_check_run.resolve_target_sha(), "pr-head-sha-456")
+                self.assertEqual(
+                    post_prisma_check_run.resolve_target_sha(), "pr-head-sha-456"
+                )
 
     def test_resolve_target_sha_falls_back_when_event_missing(self):
         env = {
@@ -51,7 +57,9 @@ class TestPostPrismaCheckRun(unittest.TestCase):
             "GITHUB_SHA": "github-sha-333",
         }
         with patch.dict(os.environ, env, clear=False):
-            self.assertEqual(post_prisma_check_run.resolve_target_sha(), "merge-sha-111")
+            self.assertEqual(
+                post_prisma_check_run.resolve_target_sha(), "merge-sha-111"
+            )
 
     def test_build_detailed_text_hidden_mode(self):
         details = post_prisma_check_run.build_detailed_text(
@@ -61,9 +69,28 @@ class TestPostPrismaCheckRun(unittest.TestCase):
             target_url="https://example.prisma/scan",
             grace_days=7,
             block_on_compliance=False,
+            guardian_managed_vulnerabilities=False,
         )
         self.assertIn("Detailed issue rows are hidden.", details)
         self.assertIn("Repository visibility is `public`", details)
+
+    def test_build_image_markdown_uses_ecr_image_digest_link(self):
+        image_markdown, registry_markdown = post_prisma_check_run.build_image_markdown(
+            "123456789125.dkr.ecr.us-east-1.amazonaws.com/repository:1.1.1-fd72563c72",
+            "sha256:671e112643f43d55289d6be28da7175166aadac7c72f6f0d2d17831594b21e3f",
+        )
+
+        self.assertIn(
+            "`repository:1.1.1-fd72563c72`",
+            image_markdown,
+        )
+        self.assertIn(
+            "/_/image/sha256:671e112643f43d55289d6be28da7175166aadac7c72f6f0d2d17831594b21e3f/details?region=us-east-1",
+            image_markdown,
+        )
+        self.assertEqual(
+            registry_markdown, "`123456789125.dkr.ecr.us-east-1.amazonaws.com`"
+        )
 
     def test_main_posts_check_from_analysis(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -86,7 +113,9 @@ class TestPostPrismaCheckRun(unittest.TestCase):
                 "grace_days": 7,
                 "block_on_compliance": False,
             }
-            (root / "pcc_scan_analysis.json").write_text(json.dumps(analysis), encoding="utf-8")
+            (root / "pcc_scan_analysis.json").write_text(
+                json.dumps(analysis), encoding="utf-8"
+            )
             (root / "event.json").write_text(
                 json.dumps({"pull_request": {"head": {"sha": "pr-head-sha-123"}}}),
                 encoding="utf-8",
@@ -95,12 +124,15 @@ class TestPostPrismaCheckRun(unittest.TestCase):
             env = {
                 "GITHUB_TOKEN": "token",
                 "GITHUB_REPOSITORY": "owner/repo",
+                "GITHUB_SERVER_URL": "https://github.example.com",
                 "RUNNER_OS": "Linux",
                 "RUNNER_ARCH": "X64",
                 "TARGET_SHA": "abc123",
                 "GITHUB_EVENT_PATH": str(root / "event.json"),
+                "GITHUB_STEP_SUMMARY": str(root / "step_summary.md"),
                 "SCAN_EXIT_CODE": "0",
-                "IMAGE_NAME": "repo/image:tag",
+                "IMAGE_NAME": "123456789125.dkr.ecr.us-east-1.amazonaws.com/repository:1.1.1-fd72563c72",
+                "IMAGE_DIGEST": "sha256:671e112643f43d55289d6be28da7175166aadac7c72f6f0d2d17831594b21e3f",
                 "REPO_VISIBILITY": "private",
                 "SHOW_DETAILED_LOGS": "false",
                 "CONSOLE_LINK": "https://example.prisma/scan",
@@ -117,7 +149,9 @@ class TestPostPrismaCheckRun(unittest.TestCase):
             os.chdir(root)
             try:
                 with patch.dict(os.environ, env, clear=False):
-                    with patch.object(post_prisma_check_run, "post_check_run", side_effect=fake_post):
+                    with patch.object(
+                        post_prisma_check_run, "post_check_run", side_effect=fake_post
+                    ):
                         rc = post_prisma_check_run.main()
             finally:
                 os.chdir(cwd)
@@ -128,6 +162,19 @@ class TestPostPrismaCheckRun(unittest.TestCase):
             self.assertEqual(payload["conclusion"], "success")
             self.assertIn("Prisma Image Scan (Linux/X64)", payload["name"])
             self.assertIn("Prisma Image Scan Overview", payload["output"]["summary"])
+            self.assertIn("Container Registry", payload["output"]["summary"])
+            self.assertIn("Scanned SHA", payload["output"]["summary"])
+            self.assertTrue(payload["output"]["title"].startswith("✅"))
+            step_summary = (root / "step_summary.md").read_text(encoding="utf-8")
+            self.assertIn("Prisma results", step_summary)
+            self.assertIn(
+                "`repository:1.1.1-fd72563c72`",
+                step_summary,
+            )
+            self.assertIn(
+                "/_/image/sha256:671e112643f43d55289d6be28da7175166aadac7c72f6f0d2d17831594b21e3f/details?region=us-east-1",
+                step_summary,
+            )
 
     def test_main_detailed_mode_renders_issue_tables(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -149,6 +196,7 @@ class TestPostPrismaCheckRun(unittest.TestCase):
                 "blocking_total": 2,
                 "grace_days": 7,
                 "block_on_compliance": True,
+                "guardian_managed_vulnerabilities": False,
             }
             results = {
                 "results": [
@@ -164,7 +212,18 @@ class TestPostPrismaCheckRun(unittest.TestCase):
                                 "publishedDate": "2026-03-01",
                                 "discoveredDate": "2026-03-10",
                                 "description": "Example vulnerability",
-                            }
+                            },
+                            {
+                                "id": "CVE-2026-0002",
+                                "severity": "critical",
+                                "cvss": 9.9,
+                                "packageName": "openssl",
+                                "packageVersion": "3.5.4-1~deb13u2",
+                                "status": "fixed in 3.5.5-1~deb13u2, 3.5.5-2",
+                                "publishedDate": "2026-01-01",
+                                "discoveredDate": "2026-03-11",
+                                "description": "Blocking vulnerability",
+                            },
                         ],
                         "compliances": [
                             {
@@ -177,8 +236,12 @@ class TestPostPrismaCheckRun(unittest.TestCase):
                     }
                 ]
             }
-            (root / "pcc_scan_analysis.json").write_text(json.dumps(analysis), encoding="utf-8")
-            (root / "pcc_scan_results.json").write_text(json.dumps(results), encoding="utf-8")
+            (root / "pcc_scan_analysis.json").write_text(
+                json.dumps(analysis), encoding="utf-8"
+            )
+            (root / "pcc_scan_results.json").write_text(
+                json.dumps(results), encoding="utf-8"
+            )
 
             env = {
                 "GITHUB_TOKEN": "token",
@@ -204,7 +267,9 @@ class TestPostPrismaCheckRun(unittest.TestCase):
             os.chdir(root)
             try:
                 with patch.dict(os.environ, env, clear=False):
-                    with patch.object(post_prisma_check_run, "post_check_run", side_effect=fake_post):
+                    with patch.object(
+                        post_prisma_check_run, "post_check_run", side_effect=fake_post
+                    ):
                         rc = post_prisma_check_run.main()
             finally:
                 os.chdir(cwd)
@@ -213,6 +278,11 @@ class TestPostPrismaCheckRun(unittest.TestCase):
             text = captured["payload"]["output"]["text"]
             self.assertIn("### Vulnerability Issues (quick view)", text)
             self.assertIn("CVE-2026-0001", text)
+            self.assertIn("CVE-2026-0002", text)
+            self.assertLess(text.index("CVE-2026-0002"), text.index("CVE-2026-0001"))
+            self.assertIn("`3.5.4-1~deb13u2`", text)
+            self.assertIn("fixed in `3.5.5-1~deb13u2`, `3.5.5-2`", text)
+            self.assertIn("🚫 Yes", text)
             self.assertIn("### Compliance Issues (quick view)", text)
 
     def test_main_returns_failure_when_post_fails(self):
@@ -236,7 +306,9 @@ class TestPostPrismaCheckRun(unittest.TestCase):
                 "grace_days": 7,
                 "block_on_compliance": False,
             }
-            (root / "pcc_scan_analysis.json").write_text(json.dumps(analysis), encoding="utf-8")
+            (root / "pcc_scan_analysis.json").write_text(
+                json.dumps(analysis), encoding="utf-8"
+            )
 
             env = {
                 "GITHUB_TOKEN": "token",
@@ -251,7 +323,9 @@ class TestPostPrismaCheckRun(unittest.TestCase):
             try:
                 with patch.dict(os.environ, env, clear=False):
                     with patch.object(
-                        post_prisma_check_run, "post_check_run", side_effect=RuntimeError("boom")
+                        post_prisma_check_run,
+                        "post_check_run",
+                        side_effect=RuntimeError("boom"),
                     ):
                         rc = post_prisma_check_run.main()
             finally:

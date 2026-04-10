@@ -8,34 +8,34 @@ on:
   workflow_call:
     inputs:
       git_ref:
-        description: 'Git ref to checkout (e.g., 0.0.269 for releases). Leave empty for PR context.'
+        description: "Git ref to checkout (e.g., 0.0.269 for releases). Leave empty for PR context."
         required: false
         type: string
       skip_policy_gate:
-        description: 'EMERGENCY: Skip policy/licensing gate (requires admin permission)'
+        description: "EMERGENCY: Skip policy/licensing gate (requires admin permission)"
         required: false
         type: boolean
         default: false
       skip_vulnerability_gate:
-        description: 'EMERGENCY: Skip vulnerability gate (requires admin permission)'
+        description: "EMERGENCY: Skip vulnerability gate (requires admin permission)"
         required: false
         type: boolean
         default: false
       bypass_justification:
-        description: 'REQUIRED if either bypass gate is used: Justification for emergency bypass'
+        description: "REQUIRED if either bypass gate is used: Justification for emergency bypass"
         required: false
         type: string
-        default: ''
+        default: ""
       use_vault:
-        description: 'Retrieve FOSSA API key from Vault (true for private repos). If false, expects FOSSA_API_KEY secret.'
+        description: "Retrieve FOSSA API key from Vault (true for private repos). If false, expects FOSSA_API_KEY secret."
         required: false
         type: boolean
         default: false
       config_file:
-        description: 'Path to workflow configuration file (workflow-config.json). Overrides individual inputs if provided.'
+        description: "Path to workflow configuration file (workflow-config.json). Overrides individual inputs if provided."
         required: false
         type: string
-        default: '.github/workflow-config.json'
+        default: ".github/workflow-config.json"
       additional_scan_params:
         description: |
           Additional scanner-specific parameters (one per line):
@@ -43,24 +43,24 @@ on:
             fossa.team=Platform Team
         required: false
         type: string
-        default: ''
+        default: ""
       guardian_url:
-        description: 'Guardian API base URL. Overrides config file value if provided. Leave empty to use config file or skip upload.'
+        description: "Guardian API base URL. Overrides config file value if provided. Leave empty to use config file or skip upload."
         required: false
         type: string
-        default: ''
+        default: ""
 
       # Dependency Setup Configuration
       setup_actions:
         description: "JSON array of setup actions to perform (e.g., ['setup-java', 'maven-settings'])"
         required: false
         type: string
-        default: ''
+        default: ""
       vault_secrets:
         description: "Multiline string of secrets to retrieve from Vault (format: secret/path KEY | ENV_VAR)"
         required: false
         type: string
-        default: ''
+        default: ""
       custom_setup_script:
         description: |
           Custom setup script to execute before scan. Use this to run build or install commands, e.g.:
@@ -71,7 +71,7 @@ on:
             dotnet restore
         required: false
         type: string
-        default: ''
+        default: ""
 
       # Language Versions
       java_version:
@@ -83,7 +83,7 @@ on:
         description: "Java distribution (default: 'temurin')"
         required: false
         type: string
-        default: ''
+        default: ""
       node_version:
         description: "Node version"
         required: false
@@ -93,7 +93,7 @@ on:
         description: "NPM registry URL (default: 'https://npm.pkg.github.com')"
         required: false
         type: string
-        default: ''
+        default: ""
       python_version:
         description: "Python version"
         required: false
@@ -103,7 +103,7 @@ on:
         description: "uv version to install (default: latest)"
         required: false
         type: string
-        default: ''
+        default: ""
       dotnet_versions:
         description: ".NET versions (e.g. 6.0.x)"
         required: false
@@ -113,38 +113,38 @@ on:
         description: "NuGet source URL to add"
         required: false
         type: string
-        default: ''
+        default: ""
 
       # Maven Configuration
       maven_settings_repositories:
         description: "Maven repositories configuration (JSON)"
         required: false
         type: string
-        default: ''
+        default: ""
       maven_settings_servers:
         description: "Maven servers configuration (JSON)"
         required: false
         type: string
-        default: ''
+        default: ""
 
     secrets:
       FOSSA_API_KEY:
-        description: 'FOSSA API key (required if use_vault is false)'
+        description: "FOSSA API key (required if use_vault is false)"
         required: false
       VAULT_URL:
-        description: 'Vault URL (optional - defaults to config file value)'
+        description: "Vault URL (optional - defaults to config file value)"
         required: false
       VAULT_ROLE:
-        description: 'Vault role for JWT authentication (optional - defaults to config file value)'
+        description: "Vault role for JWT authentication (optional - defaults to config file value)"
         required: false
       NPM_AUTH_TOKEN:
-        description: 'NPM auth token for private registry access (defaults to GITHUB_TOKEN)'
+        description: "NPM auth token for private registry access (defaults to GITHUB_TOKEN)"
         required: false
       NUGET_AUTH_TOKEN:
-        description: 'NuGet auth token for private feed access (defaults to GITHUB_TOKEN)'
+        description: "NuGet auth token for private feed access (defaults to GITHUB_TOKEN)"
         required: false
       GUARDIAN_API_TOKEN:
-        description: 'Bearer token for Guardian API. Required when GUARDIAN_URL is provided.'
+        description: "Bearer token for Guardian API. Required when GUARDIAN_URL is provided."
         required: false
 
 permissions:
@@ -157,7 +157,7 @@ permissions:
 
 jobs:
   sca_scan:
-    name: 'SCA Scan'
+    name: "SCA Scan"
     runs-on: ubuntu-latest
     timeout-minutes: 30
 

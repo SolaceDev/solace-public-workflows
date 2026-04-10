@@ -31,7 +31,7 @@ inputs:
     required: false
     default: "false"
   vulnerability_grace_period_days:
-    description: "Grace period in days for new vulnerabilities before blocking (0 to block immediately)"
+    description: "Grace period in days for new vulnerabilities before blocking (0 to block immediately). Ignored when Guardian upload is enabled."
     required: false
     default: "7"
   skip_image_pull:
@@ -61,7 +61,7 @@ inputs:
 
 outputs:
   scan_passed:
-    description: "Whether the scan passed without blocking issues (true/false)"
+    description: "Whether the scan passed without blocking issues according to this action's policy (true/false). When Guardian upload is enabled, vulnerability blocking is delegated to Guardian."
     value: ${{ steps.check_results.outputs.scan_passed }}
   vuln_critical:
     description: "Number of critical vulnerabilities found"
@@ -250,6 +250,8 @@ runs:
       shell: bash
       env:
         IMAGE_NAME: ${{ steps.pull_image.outputs.image_name || steps.local_image.outputs.image_name }}
+        IMAGE_REGISTRY: ${{ inputs.image_registry }}
+        REPO_NAME: ${{ steps.set_repo_name.outputs.repo_name }}
         INPUT_TWISTCLI_PUBLISH: ${{ inputs.twistcli_publish }}
         REPOSITORY_VISIBILITY: ${{ github.event.repository.visibility }}
         INPUT_SHOW_DETAILED_LOGS: ${{ inputs.show_detailed_logs }}
@@ -349,6 +351,18 @@ runs:
           echo "⚠️ Could not extract Prisma Cloud console link from scan results"
         fi
 
+        IMAGE_REPOSITORY="${IMAGE_REGISTRY}/${REPO_NAME}"
+        IMAGE_DIGEST="$(docker image inspect "$IMAGE_NAME" --format '{{range .RepoDigests}}{{println .}}{{end}}' 2>/dev/null | awk -F'@' -v image_repository="$IMAGE_REPOSITORY" '$1 == image_repository {print $2; exit}')"
+        if [ -z "$IMAGE_DIGEST" ]; then
+          IMAGE_DIGEST="$(docker image inspect "$IMAGE_NAME" --format '{{range .RepoDigests}}{{println .}}{{end}}' 2>/dev/null | awk -F'@' 'NF == 2 {print $2; exit}')"
+        fi
+        echo "image_digest=$IMAGE_DIGEST" >> $GITHUB_OUTPUT
+        if [ -n "$IMAGE_DIGEST" ]; then
+          echo "Resolved image digest: $IMAGE_DIGEST"
+        else
+          echo "Could not resolve image digest from local image metadata."
+        fi
+
         if [ "$SCAN_EXIT_CODE" -ne 0 ]; then
           echo "⚠️ twistcli exited with code $SCAN_EXIT_CODE. This can indicate policy violations or scan errors."
         fi
@@ -379,6 +393,7 @@ runs:
       env:
         BLOCK_ON_COMPLIANCE: ${{ inputs.block_on_compliance }}
         GRACE_PERIOD_DAYS: ${{ inputs.vulnerability_grace_period_days }}
+        GUARDIAN_ENABLED: ${{ inputs.guardian_url != '' && inputs.guardian_key != '' && 'true' || 'false' }}
         CONSOLE_LINK: ${{ steps.scan_image.outputs.console_link }}
         PCC_CONSOLE_URL: ${{ inputs.pcc_console_url }}
         ACTION_PATH: ${{ github.action_path }}
@@ -393,10 +408,12 @@ runs:
         GITHUB_TOKEN: ${{ github.token }}
         SCAN_EXIT_CODE: ${{ steps.scan_image.outputs.scan_exit_code }}
         IMAGE_NAME: ${{ steps.scan_image.outputs.image_name }}
+        IMAGE_DIGEST: ${{ steps.scan_image.outputs.image_digest }}
         REPO_VISIBILITY: ${{ steps.scan_image.outputs.repo_visibility }}
         SHOW_DETAILED_LOGS: ${{ steps.scan_image.outputs.show_detailed_logs }}
         TARGET_SHA: ${{ steps.scan_image.outputs.target_sha }}
         PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        GUARDIAN_ENABLED: ${{ inputs.guardian_url != '' && inputs.guardian_key != '' && 'true' || 'false' }}
         CONSOLE_LINK: ${{ steps.scan_image.outputs.console_link }}
         PCC_CONSOLE_URL: ${{ inputs.pcc_console_url }}
         FALLBACK_IMAGE: ${{ inputs.image_registry }}/${{ steps.set_repo_name.outputs.repo_name }}:${{ inputs.image_tag }}

@@ -264,10 +264,18 @@ fi
 PRODUCT_NAME="$(jq -r '.db_synch.product_name' "$RESPONSE_FILE")"
 PRODUCT_VERSION="$(jq -r '.db_synch.product_version' "$RESPONSE_FILE")"
 DB_SUMMARY="$(jq -c '.db_synch.summary' "$RESPONSE_FILE")"
+DISPLAY_VERSION="$PRODUCT_VERSION"
+if [ -n "$PRODUCT_FULL_VERSION" ]; then
+  DISPLAY_VERSION="$PRODUCT_FULL_VERSION"
+fi
+DB_NEW="$(jq -r '.db_synch.summary.new // 0' "$RESPONSE_FILE")"
+DB_RESOLVED="$(jq -r '.db_synch.summary.resolved // 0' "$RESPONSE_FILE")"
+DB_UPDATED="$(jq -r '.db_synch.summary.existing_with_diff // 0' "$RESPONSE_FILE")"
+DB_RESURFACED="$(jq -r '.db_synch.summary.resurfaced // 0' "$RESPONSE_FILE")"
 
 echo "Guardian sync and report completed"
 echo "  Product: $PRODUCT_NAME"
-echo "  Version: $PRODUCT_VERSION"
+echo "  Display version: $DISPLAY_VERSION"
 echo "  DB summary: $DB_SUMMARY"
 
 print_response "$RESPONSE_FILE"
@@ -278,8 +286,13 @@ set_json_output_from_file response_json "$RESPONSE_FILE"
 
 append_step_summary "### Guardian Sync and Report"
 append_step_summary "- Product: \`$PRODUCT_NAME\`"
-append_step_summary "- Version: \`$PRODUCT_VERSION\`"
-if [ -n "$UNIFIERS" ]; then
-  append_step_summary "- Unifiers: \`$UNIFIERS\`"
+if [ -n "$DISPLAY_VERSION" ]; then
+  append_step_summary "- Scanned version: \`$DISPLAY_VERSION\`"
 fi
-append_step_summary "- DB summary: \`$DB_SUMMARY\`"
+append_step_summary ""
+append_step_summary "| Change Type | Count |"
+append_step_summary "| --- | ---: |"
+append_step_summary "| New | $DB_NEW |"
+append_step_summary "| Resolved | $DB_RESOLVED |"
+append_step_summary "| Updated | $DB_UPDATED |"
+append_step_summary "| Resurfaced | $DB_RESURFACED |"
