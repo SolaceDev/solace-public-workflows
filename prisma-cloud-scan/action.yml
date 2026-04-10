@@ -31,7 +31,7 @@ inputs:
     required: false
     default: "false"
   vulnerability_grace_period_days:
-    description: "Grace period in days for new vulnerabilities before blocking (0 to block immediately)"
+    description: "Grace period in days for new vulnerabilities before blocking (0 to block immediately). Ignored when Guardian upload is enabled."
     required: false
     default: "7"
   skip_image_pull:
@@ -61,7 +61,7 @@ inputs:
 
 outputs:
   scan_passed:
-    description: "Whether the scan passed without blocking issues (true/false)"
+    description: "Whether the scan passed without blocking issues according to this action's policy (true/false). When Guardian upload is enabled, vulnerability blocking is delegated to Guardian."
     value: ${{ steps.check_results.outputs.scan_passed }}
   vuln_critical:
     description: "Number of critical vulnerabilities found"
@@ -379,6 +379,7 @@ runs:
       env:
         BLOCK_ON_COMPLIANCE: ${{ inputs.block_on_compliance }}
         GRACE_PERIOD_DAYS: ${{ inputs.vulnerability_grace_period_days }}
+        GUARDIAN_ENABLED: ${{ inputs.guardian_url != '' && inputs.guardian_key != '' && 'true' || 'false' }}
         CONSOLE_LINK: ${{ steps.scan_image.outputs.console_link }}
         PCC_CONSOLE_URL: ${{ inputs.pcc_console_url }}
         ACTION_PATH: ${{ github.action_path }}
@@ -397,6 +398,7 @@ runs:
         SHOW_DETAILED_LOGS: ${{ steps.scan_image.outputs.show_detailed_logs }}
         TARGET_SHA: ${{ steps.scan_image.outputs.target_sha }}
         PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        GUARDIAN_ENABLED: ${{ inputs.guardian_url != '' && inputs.guardian_key != '' && 'true' || 'false' }}
         CONSOLE_LINK: ${{ steps.scan_image.outputs.console_link }}
         PCC_CONSOLE_URL: ${{ inputs.pcc_console_url }}
         FALLBACK_IMAGE: ${{ inputs.image_registry }}/${{ steps.set_repo_name.outputs.repo_name }}:${{ inputs.image_tag }}

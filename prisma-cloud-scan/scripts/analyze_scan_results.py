@@ -113,6 +113,7 @@ def main() -> int:
 
     block_on_compliance = to_bool(os.getenv("BLOCK_ON_COMPLIANCE"), default=False)
     grace_period_days = to_int(os.getenv("GRACE_PERIOD_DAYS"), default=7)
+    guardian_managed_vulnerabilities = to_bool(os.getenv("GUARDIAN_ENABLED"), default=False)
     grace_period_seconds = grace_period_days * 86400
     current_timestamp = int(datetime.now(tz=timezone.utc).timestamp())
     console_link = norm(os.getenv("CONSOLE_LINK"))
@@ -122,6 +123,10 @@ def main() -> int:
     print("Configuration:")
     print(f"  Block on compliance: {str(block_on_compliance).lower()}")
     print(f"  Vulnerability grace period: {grace_period_days} days")
+    print(
+        "  Vulnerability blocking delegated to Guardian: "
+        f"{str(guardian_managed_vulnerabilities).lower()}"
+    )
 
     if not os.path.exists(RESULTS_FILE):
         print(f"❌ Error: {RESULTS_FILE} not found", file=sys.stderr)
@@ -135,6 +140,7 @@ def main() -> int:
             "blocking_vuln_high": 0,
             "blocking_compliance_critical": 0,
             "blocking_compliance_high": 0,
+            "guardian_managed_vulnerabilities": guardian_managed_vulnerabilities,
             "error": "results_file_missing",
         }
         write_analysis_file(baseline)
@@ -155,6 +161,7 @@ def main() -> int:
             "blocking_vuln_high": 0,
             "blocking_compliance_critical": 0,
             "blocking_compliance_high": 0,
+            "guardian_managed_vulnerabilities": guardian_managed_vulnerabilities,
             "error": "invalid_json",
         }
         write_analysis_file(baseline)
@@ -172,6 +179,7 @@ def main() -> int:
             "blocking_vuln_high": 0,
             "blocking_compliance_critical": 0,
             "blocking_compliance_high": 0,
+            "guardian_managed_vulnerabilities": guardian_managed_vulnerabilities,
             "error": "read_error",
         }
         write_analysis_file(baseline)
@@ -211,7 +219,12 @@ def main() -> int:
     grace_vuln_critical = 0
     grace_vuln_high = 0
 
-    if grace_period_days > 0:
+    if guardian_managed_vulnerabilities:
+        blocking_vuln_critical = 0
+        blocking_vuln_high = 0
+        grace_vuln_critical = 0
+        grace_vuln_high = 0
+    elif grace_period_days > 0:
         threshold_epoch = current_timestamp - grace_period_seconds
         blocking_vuln_critical = compute_blocking_vulnerability_count(
             vulnerabilities, "critical", threshold_epoch, vuln_counts["critical"]
@@ -258,7 +271,14 @@ def main() -> int:
     print(f"  Low:      {compliance_counts['low']}")
     print(SUMMARY_SEPARATOR)
 
-    if blocking_vuln_critical > 0:
+    if guardian_managed_vulnerabilities:
+        print("🛡️ Guardian upload is configured; vulnerability blocking is delegated to Guardian.")
+        if vuln_counts["critical"] > 0 or vuln_counts["high"] > 0:
+            print(
+                f"   Reported critical/high vulnerabilities: "
+                f"{vuln_counts['critical']} critical, {vuln_counts['high']} high"
+            )
+    elif blocking_vuln_critical > 0:
         print(
             f"❌ BLOCKING: Found {blocking_vuln_critical} critical vulnerabilities "
             f"past {grace_period_days}-day grace period"
@@ -299,6 +319,7 @@ def main() -> int:
         "blocking_compliance_critical": str(blocking_compliance_critical),
         "blocking_compliance_high": str(blocking_compliance_high),
         "blocking_total": str(blocking_total),
+        "guardian_managed_vulnerabilities": str(guardian_managed_vulnerabilities).lower(),
     }
     write_outputs(outputs)
 
@@ -319,6 +340,7 @@ def main() -> int:
         "blocking_total": blocking_total,
         "grace_days": grace_period_days,
         "block_on_compliance": block_on_compliance,
+        "guardian_managed_vulnerabilities": guardian_managed_vulnerabilities,
     }
     write_analysis_file(analysis)
 

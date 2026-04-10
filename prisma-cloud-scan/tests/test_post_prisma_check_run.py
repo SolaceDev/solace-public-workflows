@@ -24,8 +24,8 @@ post_prisma_check_run = _load_module()
 class TestPostPrismaCheckRun(unittest.TestCase):
     def test_parse_datetime_to_epoch(self):
         self.assertIsInstance(post_prisma_check_run.parse_datetime_to_epoch("2026-03-10"), int)
-        self.assertEqual(post_prisma_check_run.parse_datetime_to_epoch(""), None)
-        self.assertEqual(post_prisma_check_run.parse_datetime_to_epoch(None), None)
+        self.assertIsNone(post_prisma_check_run.parse_datetime_to_epoch(""))
+        self.assertIsNone(post_prisma_check_run.parse_datetime_to_epoch(None))
 
     def test_resolve_target_sha_prefers_pull_request_head(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -61,6 +61,7 @@ class TestPostPrismaCheckRun(unittest.TestCase):
             target_url="https://example.prisma/scan",
             grace_days=7,
             block_on_compliance=False,
+            guardian_managed_vulnerabilities=False,
         )
         self.assertIn("Detailed issue rows are hidden.", details)
         self.assertIn("Repository visibility is `public`", details)
@@ -95,12 +96,14 @@ class TestPostPrismaCheckRun(unittest.TestCase):
             env = {
                 "GITHUB_TOKEN": "token",
                 "GITHUB_REPOSITORY": "owner/repo",
+                "GITHUB_SERVER_URL": "https://github.example.com",
                 "RUNNER_OS": "Linux",
                 "RUNNER_ARCH": "X64",
                 "TARGET_SHA": "abc123",
                 "GITHUB_EVENT_PATH": str(root / "event.json"),
+                "GITHUB_STEP_SUMMARY": str(root / "step_summary.md"),
                 "SCAN_EXIT_CODE": "0",
-                "IMAGE_NAME": "repo/image:tag",
+                "IMAGE_NAME": "868978040651.dkr.ecr.us-east-1.amazonaws.com/solace-agent-mesh-enterprise:1.110.17-fd72563c72",
                 "REPO_VISIBILITY": "private",
                 "SHOW_DETAILED_LOGS": "false",
                 "CONSOLE_LINK": "https://example.prisma/scan",
@@ -128,6 +131,12 @@ class TestPostPrismaCheckRun(unittest.TestCase):
             self.assertEqual(payload["conclusion"], "success")
             self.assertIn("Prisma Image Scan (Linux/X64)", payload["name"])
             self.assertIn("Prisma Image Scan Overview", payload["output"]["summary"])
+            self.assertIn("Container Registry", payload["output"]["summary"])
+            self.assertIn("Scanned SHA", payload["output"]["summary"])
+            self.assertTrue(payload["output"]["title"].startswith("✅"))
+            step_summary = (root / "step_summary.md").read_text(encoding="utf-8")
+            self.assertIn("Prisma results", step_summary)
+            self.assertIn("solace-agent-mesh-enterprise:1.110.17-fd72563c72", step_summary)
 
     def test_main_detailed_mode_renders_issue_tables(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -149,6 +158,7 @@ class TestPostPrismaCheckRun(unittest.TestCase):
                 "blocking_total": 2,
                 "grace_days": 7,
                 "block_on_compliance": True,
+                "guardian_managed_vulnerabilities": False,
             }
             results = {
                 "results": [
@@ -164,6 +174,17 @@ class TestPostPrismaCheckRun(unittest.TestCase):
                                 "publishedDate": "2026-03-01",
                                 "discoveredDate": "2026-03-10",
                                 "description": "Example vulnerability",
+                            },
+                            {
+                                "id": "CVE-2026-0002",
+                                "severity": "critical",
+                                "cvss": 9.9,
+                                "packageName": "openssl",
+                                "packageVersion": "3.5.4-1~deb13u2",
+                                "status": "fixed in 3.5.5-1~deb13u2, 3.5.5-2",
+                                "publishedDate": "2026-01-01",
+                                "discoveredDate": "2026-03-11",
+                                "description": "Blocking vulnerability",
                             }
                         ],
                         "compliances": [
@@ -213,6 +234,11 @@ class TestPostPrismaCheckRun(unittest.TestCase):
             text = captured["payload"]["output"]["text"]
             self.assertIn("### Vulnerability Issues (quick view)", text)
             self.assertIn("CVE-2026-0001", text)
+            self.assertIn("CVE-2026-0002", text)
+            self.assertLess(text.index("CVE-2026-0002"), text.index("CVE-2026-0001"))
+            self.assertIn("`3.5.4-1~deb13u2`", text)
+            self.assertIn("fixed in `3.5.5-1~deb13u2`, `3.5.5-2`", text)
+            self.assertIn("🚫 Yes", text)
             self.assertIn("### Compliance Issues (quick view)", text)
 
     def test_main_returns_failure_when_post_fails(self):

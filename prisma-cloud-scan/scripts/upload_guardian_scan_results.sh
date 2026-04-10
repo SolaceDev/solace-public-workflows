@@ -45,13 +45,6 @@ require_value() {
   fi
 }
 
-append_step_summary() {
-  local line="$1"
-  if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
-    printf '%s\n' "$line" >> "$GITHUB_STEP_SUMMARY"
-  fi
-}
-
 print_response() {
   local file="$1"
   if jq -e . "$file" >/dev/null 2>&1; then
@@ -163,10 +156,3 @@ echo "Guardian upload completed"
 echo "  S3 bucket: $S3_BUCKET"
 echo "  S3 path: $S3_PATH"
 echo "  Saved files: $SAVED_FILES"
-
-append_step_summary "### Guardian Prisma Upload"
-append_step_summary "- Product: \`$PRODUCT_NAME\`"
-append_step_summary "- Product version: \`$PRODUCT_VERSION\`"
-append_step_summary "- Product full version: \`$PRODUCT_FULL_VERSION\`"
-append_step_summary "- S3 bucket: \`$S3_BUCKET\`"
-append_step_summary "- S3 path: \`$S3_PATH\`"
