@@ -96,6 +96,54 @@ def _parse_version(tag_name: str) -> version.Version | None:
         return None
 
 
+def _github_api_headers(github_token: str) -> dict[str, str]:
+    """Build GitHub REST API headers."""
+    return {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {github_token}",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+
+
+def _resolve_version_ref(github_token: str, repo_name: str, ref: str) -> str:
+    """Resolve semantic-version tag refs across repositories with mixed tag prefixes."""
+    if not ref or ref == "HEAD" or ref.startswith("refs/"):
+        return ref
+
+    parsed_ref = _parse_version(ref)
+    if not parsed_ref:
+        return ref
+
+    clean_ref = ref[1:] if ref.startswith("v") else ref
+    candidates = [ref]
+
+    if clean_ref != ref:
+        candidates.append(clean_ref)
+
+    prefixed_ref = f"v{clean_ref}"
+    if prefixed_ref not in candidates:
+        candidates.append(prefixed_ref)
+
+    headers = _github_api_headers(github_token)
+    for candidate in candidates:
+        url = f"https://api.github.com/repos/{repo_name}/git/ref/tags/{candidate}"
+        response = requests.get(url, headers=headers, timeout=10)
+
+        if response.status_code == 200:
+            if candidate != ref:
+                print(f"Resolved ref '{ref}' to existing tag '{candidate}'")
+            return candidate
+
+        if response.status_code != 404:
+            print(
+                f"Warning: Could not verify tag '{candidate}' "
+                f"(HTTP {response.status_code}); keeping original ref '{ref}'."
+            )
+            return ref
+
+    return ref
+
+
 def get_previous_release_tag(
     github_token: str, repo_name: str, to_ref: str
 ) -> str | None:
@@ -114,11 +162,7 @@ def get_previous_release_tag(
         The tag name of the previous release, or None if no suitable release found
     """
     url = f"https://api.github.com/repos/{repo_name}/releases"
-    headers = {
-        "Accept": "application/vnd.github+json",
-        "Authorization": f"Bearer {github_token}",
-        "X-GitHub-Api-Version": "2022-11-28",
-    }
+    headers = _github_api_headers(github_token)
 
     try:
         print(
@@ -366,10 +410,15 @@ def get_commits_between_refs(from_ref: str, to_ref: str) -> list[dict[str, str]]
     try:
         # Create GraphQL client for GitHub API
         graphql_client = _create_graphql_client(github_token)
+        resolved_from_ref = _resolve_version_ref(github_token, github_repo, from_ref)
+        resolved_to_ref = _resolve_version_ref(github_token, github_repo, to_ref)
+
+        if resolved_from_ref != from_ref or resolved_to_ref != to_ref:
+            print(f"Using resolved refs: {resolved_from_ref} -> {resolved_to_ref}")
 
         # Use GraphQL to get commits with associated PRs in a single query
         commits = _get_commits_with_prs_graphql(
-            graphql_client, github_repo, from_ref, to_ref
+            graphql_client, github_repo, resolved_from_ref, resolved_to_ref
         )
 
         print(f"Processing {len(commits)} commits...")
@@ -384,13 +433,20 @@ def get_commits_between_refs(from_ref: str, to_ref: str) -> list[dict[str, str]]
 
             previous_tag = get_previous_release_tag(github_token, github_repo, to_ref)
             if previous_tag:
+                resolved_previous_tag = _resolve_version_ref(
+                    github_token, github_repo, previous_tag
+                )
                 print(
-                    f"Using previous release tag '{previous_tag}' as base ref instead of '{from_ref}'"
+                    f"Using previous release tag '{resolved_previous_tag}' "
+                    f"as base ref instead of '{resolved_from_ref}'"
                 )
                 try:
                     # Retry with the previous release tag
                     commits = _get_commits_with_prs_graphql(
-                        graphql_client, github_repo, previous_tag, to_ref
+                        graphql_client,
+                        github_repo,
+                        resolved_previous_tag,
+                        resolved_to_ref,
                     )
                     print(f"Processing {len(commits)} commits...")
                     return commits
