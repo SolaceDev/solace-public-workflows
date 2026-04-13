@@ -277,6 +277,80 @@ class TestReleaseNotesGenerator(unittest.TestCase):
             "1.1.0",
         )
 
+    @patch.object(generate_github_release_notes.requests, "get")
+    def test_get_commits_with_compare_rest_extracts_commit_data(self, mock_get):
+        """Test REST compare fallback response parsing."""
+        response = MagicMock()
+        response.status_code = 200
+        response.json.return_value = {
+            "total_commits": 1,
+            "commits": [
+                {
+                    "sha": "abc1234567890123456789012345678901234567",
+                    "commit": {
+                        "message": "fix: resolve flaky release notes\n\nbody",
+                        "author": {"name": "Test User"},
+                    },
+                }
+            ],
+        }
+        mock_get.return_value = response
+
+        commits = generate_github_release_notes._get_commits_with_compare_rest(
+            "fake_token", "test/repo", "1.0.0", "1.1.0"
+        )
+
+        self.assertEqual(
+            commits,
+            [
+                {
+                    "hash": "abc1234",
+                    "full_hash": "abc1234567890123456789012345678901234567",
+                    "subject": "fix: resolve flaky release notes",
+                    "author": "Test User",
+                    "pr_number": None,
+                }
+            ],
+        )
+
+    @patch.dict(
+        os.environ, {"GITHUB_TOKEN": "fake_token", "GITHUB_REPOSITORY": "test/repo"}
+    )
+    @patch.object(generate_github_release_notes, "_create_graphql_client")
+    @patch.object(generate_github_release_notes, "_resolve_version_ref")
+    @patch.object(generate_github_release_notes, "_get_commits_with_compare_rest")
+    @patch.object(generate_github_release_notes, "_get_commits_with_prs_graphql")
+    def test_get_commits_between_refs_falls_back_to_rest_compare(
+        self,
+        mock_graphql,
+        mock_compare_rest,
+        mock_resolve_ref,
+        mock_create_graphql_client,
+    ):
+        """Test REST fallback when GraphQL compare fails."""
+        fallback_commits = [
+            {
+                "hash": "abc1234",
+                "full_hash": "abc1234567890123456789012345678901234567",
+                "subject": "fix: resolve flaky release notes",
+                "author": "Test User",
+                "pr_number": None,
+            }
+        ]
+        mock_graphql.side_effect = generate_github_release_notes.GraphQLCompareError(
+            "Response ended prematurely"
+        )
+        mock_compare_rest.return_value = fallback_commits
+        mock_resolve_ref.side_effect = ["1.0.0", "1.1.0"]
+        mock_create_graphql_client.return_value = MagicMock()
+
+        commits = get_commits_between_refs("v1.0.0", "v1.1.0")
+
+        self.assertEqual(commits, fallback_commits)
+        mock_compare_rest.assert_called_once_with(
+            "fake_token", "test/repo", "1.0.0", "1.1.0"
+        )
+
     @patch.dict(
         os.environ, {"GITHUB_TOKEN": "fake_token", "GITHUB_REPOSITORY": "test/repo"}
     )
