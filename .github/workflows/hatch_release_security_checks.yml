@@ -115,6 +115,8 @@ jobs:
           GITHUB_SHA: ${{ github.sha }}
         run: |
           OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          # XXXXXX is a mktemp template — replaced with random chars to create a unique dir.
+          # Isolates Docker credentials from the shared ~/.docker/config.json on self-hosted runners.
           DOCKER_CONFIG=$(mktemp -d "${RUNNER_TEMP}/docker-config.XXXXXX")
           export DOCKER_CONFIG
           trap 'docker logout ghcr.io > /dev/null 2>&1 || true; rm -rf "${DOCKER_CONFIG}"' EXIT
@@ -146,6 +148,8 @@ jobs:
           SONARQUBE_HOTSPOTS_API_URL: ${{ secrets.SONARQUBE_HOTSPOTS_API_URL }}
         run: |
           OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          # XXXXXX is a mktemp template — replaced with random chars to create a unique dir.
+          # Isolates Docker credentials from the shared ~/.docker/config.json on self-hosted runners.
           DOCKER_CONFIG=$(mktemp -d "${RUNNER_TEMP}/docker-config.XXXXXX")
           export DOCKER_CONFIG
           trap 'docker logout ghcr.io > /dev/null 2>&1 || true; rm -rf "${DOCKER_CONFIG}"' EXIT
