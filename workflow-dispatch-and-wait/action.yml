@@ -1,0 +1,95 @@
+name: "Workflow Dispatch and Wait"
+description: "Trigger and optionally wait for GitHub Actions workflow_dispatch runs"
+author: "Solace"
+
+inputs:
+  workflow:
+    description: "Name, filename, or ID of the workflow to run"
+    required: true
+  token:
+    description: "GitHub token with permission to dispatch workflows"
+    required: true
+  inputs:
+    description: "Workflow inputs as a JSON object string"
+    required: false
+    default: ""
+  ref:
+    description: "Ref to dispatch the workflow on; defaults to the current workflow ref"
+    required: false
+    default: ""
+  repo:
+    description: "Target repository as owner/name; defaults to the current repository"
+    required: false
+    default: ""
+  run-name:
+    description: "Optional exact run name used to identify the triggered run"
+    required: false
+    default: ""
+  display-workflow-run-url:
+    description: "Whether to poll for and print the triggered workflow run URL"
+    required: false
+    default: "false"
+  display-workflow-run-url-interval:
+    description: "Polling interval while waiting for the workflow run URL"
+    required: false
+    default: "1m"
+  display-workflow-run-url-timeout:
+    description: "Timeout while waiting for the workflow run URL"
+    required: false
+    default: "10m"
+  wait-for-completion:
+    description: "Whether to wait for the triggered workflow to complete"
+    required: false
+    default: "true"
+  wait-for-completion-timeout:
+    description: "Maximum time to wait for workflow completion"
+    required: false
+    default: "1h"
+  wait-for-completion-interval:
+    description: "Polling interval while waiting for workflow completion"
+    required: false
+    default: "1m"
+  workflow-logs:
+    description: "How to handle remote workflow logs: ignore, print, output, or json-output"
+    required: false
+    default: "ignore"
+
+outputs:
+  workflow-conclusion:
+    description: "Conclusion of the triggered workflow"
+    value: ${{ steps.dispatch.outputs.workflow-conclusion }}
+  workflow-id:
+    description: "ID of the triggered workflow run"
+    value: ${{ steps.dispatch.outputs.workflow-id }}
+  workflow-url:
+    description: "URL of the triggered workflow run"
+    value: ${{ steps.dispatch.outputs.workflow-url }}
+  workflow-logs:
+    description: "Logs of the triggered workflow when workflow-logs is output or json-output"
+    value: ${{ steps.dispatch.outputs.workflow-logs }}
+
+runs:
+  using: composite
+  steps:
+    - name: Dispatch workflow and optionally wait
+      id: dispatch
+      shell: bash
+      env:
+        ACTION_WORKFLOW: ${{ inputs.workflow }}
+        ACTION_TOKEN: ${{ inputs.token }}
+        ACTION_INPUTS_JSON: ${{ inputs.inputs }}
+        ACTION_REF: ${{ inputs.ref }}
+        ACTION_REPO: ${{ inputs.repo }}
+        ACTION_RUN_NAME: ${{ inputs.run-name }}
+        ACTION_DISPLAY_WORKFLOW_RUN_URL: ${{ inputs.display-workflow-run-url }}
+        ACTION_DISPLAY_WORKFLOW_RUN_URL_INTERVAL: ${{ inputs.display-workflow-run-url-interval }}
+        ACTION_DISPLAY_WORKFLOW_RUN_URL_TIMEOUT: ${{ inputs.display-workflow-run-url-timeout }}
+        ACTION_WAIT_FOR_COMPLETION: ${{ inputs.wait-for-completion }}
+        ACTION_WAIT_FOR_COMPLETION_TIMEOUT: ${{ inputs.wait-for-completion-timeout }}
+        ACTION_WAIT_FOR_COMPLETION_INTERVAL: ${{ inputs.wait-for-completion-interval }}
+        ACTION_WORKFLOW_LOGS: ${{ inputs.workflow-logs }}
+      run: python3 "${{ github.action_path }}/scripts/run.py"
+
+branding:
+  color: purple
+  icon: send
