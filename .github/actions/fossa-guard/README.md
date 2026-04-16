@@ -4,6 +4,30 @@ The `fossa-guard` GitHub Action integrates with the FOSSA API to fetch and proce
 
 ---
 
+## Caller Permissions
+
+This action runs the `maas-build-actions` container image from GHCR (`ghcr.io/<org>/maas-build-actions`). The calling workflow's `GITHUB_TOKEN` must have **at least `packages: read`** so that `docker login ghcr.io` can authenticate before pulling the image.
+
+```yaml
+permissions:
+  packages: read        # required to pull maas-build-actions image from GHCR
+```
+
+If the calling workflow uses PR comments or status checks, also include:
+
+```yaml
+permissions:
+  packages: read        # required to pull maas-build-actions image from GHCR
+  pull-requests: write  # required for PR comments (enable_pr_comment)
+  issues: write         # required for PR comments (enable_pr_comment)
+  checks: write         # required for status checks (enable_status_check)
+  statuses: write       # required for commit status updates (enable_status_check)
+```
+
+> **Note:** Composite actions cannot declare `permissions:` themselves. The calling workflow or job is fully responsible for granting this permission.
+
+---
+
 ## Usage
 
 ```yaml
@@ -401,9 +425,10 @@ with:
 Add to workflow:
 ```yaml
 permissions:
-  pull-requests: write
-  checks: write
-  issues: write
+  packages: read        # required to pull maas-build-actions image from GHCR
+  pull-requests: write  # required for PR comments
+  checks: write         # required for status checks
+  issues: write         # required for PR comments
 ```
 
 ---

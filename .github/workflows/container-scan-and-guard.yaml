@@ -108,6 +108,7 @@ permissions:
   pull-requests: write
   id-token: write
   checks: write
+  packages: read
 
 jobs:
   container_scan:

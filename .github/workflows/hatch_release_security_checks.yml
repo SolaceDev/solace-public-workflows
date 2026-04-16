@@ -57,6 +57,7 @@ permissions:
   contents: read
   checks: write
   pull-requests: read
+  packages: read
 
 jobs:
   security-checks:
@@ -70,8 +71,8 @@ jobs:
           fetch-depth: 0
 
       - name: FOSSA Guard - Block on Policy Violations
+        if: ${{ fromJson(inputs.fossa_check) }}
         uses: SolaceDev/solace-public-workflows/.github/actions/fossa-guard@main
-        if: github.ref_name == github.event.repository.default_branch && fromJson(inputs.fossa_check)
         continue-on-error: true
         with:
           fossa_api_key: ${{ secrets.FOSSA_API_KEY }}
@@ -83,8 +84,8 @@ jobs:
           block_on: policy_conflict
 
       - name: FOSSA Guard - Block on Security Vulnerabilities
+        if: ${{ fromJson(inputs.fossa_check) }}
         uses: SolaceDev/solace-public-workflows/.github/actions/fossa-guard@main
-        if: github.ref_name == github.event.repository.default_branch && fromJson(inputs.fossa_check)
         continue-on-error: true
         with:
           fossa_api_key: ${{ secrets.FOSSA_API_KEY }}
@@ -97,7 +98,6 @@ jobs:
 
       - name: Run Prisma Check
         if: ${{ fromJson(inputs.prisma_check) }}
-        uses: docker://ghcr.io/solacedev/maas-build-actions:latest
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.MANIFEST_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.MANIFEST_AWS_SECRET_ACCESS_KEY }}
@@ -113,26 +113,47 @@ jobs:
           GH_ORG: ${{ github.repository_owner }}
           GH_REPO: ${{ github.event.repository.name }}
           GITHUB_SHA: ${{ github.sha }}
-        with:
-          entrypoint: /bin/sh
-          args: >
-            -c ". $VIRTUAL_ENV/bin/activate &&
-            cd $ACTIONS_PATH/prisma-vulnerability-checker &&
-            python prisma_vulnerability_checker.py
-            "
+        run: |
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          DOCKER_CONFIG=$(mktemp -d "${RUNNER_TEMP}/docker-config.XXXXXX")
+          export DOCKER_CONFIG
+          trap 'docker logout ghcr.io > /dev/null 2>&1 || true; rm -rf "${DOCKER_CONFIG}"' EXIT
+          echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker run --rm \
+            -e AWS_ACCESS_KEY_ID \
+            -e AWS_SECRET_ACCESS_KEY \
+            -e PRISMA_REPOSITORY_NAME \
+            -e DOCKER_IMAGE_TO_CHECK \
+            -e PRISMA_ACCESS_KEY_ID \
+            -e PRISMA_ACCESS_KEY_SECRET \
+            -e PRISMA_JIRA_CHECK \
+            -e AWS_REGION \
+            -e JIRA_ONLY \
+            -e STATUS_CHECK \
+            -e GH_TOKEN \
+            -e GH_ORG \
+            -e GH_REPO \
+            -e GITHUB_SHA \
+            ghcr.io/${OWNER}/maas-build-actions@sha256:6182de169f2016eeab994aed8626edb1295d43720cd4485d43301d8e6b5c35fc \
+            /bin/sh -c '. $VIRTUAL_ENV/bin/activate && cd $ACTIONS_PATH/prisma-vulnerability-checker && python prisma_vulnerability_checker.py'
 
       - name: Run SonarQube Hotspot Check
-        uses: docker://ghcr.io/solacedev/maas-build-actions:latest
         if: ${{ fromJson(inputs.sonarqube_hotspot_check) }}
         env:
           SONARQUBE_PROJECT_KEY: ${{ secrets.SONARQUBE_PROJECT_KEY }}
           SONARQUBE_PROJECT_MAIN_BRANCH: ${{ secrets.SONARQUBE_PROJECT_MAIN_BRANCH }}
           SONARQUBE_QUERY_TOKEN: ${{ secrets.SONARQUBE_QUERY_TOKEN }}
           SONARQUBE_HOTSPOTS_API_URL: ${{ secrets.SONARQUBE_HOTSPOTS_API_URL }}
-        with:
-          entrypoint: /bin/sh
-          args: >
-            -c ". $VIRTUAL_ENV/bin/activate &&
-            cd $ACTIONS_PATH/sonarqube-hotspot-checker &&
-            python sonarqube_checker.py
-            "
+        run: |
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          DOCKER_CONFIG=$(mktemp -d "${RUNNER_TEMP}/docker-config.XXXXXX")
+          export DOCKER_CONFIG
+          trap 'docker logout ghcr.io > /dev/null 2>&1 || true; rm -rf "${DOCKER_CONFIG}"' EXIT
+          echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker run --rm \
+            -e SONARQUBE_PROJECT_KEY \
+            -e SONARQUBE_PROJECT_MAIN_BRANCH \
+            -e SONARQUBE_QUERY_TOKEN \
+            -e SONARQUBE_HOTSPOTS_API_URL \
+            ghcr.io/${OWNER}/maas-build-actions@sha256:6182de169f2016eeab994aed8626edb1295d43720cd4485d43301d8e6b5c35fc \
+            /bin/sh -c '. $VIRTUAL_ENV/bin/activate && cd $ACTIONS_PATH/sonarqube-hotspot-checker && python sonarqube_checker.py'
