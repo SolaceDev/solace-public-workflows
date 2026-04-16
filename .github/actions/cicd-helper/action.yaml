@@ -149,6 +149,10 @@ runs:
         [ -n "$DDB_OUTPUT_NAME" ] || unset DDB_OUTPUT_NAME
         [ -n "$DDB_RETURN_SECTION" ] || unset DDB_RETURN_SECTION
 
+        # GITHUB_OUTPUT and GITHUB_STEP_SUMMARY live under _runner_file_commands/,
+        # not under RUNNER_TEMP — mount their parent dir so the container can write outputs.
+        GITHUB_OUTPUT_DIR=$(dirname "$GITHUB_OUTPUT")
+
         docker run --rm \
           -e SLACK_TOKEN \
           -e SLACK_CHANNEL \
@@ -190,6 +194,7 @@ runs:
           -e GITHUB_STEP_SUMMARY \
           -v "${GITHUB_WORKSPACE}:/github/workspace" \
           -v "${RUNNER_TEMP}:${RUNNER_TEMP}" \
+          -v "${GITHUB_OUTPUT_DIR}:${GITHUB_OUTPUT_DIR}" \
           --workdir /github/workspace \
           "ghcr.io/${OWNER}/maas-build-actions@sha256:6182de169f2016eeab994aed8626edb1295d43720cd4485d43301d8e6b5c35fc" \
           /bin/sh -c 'source /maas-build-actions/venv/bin/activate && $RC_PYTHON $RC_HELPER_SCRIPT'
