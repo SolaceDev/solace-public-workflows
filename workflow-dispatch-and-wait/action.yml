@@ -21,22 +21,6 @@ inputs:
     description: "Target repository as owner/name; defaults to the current repository"
     required: false
     default: ""
-  run-name:
-    description: "Optional exact run name used to identify the triggered run"
-    required: false
-    default: ""
-  display-workflow-run-url:
-    description: "Whether to poll for and print the triggered workflow run URL"
-    required: false
-    default: "false"
-  display-workflow-run-url-interval:
-    description: "Polling interval while waiting for the workflow run URL"
-    required: false
-    default: "1m"
-  display-workflow-run-url-timeout:
-    description: "Timeout while waiting for the workflow run URL"
-    required: false
-    default: "10m"
   wait-for-completion:
     description: "Whether to wait for the triggered workflow to complete"
     required: false
@@ -80,10 +64,6 @@ runs:
         ACTION_INPUTS_JSON: ${{ inputs.inputs }}
         ACTION_REF: ${{ inputs.ref }}
         ACTION_REPO: ${{ inputs.repo }}
-        ACTION_RUN_NAME: ${{ inputs.run-name }}
-        ACTION_DISPLAY_WORKFLOW_RUN_URL: ${{ inputs.display-workflow-run-url }}
-        ACTION_DISPLAY_WORKFLOW_RUN_URL_INTERVAL: ${{ inputs.display-workflow-run-url-interval }}
-        ACTION_DISPLAY_WORKFLOW_RUN_URL_TIMEOUT: ${{ inputs.display-workflow-run-url-timeout }}
         ACTION_WAIT_FOR_COMPLETION: ${{ inputs.wait-for-completion }}
         ACTION_WAIT_FOR_COMPLETION_TIMEOUT: ${{ inputs.wait-for-completion-timeout }}
         ACTION_WAIT_FOR_COMPLETION_INTERVAL: ${{ inputs.wait-for-completion-interval }}

@@ -35,15 +35,6 @@ class TestWorkflowDispatchAndWaitHelpers(unittest.TestCase):
         with self.assertRaises(ValueError):
             MODULE.parse_inputs_json("{not-json}")
 
-    def test_select_workflow_run_filters_by_run_name(self) -> None:
-        runs = [
-            {"id": 3, "name": "other"},
-            {"id": 2, "name": "target"},
-        ]
-
-        selected = MODULE.select_workflow_run(runs, "target")
-        self.assertEqual(selected["id"], 2)
-
     def test_format_logs_outputs(self) -> None:
         logs_by_job = {
             "build": (
@@ -65,6 +56,18 @@ class TestWorkflowDispatchAndWaitHelpers(unittest.TestCase):
                 ]
             },
         )
+
+    def test_format_duration(self) -> None:
+        self.assertEqual(MODULE.format_duration(0), "00h 00m 00s")
+        self.assertEqual(MODULE.format_duration(61_000), "00h 01m 01s")
+        self.assertEqual(MODULE.format_duration(3_661_000), "01h 01m 01s")
+
+    def test_parse_bool(self) -> None:
+        self.assertFalse(MODULE.parse_bool(""))
+        self.assertFalse(MODULE.parse_bool("false"))
+        self.assertTrue(MODULE.parse_bool("true"))
+        self.assertTrue(MODULE.parse_bool("True"))
+        self.assertTrue(MODULE.parse_bool("  true  "))
 
 
 if __name__ == "__main__":

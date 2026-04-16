@@ -9,7 +9,6 @@ import re
 import sys
 import time
 import urllib.error
-import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -139,25 +138,6 @@ def format_logs_as_json_output(logs_by_job: dict[str, str]) -> str:
     return json.dumps(result)
 
 
-def select_workflow_run(runs: list[dict[str, Any]], run_name: str) -> dict[str, Any]:
-    filtered = runs
-    if run_name:
-        filtered = [run for run in runs if str(run.get("name", "")) == run_name]
-
-    if not filtered:
-        raise RuntimeError("Run not found")
-
-    if len(filtered) > 1:
-        print(f"::warning::Found {len(filtered)} workflow runs. Using the latest one.")
-        debug("Filtered workflow runs", filtered)
-
-    return filtered[0]
-
-
-def now_utc_iso_no_millis() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-
-
 def download_text(url: str, token: str, user_agent: str) -> str:
     request = urllib.request.Request(
         url,
@@ -165,7 +145,7 @@ def download_text(url: str, token: str, user_agent: str) -> str:
         headers={
             "Authorization": f"Bearer {token}",
             "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
+            "X-GitHub-Api-Version": "2026-03-10",
             "User-Agent": user_agent,
         },
     )
@@ -185,10 +165,6 @@ class Args:
     owner: str
     repo: str
     inputs: dict[str, Any]
-    run_name: str
-    display_workflow_url: bool
-    display_workflow_url_interval_ms: int
-    display_workflow_url_timeout_ms: int
     wait_for_completion: bool
     wait_for_completion_timeout_ms: int
     wait_for_completion_interval_ms: int
@@ -200,7 +176,6 @@ def get_args() -> Args:
     workflow_ref = os.getenv("ACTION_WORKFLOW", "").strip()
     ref = os.getenv("ACTION_REF", "").strip() or os.getenv("GITHUB_REF", "").strip()
     repo_input = os.getenv("ACTION_REPO", "").strip() or os.getenv("GITHUB_REPOSITORY", "").strip()
-    run_name = os.getenv("ACTION_RUN_NAME", "").strip()
 
     if not token:
         raise ValueError("Missing required input 'token'")
@@ -220,14 +195,6 @@ def get_args() -> Args:
         owner=owner,
         repo=repo,
         inputs=parse_inputs_json(os.getenv("ACTION_INPUTS_JSON", "")),
-        run_name=run_name,
-        display_workflow_url=parse_bool(os.getenv("ACTION_DISPLAY_WORKFLOW_RUN_URL", ""), default=True),
-        display_workflow_url_interval_ms=to_milliseconds(
-            os.getenv("ACTION_DISPLAY_WORKFLOW_RUN_URL_INTERVAL", "1m")
-        ),
-        display_workflow_url_timeout_ms=to_milliseconds(
-            os.getenv("ACTION_DISPLAY_WORKFLOW_RUN_URL_TIMEOUT", "10m")
-        ),
         wait_for_completion=parse_bool(os.getenv("ACTION_WAIT_FOR_COMPLETION", ""), default=True),
         wait_for_completion_timeout_ms=to_milliseconds(
             os.getenv("ACTION_WAIT_FOR_COMPLETION_TIMEOUT", "1h")
@@ -239,25 +206,44 @@ def get_args() -> Args:
     )
 
 
+@dataclass
+class DispatchResult:
+    run_id: int
+    run_url: str
+    html_url: str
+
+
 class WorkflowHandler:
     def __init__(self, args: Args) -> None:
         self.args = args
         self.api_base = os.getenv("GITHUB_API_URL", "https://api.github.com").rstrip("/")
         self.user_agent = "solace-public-workflows/workflow-dispatch-and-wait"
         self.workflow_id: int | str | None = None
-        self.workflow_run_id: int | None = None
-        self.trigger_date: str = ""
 
-    def trigger_workflow(self) -> None:
+    def dispatch_workflow(self) -> DispatchResult:
+        """Dispatch the workflow and return run details from the API response."""
         workflow_id = self.get_workflow_id()
-        self.trigger_date = now_utc_iso_no_millis()
         url = (
             f"{self.api_base}/repos/{self.args.owner}/{self.args.repo}/actions/workflows/"
             f"{workflow_id}/dispatches"
         )
-        payload = {"ref": self.args.ref, "inputs": self.args.inputs}
-        github_api("POST", url, self.args.token, payload, user_agent=self.user_agent)
-        debug("Workflow dispatch payload", payload)
+        payload = {
+            "ref": self.args.ref,
+            "inputs": self.args.inputs,
+            "return_run_details": True,
+        }
+        response = github_api("POST", url, self.args.token, payload, user_agent=self.user_agent)
+        debug("Workflow dispatch response", response)
+
+        run_id = int(response.get("workflow_run_id", 0))
+        if not run_id:
+            raise RuntimeError("Dispatch succeeded but no workflow_run_id in response")
+
+        return DispatchResult(
+            run_id=run_id,
+            run_url=str(response.get("run_url", "")),
+            html_url=str(response.get("html_url", "")),
+        )
 
     def get_workflow_id(self) -> int | str:
         if self.workflow_id is not None:
@@ -283,47 +269,16 @@ class WorkflowHandler:
             f"Unable to find workflow '{self.args.workflow_ref}' in {self.args.owner}/{self.args.repo}"
         )
 
-    def list_workflow_runs(self) -> list[dict[str, Any]]:
-        workflow_id = self.get_workflow_id()
-        params = urllib.parse.urlencode(
-            {
-                "event": "workflow_dispatch",
-                "created": f">={self.trigger_date}",
-                "per_page": 100,
-            }
-        )
-        url = (
-            f"{self.api_base}/repos/{self.args.owner}/{self.args.repo}/actions/workflows/"
-            f"{workflow_id}/runs?{params}"
-        )
-        payload = github_api("GET", url, self.args.token, user_agent=self.user_agent)
-        runs = payload.get("workflow_runs", []) if isinstance(payload, dict) else []
-        debug("List workflow runs", runs)
-        return runs
-
-    def get_workflow_run_id(self) -> int:
-        if self.workflow_run_id is not None:
-            return self.workflow_run_id
-
-        selected = select_workflow_run(self.list_workflow_runs(), self.args.run_name)
-        self.workflow_run_id = int(selected["id"])
-        return self.workflow_run_id
-
-    def get_workflow_run_status(self) -> dict[str, Any]:
-        run_id = self.get_workflow_run_id()
+    def get_workflow_run_status(self, run_id: int) -> dict[str, Any]:
         url = f"{self.api_base}/repos/{self.args.owner}/{self.args.repo}/actions/runs/{run_id}"
         payload = github_api("GET", url, self.args.token, user_agent=self.user_agent)
         debug("Workflow run status", payload)
 
-        status = str(payload.get("status") or "queued")
-        conclusion = str(payload.get("conclusion") or "neutral")
-        html_url = str(payload.get("html_url") or "")
-
         return {
             "id": run_id,
-            "url": html_url,
-            "status": status,
-            "conclusion": conclusion,
+            "url": str(payload.get("html_url") or ""),
+            "status": str(payload.get("status") or "queued"),
+            "conclusion": str(payload.get("conclusion") or "neutral"),
         }
 
     def list_jobs_for_workflow_run(self, run_id: int) -> list[dict[str, Any]]:
@@ -341,27 +296,9 @@ class WorkflowHandler:
         return download_text(url, self.args.token, self.user_agent)
 
 
-def get_follow_url(
-    workflow_handler: WorkflowHandler,
-    interval_ms: int,
-    timeout_ms: int,
-) -> str:
-    start = time.monotonic()
-    while not is_timed_out(start, timeout_ms):
-        sleep_ms(interval_ms)
-        try:
-            result = workflow_handler.get_workflow_run_status()
-            if result["id"]:
-                write_output("workflow-id", str(result["id"]))
-            if result["url"]:
-                return str(result["url"])
-        except Exception as exc:
-            debug(f"Failed to get workflow URL: {exc}")
-    return ""
-
-
 def wait_for_completion_or_timeout(
     workflow_handler: WorkflowHandler,
+    run_id: int,
     interval_ms: int,
     timeout_ms: int,
 ) -> tuple[dict[str, Any] | None, float]:
@@ -371,12 +308,7 @@ def wait_for_completion_or_timeout(
     while not is_timed_out(start, timeout_ms):
         sleep_ms(interval_ms)
         try:
-            result = workflow_handler.get_workflow_run_status()
-            if result["id"]:
-                write_output("workflow-id", str(result["id"]))
-            if result["url"]:
-                write_output("workflow-url", str(result["url"]))
-
+            result = workflow_handler.get_workflow_run_status(run_id)
             status = str(result["status"])
             debug(
                 f"Workflow is running for {format_duration(int((time.monotonic() - start) * 1000))}. "
@@ -390,12 +322,11 @@ def wait_for_completion_or_timeout(
     return result, start
 
 
-def handle_logs(args: Args, workflow_handler: WorkflowHandler) -> None:
+def handle_logs(args: Args, workflow_handler: WorkflowHandler, run_id: int) -> None:
     if args.workflow_logs_mode not in {"print", "output", "json-output"}:
         return
 
     try:
-        run_id = workflow_handler.get_workflow_run_id()
         jobs = workflow_handler.list_jobs_for_workflow_run(run_id)
     except Exception as exc:
         print(f"::error::Failed to list jobs for triggered workflow. Cause: {exc}")
@@ -453,20 +384,14 @@ def main() -> int:
         args = get_args()
         workflow_handler = WorkflowHandler(args)
 
-        workflow_handler.trigger_workflow()
-        print("Workflow triggered 🚀")
+        dispatched = workflow_handler.dispatch_workflow()
+        run_id = dispatched.run_id
+        html_url = dispatched.html_url
 
-        if args.display_workflow_url:
-            url = get_follow_url(
-                workflow_handler,
-                args.display_workflow_url_interval_ms,
-                args.display_workflow_url_timeout_ms,
-            )
-            if url:
-                print(f"You can follow the running workflow here: {url}")
-                write_output("workflow-url", url)
-            else:
-                print("Workflow URL could not be resolved before timeout.")
+        write_output("workflow-id", str(run_id))
+        write_output("workflow-url", html_url)
+
+        print(f"Workflow triggered: {html_url}")
 
         if not args.wait_for_completion:
             return 0
@@ -474,15 +399,12 @@ def main() -> int:
         print("Waiting for workflow completion")
         result, start = wait_for_completion_or_timeout(
             workflow_handler,
+            run_id,
             args.wait_for_completion_interval_ms,
             args.wait_for_completion_timeout_ms,
         )
 
-        handle_logs(args, workflow_handler)
-
-        if result:
-            write_output("workflow-id", str(result["id"]))
-            write_output("workflow-url", str(result["url"]))
+        handle_logs(args, workflow_handler, run_id)
 
         return compute_conclusion(start, args.wait_for_completion_timeout_ms, result)
     except Exception as exc:
