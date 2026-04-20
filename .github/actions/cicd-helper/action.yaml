@@ -89,10 +89,31 @@ inputs:
     description: "AWS region to use (optional, defaults to us-east-1 if not set)"
     required: false
 
+outputs:
+  # Outputs from post_to_channel
+  MAIN_SLACK_THREAD_TS:
+    description: "Timestamp of the main Slack channel message (use as thread_ts in subsequent steps)"
+    value: ${{ steps.run_rc_helper.outputs.MAIN_SLACK_THREAD_TS }}
+  MAIN_SLACK_MESSAGE:
+    description: "Text content of the main Slack channel message"
+    value: ${{ steps.run_rc_helper.outputs.MAIN_SLACK_MESSAGE }}
+  # Outputs from get_item_value_from_dynamodb
+  # The key name matches whatever ddb_output_name is set to by the caller.
+  # Add a new entry here for each distinct ddb_output_name value used across callers.
+  RC_VERSION:
+    description: "DynamoDB field value (when ddb_output_name=RC_VERSION)"
+    value: ${{ steps.run_rc_helper.outputs.RC_VERSION }}
+  # Outputs from item_exists_in_dynamodb
+  # The key name matches whatever ddb_exists_output is set to (default: ITEM_EXISTS).
+  ITEM_EXISTS:
+    description: "DynamoDB item existence flag (when ddb_exists_output=ITEM_EXISTS)"
+    value: ${{ steps.run_rc_helper.outputs.ITEM_EXISTS }}
+
 runs:
   using: composite
   steps:
     - name: Run RC Helper
+      id: run_rc_helper
       shell: bash
       env:
         # Inject all user-controlled inputs as OS environment variables so the
