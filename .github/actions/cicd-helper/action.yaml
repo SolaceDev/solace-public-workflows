@@ -103,6 +103,9 @@ outputs:
   RC_VERSION:
     description: "DynamoDB field value (when ddb_output_name=RC_VERSION)"
     value: ${{ steps.run_rc_helper.outputs.RC_VERSION }}
+  mq_sha_metadata:
+    description: "DynamoDB item JSON returned by get_item_by_index (when ddb_output_name=mq_sha_metadata)"
+    value: ${{ steps.run_rc_helper.outputs.mq_sha_metadata }}
   # Outputs from item_exists_in_dynamodb
   # The key name matches whatever ddb_exists_output is set to (default: ITEM_EXISTS).
   ITEM_EXISTS:
