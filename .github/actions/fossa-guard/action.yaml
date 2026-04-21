@@ -106,10 +106,6 @@ runs:
         # Use ${{ inputs.xxx }} syntax for all inputs. INPUT_* env vars are not
         # reliably set in composite action shell steps, so inline substitution
         # is the only way to ensure values are passed.
-        # GITHUB_TOKEN is NOT exported here — it is already present in the
-        # runner environment (set automatically by GitHub Actions) and is
-        # inherited by the container via -e GITHUB_TOKEN without any inline
-        # substitution, preventing its value from over-masking other outputs.
         export FOSSA_API_KEY="${{ inputs.fossa_api_key }}"
         export FOSSA_PROJECT_ID="${{ inputs.fossa_project_id }}"
         export FOSSA_CATEGORY="${{ inputs.fossa_category }}"
@@ -126,10 +122,11 @@ runs:
         [ -n "${{ inputs.github_repository }}" ]        && export GITHUB_REPOSITORY="${{ inputs.github_repository }}"
         [ -n "${{ inputs.github_run_id }}" ]            && export GITHUB_RUN_ID="${{ inputs.github_run_id }}"
         [ -n "${{ inputs.github_server_url }}" ]        && export GITHUB_SERVER_URL="${{ inputs.github_server_url }}"
-        # GITHUB_TOKEN is inherited from the runner environment via -e GITHUB_TOKEN
-        # in the docker run below — no explicit export needed. Avoiding any
-        # inline expression substitution for the token prevents its value from
-        # being registered for masking (which would over-mask branch/project values).
+        # Export the github_token input to GITHUB_TOKEN so the container receives it.
+        # runs.using: docker injected this automatically; with composite + docker run
+        # we must do it explicitly. The input defaults to github.token so it is
+        # always set. GitHub will mask the token value in logs, which is correct.
+        export GITHUB_TOKEN="${{ inputs.github_token }}"
         [ -n "${{ inputs.enable_pr_comment }}" ]        && export ENABLE_PR_COMMENT="${{ inputs.enable_pr_comment }}"
         [ -n "${{ inputs.enable_status_check }}" ]      && export ENABLE_STATUS_CHECK="${{ inputs.enable_status_check }}"
         [ -n "${{ inputs.status_check_name }}" ]        && export STATUS_CHECK_NAME="${{ inputs.status_check_name }}"
