@@ -97,5 +97,5 @@ runs:
           -v "${RUNNER_TEMP}:${RUNNER_TEMP}" \
           -v "${GITHUB_OUTPUT_DIR}:${GITHUB_OUTPUT_DIR}" \
           --workdir /github/workspace \
-          "ghcr.io/${OWNER}/maas-build-actions@sha256:96f6a7276d96f888a1848db1d57715316054d0907471bd227a8eb737559fda3c" \
+          "ghcr.io/${OWNER}/maas-build-actions@sha256:bf604b234720f3a970e0a0cc9d6a07f6e991fa791d2e38ac065c32acedc88050" \
           /bin/sh -c 'bash /maas-build-actions/actions/generate-fossa-report/generate-report.sh'
