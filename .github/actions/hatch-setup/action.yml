@@ -31,7 +31,7 @@ runs:
       shell: bash
 
     - name: Install Hatch
-      uses: pypa/hatch@install
+      uses: pypa/hatch@a3c83ab3d481fbc2dc91dd0088628817488dd1d5
 
     - name: Test Matrix Present
       id: test-matrix-present
@@ -59,7 +59,7 @@ runs:
         echo "matrix-present=$MATRIX_PRESENT" >> $GITHUB_OUTPUT
 
     - name: Restore Hatch Directory
-      uses: actions/cache@v4
+      uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
       id: cache
       with:
         path: |
@@ -70,22 +70,18 @@ runs:
     - name: Install Python Versions for Hatch Test Matrix
       id: setup-python
       if: steps.test-matrix-present.outputs.matrix-present == 'true'
-      uses: actions/setup-python@v5.5.0
+      uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
       with:
         python-version: |
           ${{ inputs.min-python-version }}
           ${{ inputs.max-python-version }}
-        cache: "pip"
-        cache-dependency-path: "pyproject.toml"
 
     - name: Install Python Version from pyproject.toml
       id: setup-python-default
       if: steps.test-matrix-present.outputs.matrix-present == 'false'
-      uses: actions/setup-python@v5.5.0
+      uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
       with:
         python-version-file: "pyproject.toml"
-        cache: "pip"
-        cache-dependency-path: "pyproject.toml"
 
     - name: Export Python Path For Hatch
       shell: bash

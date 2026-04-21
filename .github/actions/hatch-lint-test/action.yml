@@ -55,21 +55,21 @@ runs:
         hatch test --python ${{ inputs.max-python-version }}  --cover --parallel --junitxml=junit-${{ inputs.max-python-version }}.xml
 
     - name: Status Check - Unit Tests on default python version
-      uses: mikepenz/action-junit-report@v5
+      uses: mikepenz/action-junit-report@bccf2e31636835cf0874589931c4116687171386 # v6.4.0
       if: hashFiles('junit-default.xml') != ''
       with:
         check_name: Unit Tests on default python version
         report_paths: junit-default.xml
 
     - name: Status Check - Unit Tests on Python ${{ inputs.min-python-version }}
-      uses: mikepenz/action-junit-report@v5
+      uses: mikepenz/action-junit-report@bccf2e31636835cf0874589931c4116687171386 # v6.4.0
       if: hashFiles('junit-${{ inputs.min-python-version }}.xml') != ''
       with:
         check_name: Unit Tests on Python ${{ inputs.min-python-version }}
         report_paths: junit-${{ inputs.min-python-version }}.xml
 
     - name: Status Check - Unit Tests on Python ${{ inputs.max-python-version }}
-      uses: mikepenz/action-junit-report@v5
+      uses: mikepenz/action-junit-report@bccf2e31636835cf0874589931c4116687171386 # v6.4.0
       if: hashFiles('junit-${{ inputs.max-python-version }}.xml') != ''
       with:
         check_name: Unit Tests on Python ${{ inputs.max-python-version }}
@@ -95,7 +95,7 @@ runs:
       env:
         MIN_PYTHON_VERSION_FILE: ${{ format('junit-{0}.xml', inputs.min-python-version) }}
         MAX_PYTHON_VERSION_FILE: ${{ format('junit-{0}.xml', inputs.max-python-version) }}
-      uses: xportation/junit-coverage-report@main
+      uses: xportation/junit-coverage-report@700eca2594fa883c7811f12f74be5ff74f04b8ca
       with:
         junit-path: ${{ hashFiles('junit-default.xml') != '' && 'junit-default.xml' || hashFiles(env.MIN_PYTHON_VERSION_FILE) != '' && env.MIN_PYTHON_VERSION_FILE || hashFiles(env.MAX_PYTHON_VERSION_FILE) != '' && env.MAX_PYTHON_VERSION_FILE }}
         coverage-path: coverage.xml
