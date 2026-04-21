@@ -89,83 +89,134 @@ inputs:
     description: "AWS region to use (optional, defaults to us-east-1 if not set)"
     required: false
 
+outputs:
+  # Outputs from post_to_channel
+  MAIN_SLACK_THREAD_TS:
+    description: "Timestamp of the main Slack channel message (use as thread_ts in subsequent steps)"
+    value: ${{ steps.run_rc_helper.outputs.MAIN_SLACK_THREAD_TS }}
+  MAIN_SLACK_MESSAGE:
+    description: "Text content of the main Slack channel message"
+    value: ${{ steps.run_rc_helper.outputs.MAIN_SLACK_MESSAGE }}
+  # Outputs from get_item_value_from_dynamodb
+  # The key name matches whatever ddb_output_name is set to by the caller.
+  # Add a new entry here for each distinct ddb_output_name value used across callers.
+  RC_VERSION:
+    description: "DynamoDB field value (when ddb_output_name=RC_VERSION)"
+    value: ${{ steps.run_rc_helper.outputs.RC_VERSION }}
+  # Outputs from item_exists_in_dynamodb
+  # The key name matches whatever ddb_exists_output is set to (default: ITEM_EXISTS).
+  ITEM_EXISTS:
+    description: "DynamoDB item existence flag (when ddb_exists_output=ITEM_EXISTS)"
+    value: ${{ steps.run_rc_helper.outputs.ITEM_EXISTS }}
+
 runs:
-  using: docker
-  image: docker://ghcr.io/solacedev/maas-build-actions:master
-  entrypoint: /bin/sh
-  args:
-    - -c
-    - |
-      export SLACK_TOKEN="$INPUT_SLACK_TOKEN"
-      export SLACK_CHANNEL="$INPUT_SLACK_CHANNEL"
-      export RC_STEP="$INPUT_RC_STEP"
-      export RC_PYTHON="python3"
-      export RC_HELPER_SCRIPT="/maas-build-actions/scripts/cicd-helper/cicd-helper.py"
-      if [ -n "$INPUT_THREAD_TS" ]; then export THREAD_TS="$INPUT_THREAD_TS"; fi
-      if [ -n "$INPUT_MESSAGE" ]; then export MESSAGE="$INPUT_MESSAGE"; fi
-      if [ -n "$INPUT_THREAD_MESSAGE" ]; then export THREAD_MESSAGE="$INPUT_THREAD_MESSAGE"; fi
-      if [ -n "$INPUT_MESSAGE_HEADER" ]; then export MESSAGE_HEADER="$INPUT_MESSAGE_HEADER"; fi
-      if [ -n "$INPUT_NEW_MESSAGE_HEADER" ]; then export NEW_MESSAGE_HEADER="$INPUT_NEW_MESSAGE_HEADER"; fi
-      if [ -n "$INPUT_CHANGE_LOG_HEADER_METADATA" ]; then export CHANGE_LOG_HEADER_METADATA="$INPUT_CHANGE_LOG_HEADER_METADATA"; fi
-      if [ -n "$INPUT_PREVIOUS_MESSAGE" ]; then export PREVIOUS_MESSAGE="$INPUT_PREVIOUS_MESSAGE"; fi
-      if [ -n "$INPUT_REPO_NAME" ]; then export REPO_NAME="$INPUT_REPO_NAME"; fi
-      if [ -n "$INPUT_DEPLOYED_REF" ]; then export DEPLOYED_REF="$INPUT_DEPLOYED_REF"; fi
-      if [ -n "$INPUT_CANDIDATE_REF" ]; then export CANDIDATE_REF="$INPUT_CANDIDATE_REF"; fi
-      if [ -n "$INPUT_CONTRIBUTORS_RAW_LIST" ]; then export CONTRIBUTORS_RAW_LIST="$INPUT_CONTRIBUTORS_RAW_LIST"; fi
-      if [ -n "$INPUT_DDB_ITEM_TO_BE_ADDED" ]; then export DDB_ITEM_TO_BE_ADDED="$INPUT_DDB_ITEM_TO_BE_ADDED"; fi
-      if [ -n "$INPUT_DDB_TABLE_NAME" ]; then export DDB_TABLE_NAME="$INPUT_DDB_TABLE_NAME"; fi
-      if [ -n "$INPUT_DDB_PARTITION_KEY" ]; then export DDB_PARTITION_KEY="$INPUT_DDB_PARTITION_KEY"; fi
-      if [ -n "$INPUT_DDB_SORT_KEY" ]; then export DDB_SORT_KEY="$INPUT_DDB_SORT_KEY"; fi
-      if [ -n "$INPUT_DDB_QUERY_JSON" ]; then export DDB_QUERY_JSON="$INPUT_DDB_QUERY_JSON"; fi
-      if [ -n "$INPUT_DDB_EXISTS_OUTPUT" ]; then export DDB_EXISTS_OUTPUT="$INPUT_DDB_EXISTS_OUTPUT"; fi
-      if [ -n "$INPUT_DDB_FIELD_PATH" ]; then export DDB_FIELD_PATH="$INPUT_DDB_FIELD_PATH"; fi
-      if [ -n "$INPUT_DDB_OUTPUT_NAME" ]; then export DDB_OUTPUT_NAME="$INPUT_DDB_OUTPUT_NAME"; fi
-      if [ -n "$INPUT_DDB_RETURN_SECTION" ]; then export DDB_RETURN_SECTION="$INPUT_DDB_RETURN_SECTION"; fi
-      if [ -n "$INPUT_THREAD_MESSAGE_TS" ]; then export THREAD_MESSAGE_TS="$INPUT_THREAD_MESSAGE_TS"; fi
-      if [ -n "$INPUT_NEW_THREAD_MESSAGE" ]; then export NEW_THREAD_MESSAGE="$INPUT_NEW_THREAD_MESSAGE"; fi
-      if [ -n "$INPUT_DDB_TABLE_INDEX_NAME" ]; then export DDB_TABLE_INDEX_NAME="$INPUT_DDB_TABLE_INDEX_NAME"; fi
-      if [ -n "$INPUT_DDB_INDEX_FIELD_NAME" ]; then export DDB_INDEX_FIELD_NAME="$INPUT_DDB_INDEX_FIELD_NAME"; fi
-      if [ -n "$INPUT_DDB_INDEX_FIELD_VALUE" ]; then export DDB_INDEX_FIELD_VALUE="$INPUT_DDB_INDEX_FIELD_VALUE"; fi
+  using: composite
+  steps:
+    - name: Run RC Helper
+      id: run_rc_helper
+      shell: bash
+      env:
+        # Inject all user-controlled inputs as OS environment variables so the
+        # bash script never sees their values substituted inline as script text.
+        # This prevents shell injection even if an input contains metacharacters.
+        SLACK_TOKEN: ${{ inputs.slack_token }}
+        SLACK_CHANNEL: ${{ inputs.slack_channel }}
+        RC_STEP: ${{ inputs.rc_step }}
+        THREAD_TS: ${{ inputs.thread_ts }}
+        MESSAGE: ${{ inputs.message }}
+        THREAD_MESSAGE: ${{ inputs.thread_message }}
+        MESSAGE_HEADER: ${{ inputs.message_header }}
+        NEW_MESSAGE_HEADER: ${{ inputs.new_message_header }}
+        CHANGE_LOG_HEADER_METADATA: ${{ inputs.change_log_header_metadata }}
+        PREVIOUS_MESSAGE: ${{ inputs.previous_message }}
+        REPO_NAME: ${{ inputs.repo_name }}
+        DEPLOYED_REF: ${{ inputs.deployed_ref }}
+        CANDIDATE_REF: ${{ inputs.candidate_ref }}
+        CONTRIBUTORS_RAW_LIST: ${{ inputs.contributors_raw_list }}
+        DDB_ITEM_TO_BE_ADDED: ${{ inputs.ddb_item_to_be_added }}
+        DDB_TABLE_NAME: ${{ inputs.ddb_table_name }}
+        DDB_PARTITION_KEY: ${{ inputs.ddb_partition_key }}
+        DDB_SORT_KEY: ${{ inputs.ddb_sort_key }}
+        DDB_QUERY_JSON: ${{ inputs.ddb_query_json }}
+        DDB_EXISTS_OUTPUT: ${{ inputs.ddb_exists_output }}
+        DDB_FIELD_PATH: ${{ inputs.ddb_field_path }}
+        DDB_OUTPUT_NAME: ${{ inputs.ddb_output_name }}
+        DDB_RETURN_SECTION: ${{ inputs.ddb_return_section }}
+        THREAD_MESSAGE_TS: ${{ inputs.thread_message_ts }}
+        NEW_THREAD_MESSAGE: ${{ inputs.new_thread_message }}
+        DDB_TABLE_INDEX_NAME: ${{ inputs.ddb_table_index_name }}
+        DDB_INDEX_FIELD_NAME: ${{ inputs.ddb_index_field_name }}
+        DDB_INDEX_FIELD_VALUE: ${{ inputs.ddb_index_field_value }}
+        AWS_REGION: ${{ inputs.aws_region }}
+      run: |
+        OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
 
+        # Authenticate to GHCR using the calling workflow's token so internal
+        # org packages can be pulled. runs.using: docker did this automatically;
+        # with composite + docker run we handle it explicitly.
+        # Use an isolated DOCKER_CONFIG to avoid persisting credentials on
+        # self-hosted runners' shared ~/.docker/config.json.
+        DOCKER_CONFIG=$(mktemp -d "${RUNNER_TEMP}/docker-config.XXXXXX")
+        export DOCKER_CONFIG
+        trap 'docker logout ghcr.io > /dev/null 2>&1 || true; rm -rf "${DOCKER_CONFIG}"' EXIT
+        echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
+        export RC_PYTHON="python3"
+        export RC_HELPER_SCRIPT="/maas-build-actions/scripts/cicd-helper/cicd-helper.py"
+        export AWS_REGION="${AWS_REGION:-us-east-1}"
+        # Optional inputs with Python-side defaults: unset when empty so
+        # os.getenv(key, default) fallback in cicd-helper.py is preserved.
+        [ -n "$DDB_EXISTS_OUTPUT" ] || unset DDB_EXISTS_OUTPUT
+        [ -n "$DDB_OUTPUT_NAME" ] || unset DDB_OUTPUT_NAME
+        [ -n "$DDB_RETURN_SECTION" ] || unset DDB_RETURN_SECTION
 
-      # Set AWS_REGION, default to us-east-1 if not set
-      if [ -n "$INPUT_AWS_REGION" ]; then
-        export AWS_REGION="$INPUT_AWS_REGION"
-      else
-        export AWS_REGION="us-east-1"
-      fi
+        # GITHUB_OUTPUT and GITHUB_STEP_SUMMARY live under _runner_file_commands/,
+        # not under RUNNER_TEMP — mount their parent dir so the container can write outputs.
+        GITHUB_OUTPUT_DIR=$(dirname "$GITHUB_OUTPUT")
 
-      echo "Debug: Inputs:"
-      echo "RC_STEP: $RC_STEP"
-      echo "SLACK_TOKEN: [REDACTED]"
-      echo "SLACK_CHANNEL: $SLACK_CHANNEL"
-      echo "THREAD_TS: $THREAD_TS"
-      echo "MESSAGE: $MESSAGE"
-      echo "THREAD_MESSAGE: $THREAD_MESSAGE"
-      echo "NEW_MESSAGE_HEADER: $NEW_MESSAGE_HEADER"
-      echo "CHANGE_LOG_HEADER_METADATA: $CHANGE_LOG_HEADER_METADATA"
-      echo "PREVIOUS_MESSAGE: $PREVIOUS_MESSAGE"
-      echo "REPO_NAME: $REPO_NAME"
-      echo "DEPLOYED_REF: $DEPLOYED_REF"
-      echo "CANDIDATE_REF: $CANDIDATE_REF"
-      echo "DDB_ITEM_TO_BE_ADDED: $DDB_ITEM_TO_BE_ADDED"
-      echo "DDB_TABLE_NAME: $DDB_TABLE_NAME"
-      echo "DDB_PARTITION_KEY: $DDB_PARTITION_KEY"
-      echo "DDB_SORT_KEY: $DDB_SORT_KEY"
-      echo "DDB_QUERY_JSON: $DDB_QUERY_JSON"
-      echo "DDB_EXISTS_OUTPUT: $DDB_EXISTS_OUTPUT"
-      echo "CONTRIBUTORS_RAW_LIST: $CONTRIBUTORS_RAW_LIST"
-      echo "DDB_FIELD_PATH: $DDB_FIELD_PATH"
-      echo "DDB_OUTPUT_NAME: $DDB_OUTPUT_NAME"
-      echo "DDB_RETURN_SECTION: $DDB_RETURN_SECTION"
-      echo "AWS_REGION: $AWS_REGION"
-      echo "THREAD_MESSAGE_TS: $THREAD_MESSAGE_TS"
-      echo "NEW_THREAD_MESSAGE: $NEW_THREAD_MESSAGE"
-      echo "DDB_TABLE_INDEX_NAME: $DDB_TABLE_INDEX_NAME"
-      echo "DDB_INDEX_FIELD_NAME: $DDB_INDEX_FIELD_NAME"
-      echo "DDB_INDEX_FIELD_VALUE: $DDB_INDEX_FIELD_VALUE"
-
-      source /maas-build-actions/venv/bin/activate
-      $RC_PYTHON $RC_HELPER_SCRIPT
+        docker run --rm \
+          -e SLACK_TOKEN \
+          -e SLACK_CHANNEL \
+          -e RC_STEP \
+          -e RC_PYTHON \
+          -e RC_HELPER_SCRIPT \
+          -e THREAD_TS \
+          -e MESSAGE \
+          -e THREAD_MESSAGE \
+          -e MESSAGE_HEADER \
+          -e NEW_MESSAGE_HEADER \
+          -e CHANGE_LOG_HEADER_METADATA \
+          -e PREVIOUS_MESSAGE \
+          -e REPO_NAME \
+          -e DEPLOYED_REF \
+          -e CANDIDATE_REF \
+          -e CONTRIBUTORS_RAW_LIST \
+          -e DDB_ITEM_TO_BE_ADDED \
+          -e DDB_TABLE_NAME \
+          -e DDB_PARTITION_KEY \
+          -e DDB_SORT_KEY \
+          -e DDB_QUERY_JSON \
+          -e DDB_EXISTS_OUTPUT \
+          -e DDB_FIELD_PATH \
+          -e DDB_OUTPUT_NAME \
+          -e DDB_RETURN_SECTION \
+          -e THREAD_MESSAGE_TS \
+          -e NEW_THREAD_MESSAGE \
+          -e DDB_TABLE_INDEX_NAME \
+          -e DDB_INDEX_FIELD_NAME \
+          -e DDB_INDEX_FIELD_VALUE \
+          -e AWS_REGION \
+          -e AWS_ACCESS_KEY_ID \
+          -e AWS_SECRET_ACCESS_KEY \
+          -e AWS_SESSION_TOKEN \
+          -e GITHUB_TOKEN \
+          -e GITHUB_REPOSITORY \
+          -e GITHUB_OUTPUT \
+          -e GITHUB_STEP_SUMMARY \
+          -v "${GITHUB_WORKSPACE}:/github/workspace" \
+          -v "${RUNNER_TEMP}:${RUNNER_TEMP}" \
+          -v "${GITHUB_OUTPUT_DIR}:${GITHUB_OUTPUT_DIR}" \
+          --workdir /github/workspace \
+          "ghcr.io/${OWNER}/maas-build-actions@sha256:96f6a7276d96f888a1848db1d57715316054d0907471bd227a8eb737559fda3c" \
+          /bin/sh -c 'source /maas-build-actions/venv/bin/activate && $RC_PYTHON $RC_HELPER_SCRIPT'
 

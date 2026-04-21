@@ -6,6 +6,19 @@ The `cicd-helper` GitHub Action is a reusable utility for CI/CD pipelines to aut
 
 ---
 
+## Caller Permissions
+
+This action runs the `maas-build-actions` container image from GHCR (`ghcr.io/<org>/maas-build-actions`). The calling workflow's `GITHUB_TOKEN` must have **at least `packages: read`** so that `docker login ghcr.io` can authenticate before pulling the image.
+
+```yaml
+permissions:
+  packages: read        # required to pull maas-build-actions image from GHCR
+```
+
+> **Note:** Composite actions cannot declare `permissions:` themselves. The calling workflow or job is fully responsible for granting this permission.
+
+---
+
 ## Usage
 
 ```yaml

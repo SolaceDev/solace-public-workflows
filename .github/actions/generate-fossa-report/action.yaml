@@ -41,34 +41,61 @@ inputs:
     required: false
 
 runs:
-  using: docker
-  image: docker://ghcr.io/solacedev/maas-build-actions:latest
-  entrypoint: /bin/sh
-  args:
-    - -c
-    - |
-      export FOSSA_API_KEY="$INPUT_FOSSA_API_KEY"
-      export ORG_ID="$INPUT_ORG_ID"
-      if [ -n "$INPUT_PROJECT_LOCATOR" ]; then export PROJECT_LOCATOR="$INPUT_PROJECT_LOCATOR"; fi
-      export FOSSA_CONFIG_FILE="$INPUT_FOSSA_CONFIG_FILE"
-      if [ -n "$INPUT_REVISION_ID" ]; then export REVISION_ID="$INPUT_REVISION_ID"; fi
-      if [ -n "$INPUT_RELEASE_GROUP_ID" ]; then export RELEASE_GROUP_ID="$INPUT_RELEASE_GROUP_ID"; fi
-      if [ -n "$INPUT_RELEASE_ID" ]; then export RELEASE_ID="$INPUT_RELEASE_ID"; fi
-      export FORMAT="$INPUT_FORMAT"
-      export OUTPUT_FILE="$INPUT_OUTPUT_FILE"
-      export REPORT_PROFILE="$INPUT_REPORT_PROFILE"
-      if [ -n "$INPUT_REPORT_PARAMETERS" ]; then export REPORT_PARAMETERS="$INPUT_REPORT_PARAMETERS"; fi
+  using: composite
+  steps:
+    - name: Generate FOSSA Report
+      shell: bash
+      env:
+        # Inject all user-controlled inputs as OS environment variables so the
+        # bash script never sees their values substituted inline as script text.
+        # This prevents shell injection even if an input contains metacharacters.
+        FOSSA_API_KEY: ${{ inputs.fossa_api_key }}
+        ORG_ID: ${{ inputs.org_id }}
+        FOSSA_CONFIG_FILE: ${{ inputs.fossa_config_file }}
+        FORMAT: ${{ inputs.format }}
+        OUTPUT_FILE: ${{ inputs.output_file }}
+        REPORT_PROFILE: ${{ inputs.report_profile }}
+        PROJECT_LOCATOR: ${{ inputs.project_locator }}
+        REVISION_ID: ${{ inputs.revision_id }}
+        RELEASE_GROUP_ID: ${{ inputs.release_group_id }}
+        RELEASE_ID: ${{ inputs.release_id }}
+        REPORT_PARAMETERS: ${{ inputs.report_parameters }}
+      run: |
+        OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
 
-      echo "Generating FOSSA report..."
-      if [ -n "$RELEASE_GROUP_ID" ]; then
-        echo "Release Group ID: $RELEASE_GROUP_ID"
-        echo "Release ID: $RELEASE_ID"
-      else
-        echo "Project: $ORG_ID/$PROJECT_LOCATOR"
-        echo "Revision: $REVISION_ID"
-      fi
-      echo "Format: $FORMAT"
-      echo "Profile: $REPORT_PROFILE"
-      echo "Output: $OUTPUT_FILE"
+        # Authenticate to GHCR using the calling workflow's token so internal
+        # org packages can be pulled. runs.using: docker did this automatically;
+        # with composite + docker run we handle it explicitly.
+        # Use an isolated DOCKER_CONFIG to avoid persisting credentials on
+        # self-hosted runners' shared ~/.docker/config.json.
+        DOCKER_CONFIG=$(mktemp -d "${RUNNER_TEMP}/docker-config.XXXXXX")
+        export DOCKER_CONFIG
+        trap 'docker logout ghcr.io > /dev/null 2>&1 || true; rm -rf "${DOCKER_CONFIG}"' EXIT
+        echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
-      bash /maas-build-actions/actions/generate-fossa-report/generate-report.sh
+        # All inputs are already in the environment via the env: block above.
+
+        # GITHUB_OUTPUT and GITHUB_STEP_SUMMARY live under _runner_file_commands/,
+        # not under RUNNER_TEMP — mount their parent dir so the container can write outputs.
+        GITHUB_OUTPUT_DIR=$(dirname "$GITHUB_OUTPUT")
+
+        docker run --rm \
+          -e FOSSA_API_KEY \
+          -e ORG_ID \
+          -e FOSSA_CONFIG_FILE \
+          -e FORMAT \
+          -e OUTPUT_FILE \
+          -e REPORT_PROFILE \
+          -e PROJECT_LOCATOR \
+          -e REVISION_ID \
+          -e RELEASE_GROUP_ID \
+          -e RELEASE_ID \
+          -e REPORT_PARAMETERS \
+          -e GITHUB_OUTPUT \
+          -e GITHUB_STEP_SUMMARY \
+          -v "${GITHUB_WORKSPACE}:/github/workspace" \
+          -v "${RUNNER_TEMP}:${RUNNER_TEMP}" \
+          -v "${GITHUB_OUTPUT_DIR}:${GITHUB_OUTPUT_DIR}" \
+          --workdir /github/workspace \
+          "ghcr.io/${OWNER}/maas-build-actions@sha256:96f6a7276d96f888a1848db1d57715316054d0907471bd227a8eb737559fda3c" \
+          /bin/sh -c 'bash /maas-build-actions/actions/generate-fossa-report/generate-report.sh'
