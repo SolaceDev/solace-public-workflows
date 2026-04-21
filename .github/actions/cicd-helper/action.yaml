@@ -97,6 +97,14 @@ outputs:
   MAIN_SLACK_MESSAGE:
     description: "Text content of the main Slack channel message"
     value: ${{ steps.run_rc_helper.outputs.MAIN_SLACK_MESSAGE }}
+  # Outputs from post_to_thread
+  THREAD_MESSAGE_TS:
+    description: "Timestamp of the thread reply message (use as thread_message_ts in update_thread_message steps)"
+    value: ${{ steps.run_rc_helper.outputs.THREAD_MESSAGE_TS }}
+  # Outputs from prepare_change_log_message
+  CHANGE_LOG_MESSAGE:
+    description: "Formatted changelog message for use as message input in subsequent post_to_channel/post_to_thread steps"
+    value: ${{ steps.run_rc_helper.outputs.CHANGE_LOG_MESSAGE }}
   # Outputs from get_item_value_from_dynamodb
   # The key name matches whatever ddb_output_name is set to by the caller.
   # Add a new entry here for each distinct ddb_output_name value used across callers.
@@ -111,6 +119,9 @@ outputs:
   ITEM_EXISTS:
     description: "DynamoDB item existence flag (when ddb_exists_output=ITEM_EXISTS)"
     value: ${{ steps.run_rc_helper.outputs.ITEM_EXISTS }}
+  SHA_PASSED_RC:
+    description: "DynamoDB item existence flag (when ddb_exists_output=SHA_PASSED_RC)"
+    value: ${{ steps.run_rc_helper.outputs.SHA_PASSED_RC }}
 
 runs:
   using: composite
