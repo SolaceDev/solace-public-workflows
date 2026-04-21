@@ -607,14 +607,14 @@ jobs:
           # Licensing Check Results
           if [[ "$LICENSING_OUTCOME" == "success" ]]; then
             echo "✅ **Licensing Check**: PASSED" >> $GITHUB_STEP_SUMMARY
-            echo "   _Mode: $LICENSING_MODE, Block on: $LICENSING_BLOCK_ON_" >> $GITHUB_STEP_SUMMARY
+            echo "   _Mode: $LICENSING_MODE, Block on: ${LICENSING_BLOCK_ON}" >> $GITHUB_STEP_SUMMARY
           elif [[ "$LICENSING_OUTCOME" == "failure" ]]; then
             if [[ "$LICENSING_MODE" == "BLOCK" ]]; then
               echo "❌ **Licensing Check**: FAILED (policy conflicts detected) - BLOCKING" >> $GITHUB_STEP_SUMMARY
             else
               echo "⚠️ **Licensing Check**: FAILED (policy conflicts detected) - REPORT ONLY" >> $GITHUB_STEP_SUMMARY
             fi
-            echo "   _Mode: $LICENSING_MODE, Block on: $LICENSING_BLOCK_ON_" >> $GITHUB_STEP_SUMMARY
+            echo "   _Mode: $LICENSING_MODE, Block on: ${LICENSING_BLOCK_ON}" >> $GITHUB_STEP_SUMMARY
           elif [[ "$SKIP_POLICY_GATE" == "true" ]]; then
             echo "⚠️ **Licensing Check**: SKIPPED (emergency bypass)" >> $GITHUB_STEP_SUMMARY
             echo "**Justification**: $BYPASS_JUSTIFICATION" >> $GITHUB_STEP_SUMMARY
@@ -627,14 +627,14 @@ jobs:
           # Vulnerability Check Results
           if [[ "$VULNERABILITY_OUTCOME" == "success" ]]; then
             echo "✅ **Vulnerability Check**: PASSED" >> $GITHUB_STEP_SUMMARY
-            echo "   _Mode: $VULNERABILITY_MODE, Block on: $VULNERABILITY_BLOCK_ON_" >> $GITHUB_STEP_SUMMARY
+            echo "   _Mode: $VULNERABILITY_MODE, Block on: ${VULNERABILITY_BLOCK_ON}" >> $GITHUB_STEP_SUMMARY
           elif [[ "$VULNERABILITY_OUTCOME" == "failure" ]]; then
             if [[ "$VULNERABILITY_MODE" == "BLOCK" ]]; then
               echo "❌ **Vulnerability Check**: FAILED ($VULNERABILITY_BLOCK_ON vulnerabilities detected) - BLOCKING" >> $GITHUB_STEP_SUMMARY
             else
               echo "⚠️ **Vulnerability Check**: ISSUES FOUND ($VULNERABILITY_BLOCK_ON vulnerabilities detected) - REPORT ONLY" >> $GITHUB_STEP_SUMMARY
             fi
-            echo "   _Mode: $VULNERABILITY_MODE, Block on: $VULNERABILITY_BLOCK_ON_" >> $GITHUB_STEP_SUMMARY
+            echo "   _Mode: $VULNERABILITY_MODE, Block on: ${VULNERABILITY_BLOCK_ON}" >> $GITHUB_STEP_SUMMARY
           elif [[ "$SKIP_VULNERABILITY_GATE" == "true" ]]; then
             echo "⚠️ **Vulnerability Check**: SKIPPED (emergency bypass)" >> $GITHUB_STEP_SUMMARY
           else
@@ -656,7 +656,7 @@ jobs:
         if: |
           always() &&
           !inputs.skip_policy_gate &&
-          steps.fossa_licensing.outcome == 'failure' &&
+          steps.fossa_licensing.conclusion == 'failure' &&
           steps.config.outputs.fossa_licensing_mode == 'BLOCK'
         env:
           LICENSING_BLOCK_ON: ${{ steps.config.outputs.fossa_licensing_block_on }}
@@ -671,7 +671,7 @@ jobs:
         if: |
           always() &&
           !inputs.skip_vulnerability_gate &&
-          steps.fossa_vulnerabilities.outcome == 'failure' &&
+          steps.fossa_vulnerabilities.conclusion == 'failure' &&
           steps.config.outputs.fossa_vulnerability_mode == 'BLOCK'
         env:
           VULNERABILITY_BLOCK_ON: ${{ steps.config.outputs.fossa_vulnerability_block_on }}
