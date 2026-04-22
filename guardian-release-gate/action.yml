@@ -1,0 +1,222 @@
+name: "Guardian Release Gate"
+description: "Runs Guardian /api/v1/release_gate to gate a release artifact on vulnerability thresholds."
+
+inputs:
+  guardian-url:
+    description: "Guardian API base URL."
+    required: true
+  guardian-key:
+    description: "Guardian API bearer token."
+    required: true
+  product-name:
+    description: "Guardian product name. Defaults to the repository name without the org."
+    required: false
+    default: ""
+  product-version:
+    description: "Product branch or stream (e.g. main). Defaults to GITHUB_REF_NAME."
+    required: false
+    default: ""
+  product-full-version:
+    description: "Unique build identifier (e.g. 3.2.1.1744100000)."
+    required: true
+  scan-time:
+    description: "ISO 8601 scan timestamp. Defaults to current UTC time."
+    required: false
+    default: ""
+  fossa-revision:
+    description: "FOSSA revision (git SHA or semver tag) for server-side scan auto-fetch."
+    required: false
+    default: ""
+  fossa-scan-path:
+    description: "Path to fossa_scan.json to upload directly."
+    required: false
+    default: ""
+  prisma-scan-path:
+    description: "Path to prisma_scan.json to upload directly."
+    required: false
+    default: ""
+  trivy-scan-path:
+    description: "Path to trivy_scan.json to upload directly."
+    required: false
+    default: ""
+  thresholds:
+    description: 'JSON dict of severity thresholds (e.g. {"Critical":null,"High":10}). null blocks immediately.'
+    required: false
+    default: ""
+  severity:
+    description: 'JSON array of severities to gate on (e.g. ["Critical","High"]). Ignored when thresholds is set.'
+    required: false
+    default: ""
+  slack-channel-id:
+    description: "Slack channel ID for notification. Omit to skip Slack."
+    required: false
+    default: ""
+  slack-thread-ts:
+    description: "Slack thread timestamp for reply."
+    required: false
+    default: ""
+  slack-build-url:
+    description: "CI build URL for Slack link."
+    required: false
+    default: ""
+  slack-title:
+    description: "Label for the Slack notification."
+    required: false
+    default: ""
+  fail-on-blocked:
+    description: "Exit non-zero if overall_blocked is true."
+    required: false
+    default: "true"
+  report-path:
+    description: "File path where the markdown vulnerability report is written."
+    required: false
+    default: "release_gate_report.md"
+  publish-report:
+    description: "Append the full vulnerability report to the job summary and upload it as a GitHub Actions artifact. Always suppressed for public repositories regardless of this flag."
+    required: false
+    default: "true"
+
+outputs:
+  overall_blocked:
+    description: "'true' if the release is blocked by vulnerability thresholds."
+    value: ${{ steps.release_gate.outputs.overall_blocked }}
+  vulnerability_count:
+    description: "Number of blocking (non-excluded) vulnerabilities."
+    value: ${{ steps.release_gate.outputs.vulnerability_count }}
+  report_path:
+    description: "Path where the markdown vulnerability report was written."
+    value: ${{ steps.release_gate.outputs.report_path }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Validate Guardian API inputs
+      shell: bash
+      run: |
+        echo "::add-mask::${{ inputs.guardian-url }}"
+        echo "::add-mask::${{ inputs.guardian-key }}"
+
+        if [ -z "${{ inputs.guardian-url }}" ] || [ -z "${{ inputs.guardian-key }}" ]; then
+          echo "guardian-url and guardian-key are required." >&2
+          exit 1
+        fi
+
+    - name: Evaluate report publishing
+      id: report_visibility
+      shell: bash
+      run: |
+        REPO_VISIBILITY="${{ github.event.repository.visibility }}"
+        if [ "${{ inputs.publish-report }}" = "true" ] && [ "$REPO_VISIBILITY" = "public" ]; then
+          echo "Report publishing suppressed: repository is public. Vulnerability details will not be included in the job summary or uploaded as artifacts." >&2
+          echo "enabled=false" >> "$GITHUB_OUTPUT"
+        elif [ "${{ inputs.publish-report }}" = "true" ]; then
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "enabled=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Prepare release gate report artifact name
+      id: report_artifact
+      if: ${{ steps.report_visibility.outputs.enabled == 'true' }}
+      shell: bash
+      env:
+        INPUT_PRODUCT_NAME: ${{ inputs.product-name }}
+        PRODUCT_FULL_VERSION: ${{ inputs.product-full-version }}
+        JOB_NAME: ${{ github.job }}
+        REPOSITORY_NAME: ${{ github.repository }}
+      run: |
+        set -euo pipefail
+        sanitize() {
+          printf '%s' "$1" | tr '/:@ ' '-' | tr -cd '[:alnum:]._-'
+        }
+
+        PRODUCT_NAME="$INPUT_PRODUCT_NAME"
+        if [ -z "$PRODUCT_NAME" ]; then
+          PRODUCT_NAME="${REPOSITORY_NAME#*/}"
+        fi
+
+        PRODUCT_NAME_SAFE="$(sanitize "$PRODUCT_NAME")"
+        PRODUCT_FULL_VERSION_SAFE="$(sanitize "$PRODUCT_FULL_VERSION")"
+        JOB_NAME_SAFE="$(sanitize "$JOB_NAME")"
+
+        if [ -z "$PRODUCT_NAME_SAFE" ]; then
+          PRODUCT_NAME_SAFE="repository"
+        fi
+        if [ -z "$PRODUCT_FULL_VERSION_SAFE" ]; then
+          PRODUCT_FULL_VERSION_SAFE="unknown"
+        fi
+        if [ -z "$JOB_NAME_SAFE" ]; then
+          JOB_NAME_SAFE="job"
+        fi
+
+        echo "name=guardian-release-gate-${JOB_NAME_SAFE}-${PRODUCT_NAME_SAFE}-${PRODUCT_FULL_VERSION_SAFE}" >> "$GITHUB_OUTPUT"
+
+    - name: Run Guardian release gate
+      id: release_gate
+      shell: bash
+      env:
+        INPUT_PRODUCT_NAME: ${{ inputs.product-name }}
+        REPOSITORY_NAME: ${{ github.repository }}
+      run: |
+        PRODUCT_NAME="$INPUT_PRODUCT_NAME"
+        if [ -z "$PRODUCT_NAME" ]; then
+          PRODUCT_NAME="${REPOSITORY_NAME#*/}"
+        fi
+
+        args=(
+          --guardian-url "${{ inputs.guardian-url }}"
+          --guardian-key "${{ inputs.guardian-key }}"
+          --product-name "$PRODUCT_NAME"
+          --product-full-version "${{ inputs.product-full-version }}"
+          --fail-on-blocked "${{ inputs.fail-on-blocked }}"
+          --report-path "${{ inputs.report-path }}"
+          --summary-report "${{ steps.report_visibility.outputs.enabled }}"
+        )
+
+        if [ -n "${{ inputs.product-version }}" ]; then
+          args+=(--product-version "${{ inputs.product-version }}")
+        fi
+        if [ -n "${{ inputs.scan-time }}" ]; then
+          args+=(--scan-time "${{ inputs.scan-time }}")
+        fi
+        if [ -n "${{ inputs.fossa-revision }}" ]; then
+          args+=(--fossa-revision "${{ inputs.fossa-revision }}")
+        fi
+        if [ -n "${{ inputs.fossa-scan-path }}" ]; then
+          args+=(--fossa-scan-path "${{ inputs.fossa-scan-path }}")
+        fi
+        if [ -n "${{ inputs.prisma-scan-path }}" ]; then
+          args+=(--prisma-scan-path "${{ inputs.prisma-scan-path }}")
+        fi
+        if [ -n "${{ inputs.trivy-scan-path }}" ]; then
+          args+=(--trivy-scan-path "${{ inputs.trivy-scan-path }}")
+        fi
+        if [ -n "${{ inputs.thresholds }}" ]; then
+          args+=(--thresholds "${{ inputs.thresholds }}")
+        fi
+        if [ -n "${{ inputs.severity }}" ]; then
+          args+=(--severity "${{ inputs.severity }}")
+        fi
+        if [ -n "${{ inputs.slack-channel-id }}" ]; then
+          args+=(--slack-channel-id "${{ inputs.slack-channel-id }}")
+        fi
+        if [ -n "${{ inputs.slack-thread-ts }}" ]; then
+          args+=(--slack-thread-ts "${{ inputs.slack-thread-ts }}")
+        fi
+        if [ -n "${{ inputs.slack-build-url }}" ]; then
+          args+=(--slack-build-url "${{ inputs.slack-build-url }}")
+        fi
+        if [ -n "${{ inputs.slack-title }}" ]; then
+          args+=(--slack-title "${{ inputs.slack-title }}")
+        fi
+
+        bash "${{ github.action_path }}/release_gate_via_api.sh" "${args[@]}"
+
+    - name: Upload release gate report
+      if: ${{ always() && steps.report_visibility.outputs.enabled == 'true' }}
+      uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+      with:
+        name: ${{ steps.report_artifact.outputs.name }}
+        path: ${{ inputs.report-path }}
+        retention-days: 30
+        if-no-files-found: warn
