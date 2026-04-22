@@ -193,8 +193,9 @@ class TestReleaseNotesGenerator(unittest.TestCase):
     @patch.dict(
         os.environ, {"GITHUB_TOKEN": "fake_token", "GITHUB_REPOSITORY": "test/repo"}
     )
+    @patch.object(generate_github_release_notes, "_resolve_version_ref")
     @patch.object(generate_github_release_notes, "_get_commits_with_prs_graphql")
-    def test_get_commits_between_refs_mocked(self, mock_graphql):
+    def test_get_commits_between_refs_mocked(self, mock_graphql, mock_resolve_ref):
         """Test getting commits between git references with mocked GraphQL"""
         # Mock GraphQL response
         mock_commits = [
@@ -212,6 +213,7 @@ class TestReleaseNotesGenerator(unittest.TestCase):
             }
         ]
         mock_graphql.return_value = mock_commits
+        mock_resolve_ref.side_effect = ["v1.0.0", "v1.1.0"]
 
         # Test the function
         commits = get_commits_between_refs("v1.0.0", "v1.1.0")
@@ -220,6 +222,134 @@ class TestReleaseNotesGenerator(unittest.TestCase):
         self.assertEqual(commits[0]["subject"], "fix: resolve issue")
         self.assertEqual(commits[0]["author"], "Test User")
         mock_graphql.assert_called_once()
+
+    @patch.object(generate_github_release_notes.requests, "get")
+    def test_resolve_version_ref_swaps_removed_v_prefix(self, mock_get):
+        """Test resolving refs when repositories drop the leading v prefix."""
+        missing_response = MagicMock()
+        missing_response.status_code = 404
+        found_response = MagicMock()
+        found_response.status_code = 200
+        mock_get.side_effect = [missing_response, found_response]
+
+        resolved_ref = generate_github_release_notes._resolve_version_ref(
+            "fake_token", "test/repo", "v1.2.3"
+        )
+
+        self.assertEqual(resolved_ref, "1.2.3")
+        self.assertEqual(mock_get.call_count, 2)
+        self.assertTrue(mock_get.call_args_list[1].args[0].endswith("/git/ref/tags/1.2.3"))
+
+    @patch.object(generate_github_release_notes.requests, "get")
+    def test_resolve_version_ref_skips_non_version_refs(self, mock_get):
+        """Test that non-version refs are returned unchanged."""
+        resolved_ref = generate_github_release_notes._resolve_version_ref(
+            "fake_token", "test/repo", "main"
+        )
+
+        self.assertEqual(resolved_ref, "main")
+        mock_get.assert_not_called()
+
+    @patch.dict(
+        os.environ, {"GITHUB_TOKEN": "fake_token", "GITHUB_REPOSITORY": "test/repo"}
+    )
+    @patch.object(generate_github_release_notes, "_create_graphql_client")
+    @patch.object(generate_github_release_notes, "_resolve_version_ref")
+    @patch.object(generate_github_release_notes, "_get_commits_with_prs_graphql")
+    def test_get_commits_between_refs_uses_resolved_refs(
+        self,
+        mock_graphql,
+        mock_resolve_ref,
+        mock_create_graphql_client,
+    ):
+        """Test that GraphQL compare uses resolved tag refs."""
+        mock_graphql.return_value = []
+        mock_create_graphql_client.return_value = MagicMock()
+        mock_resolve_ref.side_effect = ["1.0.0", "1.1.0"]
+
+        commits = get_commits_between_refs("v1.0.0", "v1.1.0")
+
+        self.assertEqual(commits, [])
+        mock_graphql.assert_called_once_with(
+            mock_create_graphql_client.return_value,
+            "test/repo",
+            "1.0.0",
+            "1.1.0",
+        )
+
+    @patch.object(generate_github_release_notes.requests, "get")
+    def test_get_commits_with_compare_rest_extracts_commit_data(self, mock_get):
+        """Test REST compare fallback response parsing."""
+        response = MagicMock()
+        response.status_code = 200
+        response.json.return_value = {
+            "total_commits": 1,
+            "commits": [
+                {
+                    "sha": "abc1234567890123456789012345678901234567",
+                    "commit": {
+                        "message": "fix: resolve flaky release notes\n\nbody",
+                        "author": {"name": "Test User"},
+                    },
+                }
+            ],
+        }
+        mock_get.return_value = response
+
+        commits = generate_github_release_notes._get_commits_with_compare_rest(
+            "fake_token", "test/repo", "1.0.0", "1.1.0"
+        )
+
+        self.assertEqual(
+            commits,
+            [
+                {
+                    "hash": "abc1234",
+                    "full_hash": "abc1234567890123456789012345678901234567",
+                    "subject": "fix: resolve flaky release notes",
+                    "author": "Test User",
+                    "pr_number": None,
+                }
+            ],
+        )
+
+    @patch.dict(
+        os.environ, {"GITHUB_TOKEN": "fake_token", "GITHUB_REPOSITORY": "test/repo"}
+    )
+    @patch.object(generate_github_release_notes, "_create_graphql_client")
+    @patch.object(generate_github_release_notes, "_resolve_version_ref")
+    @patch.object(generate_github_release_notes, "_get_commits_with_compare_rest")
+    @patch.object(generate_github_release_notes, "_get_commits_with_prs_graphql")
+    def test_get_commits_between_refs_falls_back_to_rest_compare(
+        self,
+        mock_graphql,
+        mock_compare_rest,
+        mock_resolve_ref,
+        mock_create_graphql_client,
+    ):
+        """Test REST fallback when GraphQL compare fails."""
+        fallback_commits = [
+            {
+                "hash": "abc1234",
+                "full_hash": "abc1234567890123456789012345678901234567",
+                "subject": "fix: resolve flaky release notes",
+                "author": "Test User",
+                "pr_number": None,
+            }
+        ]
+        mock_graphql.side_effect = generate_github_release_notes.GraphQLCompareError(
+            "Response ended prematurely"
+        )
+        mock_compare_rest.return_value = fallback_commits
+        mock_resolve_ref.side_effect = ["1.0.0", "1.1.0"]
+        mock_create_graphql_client.return_value = MagicMock()
+
+        commits = get_commits_between_refs("v1.0.0", "v1.1.0")
+
+        self.assertEqual(commits, fallback_commits)
+        mock_compare_rest.assert_called_once_with(
+            "fake_token", "test/repo", "1.0.0", "1.1.0"
+        )
 
     @patch.dict(
         os.environ, {"GITHUB_TOKEN": "fake_token", "GITHUB_REPOSITORY": "test/repo"}

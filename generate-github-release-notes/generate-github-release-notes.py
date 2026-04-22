@@ -4,8 +4,10 @@ import argparse
 import json
 import re
 import sys
+import time
 from os import getenv
 from pathlib import Path
+from urllib.parse import quote
 from packaging import version
 
 import requests
@@ -96,6 +98,57 @@ def _parse_version(tag_name: str) -> version.Version | None:
         return None
 
 
+def _github_api_headers(github_token: str) -> dict[str, str]:
+    """Build GitHub REST API headers."""
+    return {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {github_token}",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+
+
+def _resolve_version_ref(github_token: str, repo_name: str, ref: str) -> str:
+    """Resolve semantic-version tag refs across repositories with mixed tag prefixes."""
+    if not ref or ref == "HEAD" or ref.startswith("refs/"):
+        return ref
+
+    parsed_ref = _parse_version(ref)
+    if not parsed_ref:
+        return ref
+
+    clean_ref = ref[1:] if ref.startswith("v") else ref
+    candidates = [ref]
+
+    if clean_ref != ref:
+        candidates.append(clean_ref)
+
+    prefixed_ref = f"v{clean_ref}"
+    if prefixed_ref not in candidates:
+        candidates.append(prefixed_ref)
+
+    headers = _github_api_headers(github_token)
+    for candidate in candidates:
+        encoded_candidate = quote(candidate, safe="")
+        url = (
+            f"https://api.github.com/repos/{repo_name}/git/ref/tags/{encoded_candidate}"
+        )
+        response = requests.get(url, headers=headers, timeout=10)
+
+        if response.status_code == 200:
+            if candidate != ref:
+                print(f"Resolved ref '{ref}' to existing tag '{candidate}'")
+            return candidate
+
+        if response.status_code != 404:
+            print(
+                f"Warning: Could not verify tag '{candidate}' "
+                f"(HTTP {response.status_code}); keeping original ref '{ref}'."
+            )
+            return ref
+
+    return ref
+
+
 def get_previous_release_tag(
     github_token: str, repo_name: str, to_ref: str
 ) -> str | None:
@@ -114,11 +167,7 @@ def get_previous_release_tag(
         The tag name of the previous release, or None if no suitable release found
     """
     url = f"https://api.github.com/repos/{repo_name}/releases"
-    headers = {
-        "Accept": "application/vnd.github+json",
-        "Authorization": f"Bearer {github_token}",
-        "X-GitHub-Api-Version": "2022-11-28",
-    }
+    headers = _github_api_headers(github_token)
 
     try:
         print(
@@ -189,6 +238,10 @@ class RefNotFoundError(Exception):
         super().__init__(f"Could not find ref '{ref}'")
 
 
+class GraphQLCompareError(Exception):
+    """Raised when GraphQL compare fails but another API can still be tried."""
+
+
 def _validate_graphql_response(result: dict, from_ref: str, to_ref: str) -> dict | None:
     """Validate GraphQL response and return commits data or raise exception if invalid
 
@@ -227,77 +280,184 @@ def _extract_commit_from_node(node: dict) -> dict:
         "subject": node["messageHeadline"],
         "author": node["author"]["name"] if node["author"] else "Unknown",
         "pr_number": pr_number,
-        "changed_files": node.get("changedFilesIfAvailable", 0),
-        "committed_date": node["committedDate"],
-        "authored_date": node["authoredDate"],
-        "additions": node.get("additions", 0),
-        "deletions": node.get("deletions", 0),
     }
 
 
-def _get_commits_with_prs_graphql(
-    graphql_client: Client, repo_name: str, from_ref: str, to_ref: str
+def _extract_commit_from_compare_rest(commit: dict) -> dict:
+    """Extract commit data from REST compare API response."""
+    commit_details = commit.get("commit") or {}
+    commit_author = commit_details.get("author") or {}
+
+    return {
+        "hash": commit["sha"][:7],
+        "full_hash": commit["sha"],
+        "subject": commit_details.get("message", "").split("\n")[0],
+        "author": commit_author.get("name") or "Unknown",
+        "pr_number": None,
+    }
+
+
+def _fetch_rest_compare_page(
+    url: str, headers: dict, page: int, per_page: int, from_ref: str, to_ref: str
+) -> dict:
+    """Fetch a single page from the REST compare API."""
+    response = requests.get(
+        url,
+        headers=headers,
+        params={"page": page, "per_page": per_page},
+        timeout=30,
+    )
+    if response.status_code != 200:
+        raise RuntimeError(
+            "REST compare API failed for "
+            f"{from_ref}...{to_ref}: HTTP {response.status_code}"
+        )
+    result = response.json()
+    if result.get("commits") is None:
+        raise RuntimeError("REST compare API response did not include commits")
+    return result
+
+
+def _deduplicate_commits(
+    page_commits: list[dict], seen_hashes: set
 ) -> list[dict[str, str]]:
-    """Get commits between refs using GraphQL compare API with pagination"""
+    """Extract and deduplicate commits from a REST compare page."""
+    new_commits = []
+    for commit in page_commits:
+        if commit["sha"] not in seen_hashes:
+            seen_hashes.add(commit["sha"])
+            new_commits.append(_extract_commit_from_compare_rest(commit))
+    return new_commits
+
+
+def _get_commits_with_compare_rest(
+    github_token: str, repo_name: str, from_ref: str, to_ref: str
+) -> list[dict[str, str]]:
+    """Get commits between refs using the REST compare API."""
     owner, repo = repo_name.split("/")
+    url = (
+        f"https://api.github.com/repos/{owner}/{repo}/compare/"
+        f"{quote(from_ref, safe='')}...{quote(to_ref, safe='')}"
+    )
+    headers = _github_api_headers(github_token)
+    per_page = 100
 
-    print(f"Fetching commits between {from_ref} and {to_ref} using GraphQL compare...")
+    print(f"Fetching commits between {from_ref} and {to_ref} using REST compare...")
 
-    # GraphQL query using compare API
-    query = gql("""
-    query($owner: String!, $repo: String!, $baseRef: String!, $headRef: String!, $after: String) {
-      repository(owner: $owner, name: $repo) {
-        nameWithOwner
-        baseTagRef: ref(qualifiedName: $baseRef) {
-          name
-          compare(headRef: $headRef) {
-            status
-            aheadBy
-            behindBy
-            commits(first: 100, after: $after) {
-              pageInfo {
-                hasNextPage
-                endCursor
-              }
-              totalCount
+    commits: list[dict[str, str]] = []
+    seen_hashes: set[str] = set()
+
+    for page in range(1, 10_001):  # safety upper bound
+        result = _fetch_rest_compare_page(
+            url, headers, page, per_page, from_ref, to_ref
+        )
+        page_commits = result["commits"]
+
+        if page == 1:
+            print(
+                f"Total commits in comparison: {result.get('total_commits', len(page_commits))}"
+            )
+
+        print(f"Found {len(page_commits)} commits on REST page {page}")
+        commits.extend(_deduplicate_commits(page_commits, seen_hashes))
+
+        total = result.get("total_commits")
+        is_last_page = len(page_commits) < per_page
+        all_fetched = total is not None and len(commits) >= total
+        if is_last_page or all_fetched:
+            break
+
+    print(f"Successfully fetched {len(commits)} commits using REST compare")
+    return commits
+
+
+_GRAPHQL_COMPARE_QUERY = gql("""
+query($owner: String!, $repo: String!, $baseRef: String!, $headRef: String!, $after: String) {
+  repository(owner: $owner, name: $repo) {
+    baseTagRef: ref(qualifiedName: $baseRef) {
+      compare(headRef: $headRef) {
+        commits(first: 100, after: $after) {
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
+          totalCount
+          nodes {
+            oid
+            abbreviatedOid
+            messageHeadline
+            author {
+              name
+            }
+            associatedPullRequests(first: 1) {
               nodes {
-                oid
-                abbreviatedOid
-                messageHeadline
-                messageBody
-                author {
-                  name
-                  email
-                  user {
-                    login
-                  }
-                }
-                authoredDate
-                committedDate
-                additions
-                deletions
-                changedFilesIfAvailable
-                associatedPullRequests(first: 1) {
-                  nodes {
-                    number
-                    title
-                    url
-                  }
-                }
+                number
               }
             }
           }
         }
       }
     }
-    """)
+  }
+}
+""")
 
-    commits = []
-    has_next_page = True
-    cursor = None
-    page_count = 0
+_MAX_GRAPHQL_RETRIES = 3
+_MAX_GRAPHQL_PAGES = 50  # 5000 commits max
 
-    while has_next_page and page_count < 50:  # Limit to 50 pages (5000 commits max)
+
+def _execute_graphql_with_retry(
+    graphql_client: Client,
+    variables: dict,
+    from_ref: str,
+    to_ref: str,
+    page_number: int,
+) -> dict:
+    """Execute a GraphQL compare query with retry and exponential backoff.
+
+    Returns the commits data dict from the response.
+    Raises RefNotFoundError (immediately, no retry) or GraphQLCompareError (after exhausting retries).
+    """
+    last_error: Exception | None = None
+
+    for attempt in range(1, _MAX_GRAPHQL_RETRIES + 1):
+        try:
+            print(f"Executing GraphQL query (page {page_number}, attempt {attempt})...")
+            result = graphql_client.execute(
+                _GRAPHQL_COMPARE_QUERY, variable_values=variables
+            )
+            return _validate_graphql_response(result, from_ref, to_ref)
+        except RefNotFoundError:
+            raise
+        except Exception as e:
+            last_error = e
+            if attempt < _MAX_GRAPHQL_RETRIES:
+                delay_seconds = 2 ** (attempt - 1)
+                print(
+                    f"Warning: GraphQL query failed on page {page_number} "
+                    f"(attempt {attempt}/{_MAX_GRAPHQL_RETRIES}): {e}"
+                )
+                print(f"Retrying GraphQL query in {delay_seconds}s...")
+                time.sleep(delay_seconds)
+
+    raise GraphQLCompareError(
+        f"GraphQL query failed on page {page_number}: {last_error}"
+    ) from last_error
+
+
+def _get_commits_with_prs_graphql(
+    graphql_client: Client, repo_name: str, from_ref: str, to_ref: str
+) -> list[dict[str, str]]:
+    """Get commits between refs using GraphQL compare API with pagination."""
+    owner, repo = repo_name.split("/")
+
+    print(f"Fetching commits between {from_ref} and {to_ref} using GraphQL compare...")
+
+    commits: list[dict[str, str]] = []
+    cursor: str | None = None
+
+    for page_index in range(_MAX_GRAPHQL_PAGES):
+        page_number = page_index + 1
         variables = {
             "owner": owner,
             "repo": repo,
@@ -306,39 +466,22 @@ def _get_commits_with_prs_graphql(
             "after": cursor,
         }
 
-        try:
-            print(f"Executing GraphQL query (page {page_count + 1})...")
-            result = graphql_client.execute(query, variable_values=variables)
+        commits_data = _execute_graphql_with_retry(
+            graphql_client, variables, from_ref, to_ref, page_number
+        )
 
-            # This will raise RefNotFoundError if tags/refs are invalid
-            commits_data = _validate_graphql_response(result, from_ref, to_ref)
+        nodes = commits_data["nodes"]
+        print(f"Found {len(nodes)} commits on page {page_number}")
+        print(
+            f"Total commits in comparison: {commits_data.get('totalCount', 'unknown')}"
+        )
 
-            page_info = commits_data["pageInfo"]
-            nodes = commits_data["nodes"]
+        commits.extend(_extract_commit_from_node(node) for node in nodes)
 
-            print(f"Found {len(nodes)} commits on page {page_count + 1}")
-            print(
-                f"Total commits in comparison: {commits_data.get('totalCount', 'unknown')}"
-            )
-
-            # Process all nodes in this page
-            for node in nodes:
-                commit_dict = _extract_commit_from_node(node)
-                commits.append(commit_dict)
-
-            has_next_page = page_info["hasNextPage"]
-            cursor = page_info["endCursor"]
-            page_count += 1
-
-        except RefNotFoundError:
-            # Re-raise to be handled by caller
-            raise
-        except Exception as e:
-            print(f"Error: GraphQL query failed on page {page_count + 1}: {e}")
-            import traceback
-
-            traceback.print_exc()
-            sys.exit(1)
+        page_info = commits_data["pageInfo"]
+        if not page_info["hasNextPage"]:
+            break
+        cursor = page_info["endCursor"]
 
     print(f"Successfully fetched {len(commits)} commits using GraphQL compare")
     return commits
@@ -355,65 +498,99 @@ def _build_commit_dict(commit, pr_number: str | None) -> dict[str, str]:
     }
 
 
+def _fetch_commits_with_fallback(
+    graphql_client: Client,
+    github_token: str,
+    github_repo: str,
+    from_ref: str,
+    to_ref: str,
+) -> list[dict[str, str]]:
+    """Try GraphQL compare first, fall back to REST compare on failure."""
+    try:
+        return _get_commits_with_prs_graphql(
+            graphql_client, github_repo, from_ref, to_ref
+        )
+    except GraphQLCompareError as e:
+        print(f"Warning: {e}")
+        print("Falling back to REST compare API without PR association.")
+        return _get_commits_with_compare_rest(
+            github_token, github_repo, from_ref, to_ref
+        )
+
+
+def _resolve_fallback_base_ref(
+    github_token: str, github_repo: str, from_ref: str, to_ref: str
+) -> str:
+    """Find a fallback base ref when the original from_ref is not found.
+
+    Raises SystemExit if no suitable fallback can be found.
+    """
+    print(
+        f"Warning: Base ref '{from_ref}' not found. "
+        f"Trying fallback to previous release before '{to_ref}'..."
+    )
+    previous_tag = get_previous_release_tag(github_token, github_repo, to_ref)
+    if not previous_tag:
+        print(
+            f"Error: Could not find base ref '{from_ref}' "
+            "and no releases found for fallback"
+        )
+        sys.exit(1)
+
+    resolved = _resolve_version_ref(github_token, github_repo, previous_tag)
+    print(
+        f"Using previous release tag '{resolved}' as base ref instead of '{from_ref}'"
+    )
+    return resolved
+
+
 def get_commits_between_refs(from_ref: str, to_ref: str) -> list[dict[str, str]]:
-    """Get commits between two git references using efficient GraphQL queries
+    """Get commits between two git references using efficient GraphQL queries.
 
     If from_ref is not found but to_ref is valid, attempts to use the latest release
     tag as a fallback for from_ref.
     """
     github_token, github_repo = _validate_environment()
+    graphql_client = _create_graphql_client(github_token)
+
+    resolved_from_ref = _resolve_version_ref(github_token, github_repo, from_ref)
+    resolved_to_ref = _resolve_version_ref(github_token, github_repo, to_ref)
+    if resolved_from_ref != from_ref or resolved_to_ref != to_ref:
+        print(f"Using resolved refs: {resolved_from_ref} -> {resolved_to_ref}")
 
     try:
-        # Create GraphQL client for GitHub API
-        graphql_client = _create_graphql_client(github_token)
-
-        # Use GraphQL to get commits with associated PRs in a single query
-        commits = _get_commits_with_prs_graphql(
-            graphql_client, github_repo, from_ref, to_ref
+        commits = _fetch_commits_with_fallback(
+            graphql_client,
+            github_token,
+            github_repo,
+            resolved_from_ref,
+            resolved_to_ref,
         )
-
         print(f"Processing {len(commits)} commits...")
         return commits
-
     except RefNotFoundError as e:
-        # If the from_ref (base) was not found, try using the previous release as fallback
-        if e.is_base_ref:
-            print(
-                f"Warning: Base ref '{from_ref}' not found. Trying fallback to previous release before '{to_ref}'..."
-            )
-
-            previous_tag = get_previous_release_tag(github_token, github_repo, to_ref)
-            if previous_tag:
-                print(
-                    f"Using previous release tag '{previous_tag}' as base ref instead of '{from_ref}'"
-                )
-                try:
-                    # Retry with the previous release tag
-                    commits = _get_commits_with_prs_graphql(
-                        graphql_client, github_repo, previous_tag, to_ref
-                    )
-                    print(f"Processing {len(commits)} commits...")
-                    return commits
-                except RefNotFoundError as retry_error:
-                    print(f"Error: Fallback also failed: {retry_error}")
-                    print(f"Could not find ref '{retry_error.ref}'")
-                    sys.exit(1)
-            else:
-                print(
-                    f"Error: Could not find base ref '{from_ref}' and no releases found for fallback"
-                )
-                sys.exit(1)
-        else:
-            # to_ref (head) not found - cannot recover
-            print(f"Error: Could not find head ref '{to_ref}'")
-            print(f"Please ensure the tag/ref '{to_ref}' exists")
+        if not e.is_base_ref:
+            print(f"Error: Could not find head ref '{e.ref}'")
+            print(f"Please ensure the tag/ref '{e.ref}' exists")
             sys.exit(1)
 
-    except Exception as e:
-        print(f"Error: Failed to get commits using GraphQL: {e}")
-        import traceback
-
-        traceback.print_exc()
+    # Base ref not found — attempt fallback to previous release tag
+    fallback_from = _resolve_fallback_base_ref(
+        github_token, github_repo, from_ref, to_ref
+    )
+    try:
+        commits = _fetch_commits_with_fallback(
+            graphql_client,
+            github_token,
+            github_repo,
+            fallback_from,
+            resolved_to_ref,
+        )
+        print(f"Processing {len(commits)} commits...")
+        return commits
+    except RefNotFoundError as retry_error:
+        print(f"Error: Fallback also failed: {retry_error}")
+        print(f"Could not find ref '{retry_error.ref}'")
         sys.exit(1)
 
 
