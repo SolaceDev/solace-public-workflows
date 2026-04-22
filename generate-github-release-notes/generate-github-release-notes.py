@@ -128,7 +128,10 @@ def _resolve_version_ref(github_token: str, repo_name: str, ref: str) -> str:
 
     headers = _github_api_headers(github_token)
     for candidate in candidates:
-        url = f"https://api.github.com/repos/{repo_name}/git/ref/tags/{candidate}"
+        encoded_candidate = quote(candidate, safe="")
+        url = (
+            f"https://api.github.com/repos/{repo_name}/git/ref/tags/{encoded_candidate}"
+        )
         response = requests.get(url, headers=headers, timeout=10)
 
         if response.status_code == 200:
@@ -345,11 +348,15 @@ def _get_commits_with_compare_rest(
     seen_hashes: set[str] = set()
 
     for page in range(1, 10_001):  # safety upper bound
-        result = _fetch_rest_compare_page(url, headers, page, per_page, from_ref, to_ref)
+        result = _fetch_rest_compare_page(
+            url, headers, page, per_page, from_ref, to_ref
+        )
         page_commits = result["commits"]
 
         if page == 1:
-            print(f"Total commits in comparison: {result.get('total_commits', len(page_commits))}")
+            print(
+                f"Total commits in comparison: {result.get('total_commits', len(page_commits))}"
+            )
 
         print(f"Found {len(page_commits)} commits on REST page {page}")
         commits.extend(_deduplicate_commits(page_commits, seen_hashes))
@@ -465,7 +472,9 @@ def _get_commits_with_prs_graphql(
 
         nodes = commits_data["nodes"]
         print(f"Found {len(nodes)} commits on page {page_number}")
-        print(f"Total commits in comparison: {commits_data.get('totalCount', 'unknown')}")
+        print(
+            f"Total commits in comparison: {commits_data.get('totalCount', 'unknown')}"
+        )
 
         commits.extend(_extract_commit_from_node(node) for node in nodes)
 
@@ -529,7 +538,9 @@ def _resolve_fallback_base_ref(
         sys.exit(1)
 
     resolved = _resolve_version_ref(github_token, github_repo, previous_tag)
-    print(f"Using previous release tag '{resolved}' as base ref instead of '{from_ref}'")
+    print(
+        f"Using previous release tag '{resolved}' as base ref instead of '{from_ref}'"
+    )
     return resolved
 
 
@@ -549,15 +560,18 @@ def get_commits_between_refs(from_ref: str, to_ref: str) -> list[dict[str, str]]
 
     try:
         commits = _fetch_commits_with_fallback(
-            graphql_client, github_token, github_repo,
-            resolved_from_ref, resolved_to_ref,
+            graphql_client,
+            github_token,
+            github_repo,
+            resolved_from_ref,
+            resolved_to_ref,
         )
         print(f"Processing {len(commits)} commits...")
         return commits
     except RefNotFoundError as e:
         if not e.is_base_ref:
-            print(f"Error: Could not find head ref '{to_ref}'")
-            print(f"Please ensure the tag/ref '{to_ref}' exists")
+            print(f"Error: Could not find head ref '{e.ref}'")
+            print(f"Please ensure the tag/ref '{e.ref}' exists")
             sys.exit(1)
 
     # Base ref not found — attempt fallback to previous release tag
@@ -566,8 +580,11 @@ def get_commits_between_refs(from_ref: str, to_ref: str) -> list[dict[str, str]]
     )
     try:
         commits = _fetch_commits_with_fallback(
-            graphql_client, github_token, github_repo,
-            fallback_from, resolved_to_ref,
+            graphql_client,
+            github_token,
+            github_repo,
+            fallback_from,
+            resolved_to_ref,
         )
         print(f"Processing {len(commits)} commits...")
         return commits
