@@ -239,5 +239,5 @@ runs:
           -v "${RUNNER_TEMP}:${RUNNER_TEMP}" \
           -v "${GITHUB_OUTPUT_DIR}:${GITHUB_OUTPUT_DIR}" \
           --workdir /github/workspace \
-          "ghcr.io/${OWNER}/maas-build-actions@sha256:adfd81b15a4080fb7a70efda73c9620e16fed5d0ccccd35a2d7334ed09ac7614" \
+          "ghcr.io/${OWNER}/maas-build-actions@sha256:a17d9a781e59c8a25676db87ca89d692fe796caf176682b9bce96354ca3a4c5d" \
           /bin/sh -c 'source /maas-build-actions/venv/bin/activate && $RC_PYTHON $RC_HELPER_SCRIPT'
