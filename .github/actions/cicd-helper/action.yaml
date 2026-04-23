@@ -117,6 +117,9 @@ outputs:
   mq_sha_metadata:
     description: "DynamoDB item JSON returned by get_item_by_index (when ddb_output_name=mq_sha_metadata)"
     value: ${{ steps.run_rc_helper.outputs.mq_sha_metadata }}
+  FIELD_VALUE:
+    description: "DynamoDB field value (default ddb_output_name for get_item_value_from_dynamodb)"
+    value: ${{ steps.run_rc_helper.outputs.FIELD_VALUE }}
   # Outputs from item_exists_in_dynamodb
   # The key name matches whatever ddb_exists_output is set to (default: ITEM_EXISTS).
   ITEM_EXISTS:
@@ -238,4 +241,3 @@ runs:
           --workdir /github/workspace \
           "ghcr.io/${OWNER}/maas-build-actions@add-put-item-dynamodbb-d30aa264ce" \
           /bin/sh -c 'source /maas-build-actions/venv/bin/activate && $RC_PYTHON $RC_HELPER_SCRIPT'
-
