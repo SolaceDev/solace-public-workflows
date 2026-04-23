@@ -85,6 +85,9 @@ inputs:
   ddb_index_field_value:
     description: "DynamoDB table, value used to match index field value"
     required: false
+  ddb_field_value:
+    description: "Value to set for the field (for update_item_field step)"
+    required: false
   aws_region:
     description: "AWS region to use (optional, defaults to us-east-1 if not set)"
     required: false
@@ -161,6 +164,7 @@ runs:
         DDB_TABLE_INDEX_NAME: ${{ inputs.ddb_table_index_name }}
         DDB_INDEX_FIELD_NAME: ${{ inputs.ddb_index_field_name }}
         DDB_INDEX_FIELD_VALUE: ${{ inputs.ddb_index_field_value }}
+        DDB_FIELD_VALUE: ${{ inputs.ddb_field_value }}
         AWS_REGION: ${{ inputs.aws_region }}
       run: |
         OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
@@ -219,6 +223,7 @@ runs:
           -e DDB_TABLE_INDEX_NAME \
           -e DDB_INDEX_FIELD_NAME \
           -e DDB_INDEX_FIELD_VALUE \
+          -e DDB_FIELD_VALUE \
           -e AWS_REGION \
           -e AWS_ACCESS_KEY_ID \
           -e AWS_SECRET_ACCESS_KEY \
