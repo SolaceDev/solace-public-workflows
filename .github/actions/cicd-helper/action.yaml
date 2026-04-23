@@ -88,6 +88,9 @@ inputs:
   ddb_field_value:
     description: "Value to set for the field (for update_item_field step)"
     required: false
+  new_status_text:
+    description: "New mrkdwn text for the status block (for update_status_block step, e.g. '> :white_check_mark: _Deployed_')"
+    required: false
   aws_region:
     description: "AWS region to use (optional, defaults to us-east-1 if not set)"
     required: false
@@ -168,6 +171,7 @@ runs:
         DDB_INDEX_FIELD_NAME: ${{ inputs.ddb_index_field_name }}
         DDB_INDEX_FIELD_VALUE: ${{ inputs.ddb_index_field_value }}
         DDB_FIELD_VALUE: ${{ inputs.ddb_field_value }}
+        NEW_STATUS_TEXT: ${{ inputs.new_status_text }}
         AWS_REGION: ${{ inputs.aws_region }}
       run: |
         OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
@@ -227,6 +231,7 @@ runs:
           -e DDB_INDEX_FIELD_NAME \
           -e DDB_INDEX_FIELD_VALUE \
           -e DDB_FIELD_VALUE \
+          -e NEW_STATUS_TEXT \
           -e AWS_REGION \
           -e AWS_ACCESS_KEY_ID \
           -e AWS_SECRET_ACCESS_KEY \
@@ -239,5 +244,5 @@ runs:
           -v "${RUNNER_TEMP}:${RUNNER_TEMP}" \
           -v "${GITHUB_OUTPUT_DIR}:${GITHUB_OUTPUT_DIR}" \
           --workdir /github/workspace \
-          "ghcr.io/${OWNER}/maas-build-actions@sha256:a17d9a781e59c8a25676db87ca89d692fe796caf176682b9bce96354ca3a4c5d" \
+          "ghcr.io/${OWNER}/maas-build-actions@add-put-item-dynamodbb-fbf469a555" \
           /bin/sh -c 'source /maas-build-actions/venv/bin/activate && $RC_PYTHON $RC_HELPER_SCRIPT'
