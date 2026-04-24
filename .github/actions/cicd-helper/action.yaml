@@ -22,6 +22,9 @@ inputs:
   message:
     description: Slack message content (for post_to_channel)
     required: false
+  message_blocks:
+    description: "JSON array of Block Kit blocks (for post_to_channel; when provided, blocks are posted directly instead of converting message text)"
+    required: false
   thread_message:
     description: Slack thread message content (for post_to_thread)
     required: false
@@ -85,6 +88,15 @@ inputs:
   ddb_index_field_value:
     description: "DynamoDB table, value used to match index field value"
     required: false
+  ddb_field_value:
+    description: "Value to set for the field (for update_item_field step)"
+    required: false
+  new_status_text:
+    description: "New mrkdwn text for the status block (for update_status_block step, e.g. '> :white_check_mark: _Deployed_')"
+    required: false
+  header_emoji:
+    description: "Emoji to replace the leading emoji in the message header (for update_status_block step, e.g. ':status-success:')"
+    required: false
   aws_region:
     description: "AWS region to use (optional, defaults to us-east-1 if not set)"
     required: false
@@ -114,6 +126,9 @@ outputs:
   mq_sha_metadata:
     description: "DynamoDB item JSON returned by get_item_by_index (when ddb_output_name=mq_sha_metadata)"
     value: ${{ steps.run_rc_helper.outputs.mq_sha_metadata }}
+  FIELD_VALUE:
+    description: "DynamoDB field value (default ddb_output_name for get_item_value_from_dynamodb)"
+    value: ${{ steps.run_rc_helper.outputs.FIELD_VALUE }}
   # Outputs from item_exists_in_dynamodb
   # The key name matches whatever ddb_exists_output is set to (default: ITEM_EXISTS).
   ITEM_EXISTS:
@@ -138,6 +153,7 @@ runs:
         RC_STEP: ${{ inputs.rc_step }}
         THREAD_TS: ${{ inputs.thread_ts }}
         MESSAGE: ${{ inputs.message }}
+        MESSAGE_BLOCKS: ${{ inputs.message_blocks }}
         THREAD_MESSAGE: ${{ inputs.thread_message }}
         MESSAGE_HEADER: ${{ inputs.message_header }}
         NEW_MESSAGE_HEADER: ${{ inputs.new_message_header }}
@@ -161,6 +177,9 @@ runs:
         DDB_TABLE_INDEX_NAME: ${{ inputs.ddb_table_index_name }}
         DDB_INDEX_FIELD_NAME: ${{ inputs.ddb_index_field_name }}
         DDB_INDEX_FIELD_VALUE: ${{ inputs.ddb_index_field_value }}
+        DDB_FIELD_VALUE: ${{ inputs.ddb_field_value }}
+        NEW_STATUS_TEXT: ${{ inputs.new_status_text }}
+        HEADER_EMOJI: ${{ inputs.header_emoji }}
         AWS_REGION: ${{ inputs.aws_region }}
       run: |
         OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
@@ -196,6 +215,7 @@ runs:
           -e RC_HELPER_SCRIPT \
           -e THREAD_TS \
           -e MESSAGE \
+          -e MESSAGE_BLOCKS \
           -e THREAD_MESSAGE \
           -e MESSAGE_HEADER \
           -e NEW_MESSAGE_HEADER \
@@ -219,6 +239,9 @@ runs:
           -e DDB_TABLE_INDEX_NAME \
           -e DDB_INDEX_FIELD_NAME \
           -e DDB_INDEX_FIELD_VALUE \
+          -e DDB_FIELD_VALUE \
+          -e NEW_STATUS_TEXT \
+          -e HEADER_EMOJI \
           -e AWS_REGION \
           -e AWS_ACCESS_KEY_ID \
           -e AWS_SECRET_ACCESS_KEY \
@@ -231,6 +254,5 @@ runs:
           -v "${RUNNER_TEMP}:${RUNNER_TEMP}" \
           -v "${GITHUB_OUTPUT_DIR}:${GITHUB_OUTPUT_DIR}" \
           --workdir /github/workspace \
-          "ghcr.io/${OWNER}/maas-build-actions@sha256:96f6a7276d96f888a1848db1d57715316054d0907471bd227a8eb737559fda3c" \
+          "ghcr.io/${OWNER}/maas-build-actions@sha256:15c44ebad24e907c5691a136e7170a5e665f540e244446d82c33112b7ce050cd" \
           /bin/sh -c 'source /maas-build-actions/venv/bin/activate && $RC_PYTHON $RC_HELPER_SCRIPT'
-
