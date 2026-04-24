@@ -22,6 +22,9 @@ inputs:
   message:
     description: Slack message content (for post_to_channel)
     required: false
+  message_blocks:
+    description: "JSON array of Block Kit blocks (for post_to_channel; when provided, blocks are posted directly instead of converting message text)"
+    required: false
   thread_message:
     description: Slack thread message content (for post_to_thread)
     required: false
@@ -147,6 +150,7 @@ runs:
         RC_STEP: ${{ inputs.rc_step }}
         THREAD_TS: ${{ inputs.thread_ts }}
         MESSAGE: ${{ inputs.message }}
+        MESSAGE_BLOCKS: ${{ inputs.message_blocks }}
         THREAD_MESSAGE: ${{ inputs.thread_message }}
         MESSAGE_HEADER: ${{ inputs.message_header }}
         NEW_MESSAGE_HEADER: ${{ inputs.new_message_header }}
@@ -207,6 +211,7 @@ runs:
           -e RC_HELPER_SCRIPT \
           -e THREAD_TS \
           -e MESSAGE \
+          -e MESSAGE_BLOCKS \
           -e THREAD_MESSAGE \
           -e MESSAGE_HEADER \
           -e NEW_MESSAGE_HEADER \
@@ -244,5 +249,5 @@ runs:
           -v "${RUNNER_TEMP}:${RUNNER_TEMP}" \
           -v "${GITHUB_OUTPUT_DIR}:${GITHUB_OUTPUT_DIR}" \
           --workdir /github/workspace \
-          "ghcr.io/${OWNER}/maas-build-actions@sha256:07b4cad608c2534c36f4ad5e86a2bbf63ed1cba80466de5be540753ae16f4570" \
+          "ghcr.io/${OWNER}/maas-build-actions@sha256:0c2295a5c1410353ada973dc65a8d0b14a2bae38312a9f3bbffd0d69f14590a2" \
           /bin/sh -c 'source /maas-build-actions/venv/bin/activate && $RC_PYTHON $RC_HELPER_SCRIPT'
