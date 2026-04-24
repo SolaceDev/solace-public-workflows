@@ -94,6 +94,9 @@ inputs:
   new_status_text:
     description: "New mrkdwn text for the status block (for update_status_block step, e.g. '> :white_check_mark: _Deployed_')"
     required: false
+  header_emoji:
+    description: "Emoji to replace the leading emoji in the message header (for update_status_block step, e.g. ':status-success:')"
+    required: false
   aws_region:
     description: "AWS region to use (optional, defaults to us-east-1 if not set)"
     required: false
@@ -176,6 +179,7 @@ runs:
         DDB_INDEX_FIELD_VALUE: ${{ inputs.ddb_index_field_value }}
         DDB_FIELD_VALUE: ${{ inputs.ddb_field_value }}
         NEW_STATUS_TEXT: ${{ inputs.new_status_text }}
+        HEADER_EMOJI: ${{ inputs.header_emoji }}
         AWS_REGION: ${{ inputs.aws_region }}
       run: |
         OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
@@ -237,6 +241,7 @@ runs:
           -e DDB_INDEX_FIELD_VALUE \
           -e DDB_FIELD_VALUE \
           -e NEW_STATUS_TEXT \
+          -e HEADER_EMOJI \
           -e AWS_REGION \
           -e AWS_ACCESS_KEY_ID \
           -e AWS_SECRET_ACCESS_KEY \
@@ -249,5 +254,5 @@ runs:
           -v "${RUNNER_TEMP}:${RUNNER_TEMP}" \
           -v "${GITHUB_OUTPUT_DIR}:${GITHUB_OUTPUT_DIR}" \
           --workdir /github/workspace \
-          "ghcr.io/${OWNER}/maas-build-actions@sha256:0c2295a5c1410353ada973dc65a8d0b14a2bae38312a9f3bbffd0d69f14590a2" \
+          "ghcr.io/${OWNER}/maas-build-actions@sha256:0fa634d82ee9e0311051d2cb6ef42d21e5509fd10de4015badb370e0adc45c53 \
           /bin/sh -c 'source /maas-build-actions/venv/bin/activate && $RC_PYTHON $RC_HELPER_SCRIPT'
