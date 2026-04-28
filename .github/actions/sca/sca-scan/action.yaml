@@ -30,6 +30,10 @@ inputs:
     description: "Bearer token for Guardian API authentication."
     required: false
     default: ""
+  pr_scan_upload:
+    description: "Upload scan results to Guardian even on pull_request events (default: false)."
+    required: false
+    default: "false"
 
 runs:
   using: "composite"
@@ -79,5 +83,6 @@ runs:
       with:
         guardian_url: ${{ inputs.guardian_url }}
         guardian_token: ${{ inputs.guardian_token }}
+        pr_scan_upload: ${{ inputs.pr_scan_upload }}
       env:
         FOSSA_API_KEY: ${{ inputs.fossa_api_key }}
