@@ -56,6 +56,9 @@ outputs:
   guardian_url:
     description: "Guardian API base URL"
     value: ${{ steps.parse.outputs.guardian_url }}
+  guardian_pr_scan_upload:
+    description: "Whether to upload scan results to Guardian on pull_request events (default: false)"
+    value: ${{ steps.parse.outputs.guardian_pr_scan_upload }}
 
 runs:
   using: "composite"
@@ -168,6 +171,10 @@ runs:
         GUARDIAN_URL=$(echo "$CONFIG" | jq -r ".${CONFIG_TYPE}.guardian.url // \"\"")
         echo "guardian_url=${GUARDIAN_URL}" >> $GITHUB_OUTPUT
 
+        # Parse Guardian PR scan upload flag
+        GUARDIAN_PR_UPLOAD=$(echo "$CONFIG" | jq -r ".${CONFIG_TYPE}.guardian.pr_scan_upload // false")
+        echo "guardian_pr_scan_upload=${GUARDIAN_PR_UPLOAD}" >> $GITHUB_OUTPUT
+
         echo "✅ Configuration parsed successfully"
         echo ""
         echo "Parsed values:"
@@ -182,3 +189,4 @@ runs:
         echo "  - FOSSA team: ${FOSSA_TEAM:-<not set>}"
         echo "  - FOSSA labels: ${FOSSA_LABELS:-<not set>}"
         echo "  - Guardian URL: $([ -n "${GUARDIAN_URL}" ] && echo '<set>' || echo '<not set>')"
+        echo "  - Guardian PR scan upload: ${GUARDIAN_PR_UPLOAD}"
