@@ -61,17 +61,22 @@ def load_version_config(config_file_path: str = DEFAULT_VERSION_CONFIG_FILE) -> 
         sys.exit(1)
 
 
+def _resolve_repository() -> str:
+    """Return the target repository, preferring INPUT_REPOSITORY over GITHUB_REPOSITORY."""
+    repo = getenv("INPUT_REPOSITORY") or getenv("GITHUB_REPOSITORY")
+    if not repo:
+        print("Error: Neither INPUT_REPOSITORY nor GITHUB_REPOSITORY environment variable is set")
+        sys.exit(1)
+    return repo
+
+
 def _validate_environment() -> tuple[str, str]:
     """Validate required environment variables"""
     github_token = getenv("GITHUB_TOKEN")
-    github_repo = getenv("GITHUB_REPOSITORY")
+    github_repo = _resolve_repository()
 
     if not github_token:
         print("Error: GITHUB_TOKEN environment variable not set")
-        sys.exit(1)
-
-    if not github_repo:
-        print("Error: GITHUB_REPOSITORY environment variable not set")
         sys.exit(1)
 
     return github_token, github_repo
@@ -919,12 +924,7 @@ def process_commits(commits: list[dict], config: dict) -> tuple[dict, dict]:
 
 def _get_repo_url() -> str:
     """Get repository URL from environment variables"""
-    github_repo = getenv("GITHUB_REPOSITORY")
-    if not github_repo:
-        print("Error: GITHUB_REPOSITORY environment variable not set")
-        sys.exit(1)
-
-    return f"https://github.com/{github_repo}"
+    return f"https://github.com/{_resolve_repository()}"
 
 
 def _format_commit_hash(commit: dict, repo_url: str) -> str:
