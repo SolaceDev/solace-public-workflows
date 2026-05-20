@@ -419,6 +419,7 @@ runs:
         TARGET_SHA: ${{ steps.scan_image.outputs.target_sha }}
         PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         GUARDIAN_ENABLED: ${{ inputs.guardian_url != '' && inputs.guardian_key != '' && 'true' || 'false' }}
+        BYPASS_BLOCKING: ${{ inputs.bypass_blocking }}
         CONSOLE_LINK: ${{ steps.scan_image.outputs.console_link }}
         PCC_CONSOLE_URL: ${{ inputs.pcc_console_url }}
         FALLBACK_IMAGE: ${{ inputs.image_registry }}/${{ steps.set_repo_name.outputs.repo_name }}:${{ inputs.image_tag }}
