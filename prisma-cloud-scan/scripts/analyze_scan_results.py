@@ -113,6 +113,7 @@ def main() -> int:
 
     block_on_compliance = to_bool(os.getenv("BLOCK_ON_COMPLIANCE"), default=False)
     grace_period_days = to_int(os.getenv("GRACE_PERIOD_DAYS"), default=7)
+    bypass_blocking = to_bool(os.getenv("BYPASS_BLOCKING"), default=False)
     guardian_managed_vulnerabilities = to_bool(os.getenv("GUARDIAN_ENABLED"), default=False)
     grace_period_seconds = grace_period_days * 86400
     current_timestamp = int(datetime.now(tz=timezone.utc).timestamp())
@@ -123,6 +124,7 @@ def main() -> int:
     print("Configuration:")
     print(f"  Block on compliance: {str(block_on_compliance).lower()}")
     print(f"  Vulnerability grace period: {grace_period_days} days")
+    print(f"  Bypass blocking: {str(bypass_blocking).lower()}")
     print(
         "  Vulnerability blocking delegated to Guardian: "
         f"{str(guardian_managed_vulnerabilities).lower()}"
@@ -340,9 +342,16 @@ def main() -> int:
         "blocking_total": blocking_total,
         "grace_days": grace_period_days,
         "block_on_compliance": block_on_compliance,
+        "bypass_blocking": bypass_blocking,
         "guardian_managed_vulnerabilities": guardian_managed_vulnerabilities,
     }
     write_analysis_file(analysis)
+
+    if blocking_issues and bypass_blocking:
+        print("")
+        print("⚠️  Blocking issues found, but bypass_blocking=true — action will not fail the step.")
+        print("   Downstream workflows are responsible for acting on the scan_passed output.")
+        return 0
 
     if blocking_issues:
         print("")
