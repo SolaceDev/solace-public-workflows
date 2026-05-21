@@ -463,7 +463,13 @@ def main() -> int:
     analysis = read_analysis_results()
 
     scan_passed = to_bool(analysis.get("scan_passed"), default=bool_env("SCAN_PASSED", default=False))
-    conclusion = "success" if scan_passed else "failure"
+    bypass_blocking = to_bool(analysis.get("bypass_blocking"), default=bool_env("BYPASS_BLOCKING", default=False))
+    if scan_passed:
+        conclusion = "success"
+    elif bypass_blocking:
+        conclusion = "neutral"
+    else:
+        conclusion = "failure"
     guardian_managed_vulnerabilities = to_bool(
         analysis.get("guardian_managed_vulnerabilities"),
         default=bool_env("GUARDIAN_ENABLED", default=False),
@@ -599,7 +605,13 @@ def main() -> int:
         "conclusion": conclusion,
         "details_url": target_url,
         "output": {
-            "title": "✅ Prisma Image Scan passed" if scan_passed else "❌ Prisma Image Scan failed",
+            "title": (
+                "✅ Prisma Image Scan passed"
+                if scan_passed
+                else "⚪ Prisma Image Scan (bypassed)"
+                if bypass_blocking
+                else "❌ Prisma Image Scan failed"
+            ),
             "summary": summary_markdown,
             "text": details_text,
         },

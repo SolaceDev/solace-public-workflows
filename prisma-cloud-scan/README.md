@@ -156,6 +156,7 @@ jobs:
 | `twistcli_publish` | No | `true` | Whether to publish scan results to Prisma Cloud Console (`true`/`false`) |
 | `block_on_compliance` | No | `false` | Block on high/critical compliance findings (`true`/`false`) |
 | `vulnerability_grace_period_days` | No | `7` | Grace period for new vulnerabilities before they become blocking |
+| `bypass_blocking` | No | `false` | Bypass all release-blocking logic; action exits 0 regardless of findings. Use to consume scan outputs without failing the step (`scan_passed` still reflects the real policy result). |
 | `skip_image_pull` | No | `false` | Skip Docker pull and scan image already present locally |
 | `show_detailed_logs` | No | auto | Force detailed logs (`true`/`false`). Auto mode = hidden for public repos, shown otherwise |
 | `guardian_url` | No | empty | Guardian API base URL. When set with `guardian_key`, uploads normalized Prisma results to Guardian |

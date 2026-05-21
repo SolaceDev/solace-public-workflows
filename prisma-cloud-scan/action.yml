@@ -34,6 +34,10 @@ inputs:
     description: "Grace period in days for new vulnerabilities before blocking (0 to block immediately). Ignored when Guardian upload is enabled."
     required: false
     default: "7"
+  bypass_blocking:
+    description: "Bypass all release-blocking logic. When true, the action never exits non-zero based on scan findings (vulnerabilities or compliance). Use when you only need the scan outputs for downstream processing."
+    required: false
+    default: "false"
   skip_image_pull:
     description: "Skip pulling the image (use when image is already available locally)"
     required: false
@@ -393,6 +397,7 @@ runs:
       env:
         BLOCK_ON_COMPLIANCE: ${{ inputs.block_on_compliance }}
         GRACE_PERIOD_DAYS: ${{ inputs.vulnerability_grace_period_days }}
+        BYPASS_BLOCKING: ${{ inputs.bypass_blocking }}
         GUARDIAN_ENABLED: ${{ inputs.guardian_url != '' && inputs.guardian_key != '' && 'true' || 'false' }}
         CONSOLE_LINK: ${{ steps.scan_image.outputs.console_link }}
         PCC_CONSOLE_URL: ${{ inputs.pcc_console_url }}
@@ -414,6 +419,7 @@ runs:
         TARGET_SHA: ${{ steps.scan_image.outputs.target_sha }}
         PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         GUARDIAN_ENABLED: ${{ inputs.guardian_url != '' && inputs.guardian_key != '' && 'true' || 'false' }}
+        BYPASS_BLOCKING: ${{ inputs.bypass_blocking }}
         CONSOLE_LINK: ${{ steps.scan_image.outputs.console_link }}
         PCC_CONSOLE_URL: ${{ inputs.pcc_console_url }}
         FALLBACK_IMAGE: ${{ inputs.image_registry }}/${{ steps.set_repo_name.outputs.repo_name }}:${{ inputs.image_tag }}
