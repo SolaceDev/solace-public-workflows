@@ -141,6 +141,45 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: Verify packages:read permission
+      shell: bash
+      run: |
+        OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+        HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+          -H "Authorization: Bearer ${{ github.token }}" \
+          "https://api.github.com/orgs/${OWNER}/packages/container/maas-build-actions/versions?per_page=1")
+
+        if [ "$HTTP_CODE" = "403" ] || [ "$HTTP_CODE" = "401" ]; then
+          echo "::error::❌ The calling workflow does not have 'packages: read' permission."
+          echo "::error::Add the following to your workflow file:"
+          echo "::error::  permissions:"
+          echo "::error::    packages: read"
+          exit 1
+        fi
+
+    - name: Verify repo access to maas-build-actions package
+      if: contains(github.repository_owner, 'Solace')
+      shell: bash
+      run: |
+        OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+        IMAGE="ghcr.io/${OWNER}/maas-build-actions:latest"
+
+        DOCKER_CONFIG=$(mktemp -d "${RUNNER_TEMP}/docker-config-check.XXXXXX")
+        export DOCKER_CONFIG
+        trap 'docker logout ghcr.io > /dev/null 2>&1 || true; rm -rf "${DOCKER_CONFIG}"' EXIT
+
+        echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin 2>/dev/null
+
+        if ! docker manifest inspect "$IMAGE" > /dev/null 2>&1; then
+          echo "::error::❌ This repository does not have access to the maas-build-actions container package."
+          echo "::error::To grant access, open the package settings and add this repository:"
+          echo "::error::  https://github.com/orgs/${{ github.repository_owner }}/packages/container/maas-build-actions/settings"
+          echo "::error::Under 'Manage Actions access', click 'Add Repository' and enroll '${{ github.repository }}'."
+          exit 1
+        fi
+
+        echo "✅ Repository has access to maas-build-actions package."
+
     - name: Run RC Helper
       id: run_rc_helper
       shell: bash
