@@ -62,6 +62,10 @@ inputs:
     description: "Optional Guardian product full version path segment. Required when Guardian upload is enabled."
     required: false
     default: ""
+  guardian_product_name:
+    description: "Optional Guardian product name override. Defaults to `image_repo` (or the GitHub repo name). Use when the Guardian product name diverges from the docker image repo — e.g. a repo that ships multiple Guardian products from one shared image, distinguished only by tag prefix."
+    required: false
+    default: ""
 
 outputs:
   scan_passed:
@@ -464,7 +468,8 @@ runs:
         ACTION_PATH: ${{ github.action_path }}
         GUARDIAN_URL: ${{ inputs.guardian_url }}
         GUARDIAN_KEY: ${{ inputs.guardian_key }}
-        PRODUCT_NAME: ${{ steps.set_repo_name.outputs.repo_name }}
+        IMAGE_REPO_NAME: ${{ steps.set_repo_name.outputs.repo_name }}
+        GUARDIAN_PRODUCT_NAME_OVERRIDE: ${{ inputs.guardian_product_name }}
         INPUT_PRODUCT_VERSION: ${{ inputs.guardian_product_version }}
         DEFAULT_BRANCH: ${{ github.event.repository.default_branch || '' }}
         PRODUCT_FULL_VERSION: ${{ inputs.guardian_product_full_version }}
@@ -472,6 +477,16 @@ runs:
         PRISMA_SCAN_URL: ${{ steps.scan_image.outputs.console_link }}
       run: |
         set +e
+
+        # Guardian product name resolution:
+        #   1. explicit guardian_product_name input — used when the Guardian
+        #      product diverges from the docker image_repo (e.g. multiple
+        #      products sharing one image, distinguished by tag prefix).
+        #   2. fall back to image_repo (the docker repo name).
+        PRODUCT_NAME="$GUARDIAN_PRODUCT_NAME_OVERRIDE"
+        if [ -z "$PRODUCT_NAME" ]; then
+          PRODUCT_NAME="$IMAGE_REPO_NAME"
+        fi
 
         PRODUCT_VERSION="$INPUT_PRODUCT_VERSION"
         if [ -z "$PRODUCT_VERSION" ]; then

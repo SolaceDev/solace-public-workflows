@@ -163,6 +163,7 @@ jobs:
 | `guardian_key` | No | empty | Guardian API bearer token. When set with `guardian_url`, uploads normalized Prisma results to Guardian |
 | `guardian_product_version` | No | repo default branch | Guardian product version path segment. Defaults to the repository default branch when Guardian upload is enabled |
 | `guardian_product_full_version` | No | empty | Guardian product full version path segment. Required when Guardian upload is enabled |
+| `guardian_product_name` | No | `image_repo` | Guardian product name override. Use when the Guardian product diverges from the docker image repo — e.g. one repo ships multiple Guardian products from a single shared image, distinguished only by tag prefix |
 
 ## Outputs
 
