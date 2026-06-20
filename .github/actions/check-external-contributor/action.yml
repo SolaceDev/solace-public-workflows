@@ -1,0 +1,71 @@
+name: Check External Contributor
+description: Checks if PR creator is in a GitHub team and adds a label if not
+
+inputs:
+  github_team_slug:
+    description: "GitHub team slug to check membership against (e.g., 'solace-ai')"
+    required: true
+  label_name:
+    description: "Label to add to PR if creator is not in the team"
+    required: false
+    default: "external contributor"
+  github-token:
+    description: "GitHub token for API access"
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Check if PR creator is in team
+      id: check-team
+      uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const teamSlug = '${{ inputs.github_team_slug }}';
+          const org = context.repo.owner;
+          const prCreator = context.payload.pull_request.user.login;
+
+          console.log(`🔍 Checking team membership for PR creator...`);
+          console.log(`  - Team slug: ${teamSlug}`);
+          console.log(`  - PR creator: ${prCreator}`);
+          console.log(`  - Organization: ${org}`);
+
+          try {
+            const { data } = await github.rest.teams.getMembershipForUserInOrg({
+              org: org,
+              team_slug: teamSlug,
+              username: prCreator
+            });
+
+            core.setOutput('is_member', 'true');
+            console.log(`✅ PR creator is a member of the team`);
+          } catch (error) {
+            if (error.status === 404) {
+              core.setOutput('is_member', 'false');
+              console.log(`⚠️  PR creator is not a member of the team`);
+            } else {
+              console.log(`⚠️  Could not verify team membership (${error.message}), assuming external contributor`);
+              core.setOutput('is_member', 'false');
+            }
+          }
+
+    - name: Add external contributor label
+      if: steps.check-team.outputs.is_member == 'false'
+      uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const labelName = '${{ inputs.label_name }}';
+          const prNumber = context.issue.number;
+
+          console.log(`🏷️  Adding label "${labelName}" to PR #${prNumber}...`);
+
+          await github.rest.issues.addLabels({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: prNumber,
+            labels: [labelName]
+          });
+
+          console.log(`✅ Added label "${labelName}" to PR #${prNumber}`);
