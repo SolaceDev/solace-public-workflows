@@ -601,6 +601,7 @@ jobs:
           FOSSA_BRANCH: ${{ steps.fossa_params.outputs.effective_branch }}
           FOSSA_REVISION: ${{ steps.fossa_params.outputs.effective_revision }}
           SCAN_TYPE: ${{ steps.context.outputs.scan_type }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
         run: |
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "---" >> $GITHUB_STEP_SUMMARY
@@ -633,7 +634,7 @@ jobs:
             echo "✅ **Vulnerability Check**: PASSED" >> $GITHUB_STEP_SUMMARY
             echo "   _Mode: $VULNERABILITY_MODE, Block on: $VULNERABILITY_BLOCK_ON_" >> $GITHUB_STEP_SUMMARY
           elif [[ "$VULNERABILITY_OUTCOME" == "failure" ]]; then
-            if [[ "$VULNERABILITY_MODE" == "BLOCK" ]]; then
+            if [[ "$VULNERABILITY_MODE" == "BLOCK" && "$GITHUB_EVENT_NAME" != "pull_request" ]]; then
               echo "❌ **Vulnerability Check**: FAILED ($VULNERABILITY_BLOCK_ON vulnerabilities detected) - BLOCKING" >> $GITHUB_STEP_SUMMARY
             else
               echo "⚠️ **Vulnerability Check**: ISSUES FOUND ($VULNERABILITY_BLOCK_ON vulnerabilities detected) - REPORT ONLY" >> $GITHUB_STEP_SUMMARY
@@ -674,6 +675,7 @@ jobs:
       - name: Block on FOSSA Vulnerability Failures
         if: |
           always() &&
+          github.event_name != 'pull_request' &&
           !inputs.skip_vulnerability_gate &&
           steps.fossa_vulnerabilities.outcome == 'failure' &&
           steps.config.outputs.fossa_vulnerability_mode == 'BLOCK'
@@ -733,7 +735,9 @@ jobs:
 #
 # Gates:
 # - Licensing: Configurable (BLOCK or REPORT) on policy conflicts
-# - Vulnerabilities: Configurable (BLOCK or REPORT) on critical/high CVEs
+# - Vulnerabilities: Configurable (BLOCK or REPORT) on critical/high CVEs.
+#     BLOCK applies to release/manual scans only; pull_request runs are always
+#     report-only (never fail the PR) regardless of mode.
 # - Emergency bypass available via workflow_dispatch/orchestrator (admin only)
 #
 # Configuration File:
