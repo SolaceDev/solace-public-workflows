@@ -600,9 +600,33 @@ jobs:
         if: |
           always() && !inputs.skip_fossa_gate &&
           steps.fossa_licensing.outcome == 'failure'
+        env:
+          LICENSING_BLOCK_ON: ${{ steps.config.outputs.fossa_licensing_block_on }}
+          FOSSA_PROJECT_ID: ${{ steps.fossa_project.outputs.FOSSA_PROJECT_ID }}
         run: |
-          echo "❌ FOSSA licensing check failed. Licensing policy conflicts detected in container image."
+          GUIDE_URL="https://sol-jira.atlassian.net/wiki/spaces/DevOps/pages/6542262516/Resolving+License+Compliance+Issues+in+FOSSA"
+          DASHBOARD_URL="https://app.fossa.com/projects/custom%2B1%2F${FOSSA_PROJECT_ID}"
+
+          echo "❌ FOSSA licensing check failed. Licensing policy conflicts detected in container image ($LICENSING_BLOCK_ON)."
           echo "Review the FOSSA dashboard for details and remediate policy violations."
+          echo ""
+          echo "A flagged license is not always a violation — it may be permitted the way we use it."
+          echo "How to resolve (conclude / add license text / ignore, plus ownership and LCC steps):"
+          echo "  $GUIDE_URL"
+          echo ""
+          echo "Dashboard: $DASHBOARD_URL"
+
+          # Surface the same guidance in the GitHub job summary
+          {
+            echo "### ❌ FOSSA licensing check failed (container image)"
+            echo ""
+            echo "Policy conflicts detected (\`$LICENSING_BLOCK_ON\`)."
+            echo ""
+            echo "> A flagged license is **not always a violation** — it may be permitted the way we use it. The guide explains how to conclude the correct license, add missing license text, or ignore a correctly-concluded-but-permitted issue (with the required justification), who performs each step, and when to consult the License Compliance Committee."
+            echo ""
+            echo "- 📘 **How to resolve:** [Resolving License Compliance Issues in FOSSA]($GUIDE_URL)"
+            echo "- 🔎 **FOSSA dashboard:** [View project]($DASHBOARD_URL)"
+          } >> "$GITHUB_STEP_SUMMARY"
           exit 1
 
       - name: Block on FOSSA Vulnerability Failures
