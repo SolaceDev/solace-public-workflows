@@ -194,19 +194,23 @@ For private ECR images, use Vault to retrieve AWS credentials:
 
 ```json
 {
-  "container_scanning": {
-    "secrets": {
-      "vault": {
-        "aws_role": "secret/data/path/to/aws-sts"
-      }
+  "secrets": {
+    "vault": {
+      "url": "https://vault.example.com:8200",
+      "role": "cicd-workflows-secret-read-role",
+      "aws_role": "aws-development/sts/team-role"
     }
   }
 }
 ```
 
+Here `aws_role` **is a Vault path, not an auth role**, despite the name — it points at
+an AWS STS engine role endpoint, and it is read while authenticated as `role`. So ECR
+does use `role` as its parent auth, and needs no role of its own.
+
 The workflow automatically:
-1. Authenticates to Vault
-2. Retrieves AWS STS credentials
+1. Authenticates to Vault as `role`
+2. Reads AWS STS credentials from `aws_role`
 3. Logs into ECR
 4. Pulls the container image for scanning
 
@@ -232,14 +236,43 @@ hold a `GCP_SERVICE_ACCOUNT` key, alongside the existing `aws_role`:
 }
 ```
 
-Unlike `aws_role`, which is a Vault *path* read using the shared `role`, `gcr_role` is
-an auth role in its own right — the GCP service account key usually sits behind a
-dedicated one — so GCR takes both a role and a path. These two keys are config-file
-only; there is no GitHub secret equivalent.
+What each key does:
+
+| Key | Purpose |
+|-----|---------|
+| `url` | Vault server address. Shared by every Vault read in this workflow. |
+| `role` | JWT auth role for the FOSSA API key and AWS STS reads. **Not used by the GCR login.** Still required, because `Validate Vault Configuration` fails when `url` or `role` is empty and `use_vault: true`. |
+| `gcr_role` | JWT auth role the GCR login authenticates as. Its Vault policy is what grants read access to `gcr_secret_path`. |
+| `gcr_secret_path` | Vault path holding the GCP service account key, in a `GCP_SERVICE_ACCOUNT` field. |
+
+### There is no parent auth
+
+`gcr_role` does not build on `role`. Every `hashicorp/vault-action` step performs its
+own complete login, so the GCR read is an independent authentication that never sees
+`role`, and there is no role assumption or token exchange between them:
+
+| Step | Auth role | Reads |
+|------|-----------|-------|
+| Retrieve FOSSA API key | `role` | `secret_path` |
+| Generate AWS Credentials | `role` | `aws_role` |
+| Retrieve GCR Credentials | `gcr_role` | `gcr_secret_path` |
+
+The GCR login proceeds as:
+
+1. Request a fresh GitHub OIDC token, audience `https://github.com/<owner>` (needs `id-token: write`).
+2. Vault's JWT backend at mount `jwt-github` validates it against **`gcr_role`**, whose bound claims must match this repository and ref.
+3. Vault issues a token carrying `gcr_role`'s policies, and the workflow reads `GCP_SERVICE_ACCOUNT` from `gcr_secret_path`. `exportToken: false`, so the Vault token is never exported and is discarded with the step.
+4. That value is a GCP service account JSON key, passed to `docker login <registry> -u _json_key`.
+5. Google IAM authorizes that service account to pull from the project's registry, and `fossa container analyze` pulls the image.
+
+Two roles rather than one because Vault policies attach per role: a single role would
+need read on both the FOSSA secret path and the GCP key path. This is also why GCR
+needs its own auth role where ECR does not — `aws_role` is only a path, readable under
+the policy `role` already carries.
 
 The registry host is taken from the first path segment of `container_image`, so no
-extra configuration is needed. Login is skipped unless both keys are set and the
-image reference actually carries a registry host.
+extra configuration is needed. Login is skipped unless both `gcr_*` keys are set and
+the image reference actually carries a registry host.
 
 Note that the registry path must come from a variable rather than a secret:
 
