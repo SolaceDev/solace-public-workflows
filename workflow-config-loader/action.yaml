@@ -133,10 +133,7 @@ runs:
 
         # GCR is the other shape: the GCP service account key normally sits behind a
         # dedicated auth role, so it needs both an AUTH ROLE and a PATH. gcr_role is
-        # what gcr_secret_path is read with. The asymmetry with the block above is one
-        # of kind rather than usage: gcr_role holds the same kind of value as `role`
-        # (an auth role), while `aws_role` holds the same kind as `secret_path` (a
-        # path). It is not layered on top of `role` - each read logs in separately.
+        # what gcr_secret_path is read with.
         VAULT_GCR_ROLE=$(echo "$CONFIG" | jq -r ".secrets.vault.gcr_role // .${CONFIG_TYPE}.secrets.vault.gcr_role // \"\"")
         echo "vault_gcr_role=${VAULT_GCR_ROLE}" >> $GITHUB_OUTPUT
 
