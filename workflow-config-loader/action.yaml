@@ -14,23 +14,32 @@ outputs:
   config_json:
     description: "Raw configuration JSON"
     value: ${{ steps.load.outputs.config_json }}
+  # Two distinct kinds of value are parsed below, and the config key names do not
+  # make the difference obvious:
+  #   AUTH ROLE - a Vault JWT auth role, the identity you log in as
+  #               (vault-action's `role:` input)
+  #   PATH      - a location in Vault you read once authenticated
+  #               (the left-hand side of a vault-action `secrets:` mapping)
+  # `aws_role` is a PATH despite its name: it points at an AWS STS engine role
+  # endpoint, read using the shared `role` auth role. GCR is the opposite shape,
+  # needing its own auth role plus a path, so it has one key of each.
   vault_url:
-    description: "Vault URL (from vars.GCP_VAULT_ADDR)"
+    description: "Vault server URL"
     value: ${{ steps.parse.outputs.vault_url }}
   vault_secret_path:
-    description: "Vault secret path"
+    description: "PATH: Vault path holding the FOSSA API key"
     value: ${{ steps.parse.outputs.vault_secret_path }}
   vault_role:
-    description: "Vault JWT authentication role"
+    description: "AUTH ROLE: Vault JWT auth role used for every Vault read unless overridden"
     value: ${{ steps.parse.outputs.vault_role }}
   vault_aws_role:
-    description: "Vault AWS STS role path for ECR authentication"
+    description: "PATH: Vault path of the AWS STS engine role for ECR auth, read using vault_role (not an auth role, despite the name)"
     value: ${{ steps.parse.outputs.vault_aws_role }}
   vault_gcr_role:
-    description: "Vault JWT role used to read the GCP service account key for GCR authentication"
+    description: "AUTH ROLE: Vault JWT auth role used to read the GCP service account key (parallel to vault_role, NOT to vault_aws_role)"
     value: ${{ steps.parse.outputs.vault_gcr_role }}
   vault_gcr_secret_path:
-    description: "Vault secret path holding a GCP_SERVICE_ACCOUNT key for GCR authentication"
+    description: "PATH: Vault path holding a GCP_SERVICE_ACCOUNT key for GCR auth, read using vault_gcr_role"
     value: ${{ steps.parse.outputs.vault_gcr_secret_path }}
   vault_secret_mappings:
     description: "Formatted string of Vault secret mappings for hashicorp/vault-action"
@@ -108,21 +117,24 @@ runs:
         VAULT_URL=$(echo "$CONFIG" | jq -r ".secrets.vault.url // .${CONFIG_TYPE}.secrets.vault.url // \"\"")
         echo "vault_url=${VAULT_URL}" >> $GITHUB_OUTPUT
 
-        # Parse vault secret path
+        # PATH: where the FOSSA API key lives, read using VAULT_ROLE below
         VAULT_PATH=$(echo "$CONFIG" | jq -r ".secrets.vault.secret_path // .${CONFIG_TYPE}.secrets.vault.secret_path // \"/path/to/secret\"")
         echo "vault_secret_path=${VAULT_PATH}" >> $GITHUB_OUTPUT
 
-        # Parse vault JWT authentication role
+        # AUTH ROLE: the JWT auth role every Vault read logs in as by default
         VAULT_ROLE=$(echo "$CONFIG" | jq -r ".secrets.vault.role // .${CONFIG_TYPE}.secrets.vault.role // \"\"")
         echo "vault_role=${VAULT_ROLE}" >> $GITHUB_OUTPUT
 
-        # Parse vault AWS role (for ECR authentication)
+        # PATH, not an auth role: `aws_role` names an AWS STS engine role endpoint,
+        # but to Vault it is just a path, read while authenticated as VAULT_ROLE.
+        # That is why ECR needs no auth role of its own.
         VAULT_AWS_ROLE=$(echo "$CONFIG" | jq -r ".secrets.vault.aws_role // .${CONFIG_TYPE}.secrets.vault.aws_role // \"\"")
         echo "vault_aws_role=${VAULT_AWS_ROLE}" >> $GITHUB_OUTPUT
 
-        # Parse vault GCR role and secret path (for GCR authentication).
-        # Unlike AWS, reading the GCP service account key usually needs its own
-        # JWT role rather than the shared one, so both values are configurable.
+        # GCR is the other shape: the GCP service account key normally sits behind a
+        # dedicated auth role, so it needs both an AUTH ROLE and a PATH. Note the
+        # asymmetry with the block above - `gcr_role` pairs with `role`, whereas
+        # `aws_role` pairs with `secret_path`.
         VAULT_GCR_ROLE=$(echo "$CONFIG" | jq -r ".secrets.vault.gcr_role // .${CONFIG_TYPE}.secrets.vault.gcr_role // \"\"")
         echo "vault_gcr_role=${VAULT_GCR_ROLE}" >> $GITHUB_OUTPUT
 
