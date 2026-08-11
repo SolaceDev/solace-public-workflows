@@ -115,6 +115,8 @@ This file may already exist in your repository for other build configuration. Th
 | `secrets.vault.role` | string | Yes | - | Vault JWT authentication role for GitHub Actions (e.g., `github-actions-role`) |
 | `secrets.vault.secret_path` | string | No | `/path/to/secret` | Vault path for FOSSA_API_KEY |
 | `secrets.vault.aws_role` | string | No | `""` | Vault AWS STS role path for ECR authentication |
+| `secrets.vault.gcr_role` | string | No | `""` | Vault JWT role used to read the GCP service account key for GCR authentication |
+| `secrets.vault.gcr_secret_path` | string | No | `""` | Vault path holding a `GCP_SERVICE_ACCOUNT` key for GCR authentication |
 
 ## Complete Examples
 

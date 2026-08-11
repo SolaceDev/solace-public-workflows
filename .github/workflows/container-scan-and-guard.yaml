@@ -79,21 +79,6 @@ on:
         required: false
         type: boolean
         default: false
-      gcr_registry:
-        description: 'Google container registry host to authenticate against (e.g. gcr.io). Leave empty to skip GCR login.'
-        required: false
-        type: string
-        default: ''
-      gcr_vault_role:
-        description: 'Vault JWT role used to read the GCP service account key for GCR authentication'
-        required: false
-        type: string
-        default: ''
-      gcr_vault_secret_path:
-        description: 'Vault secret path holding a GCP_SERVICE_ACCOUNT key for GCR authentication'
-        required: false
-        type: string
-        default: ''
 
     secrets:
       FOSSA_API_KEY:
@@ -110,6 +95,12 @@ on:
         required: false
       VAULT_AWS_ROLE:
         description: 'Vault AWS STS role path for ECR authentication'
+        required: false
+      VAULT_GCR_ROLE:
+        description: 'Vault JWT role used to read the GCP service account key for GCR authentication (optional - defaults to config file value)'
+        required: false
+      VAULT_GCR_SECRET_PATH:
+        description: 'Vault secret path holding a GCP_SERVICE_ACCOUNT key for GCR authentication (optional - defaults to config file value)'
         required: false
       AWS_ACCESS_KEY_ID:
         description: 'AWS Access Key ID for ECR authentication (required if use_vault is false and scanning ECR images)'
@@ -207,6 +198,8 @@ jobs:
           CONFIG_VAULT_ROLE: ${{ steps.config_loader.outputs.vault_role }}
           CONFIG_VAULT_SECRET_PATH: ${{ steps.config_loader.outputs.vault_secret_path }}
           CONFIG_VAULT_AWS_ROLE: ${{ steps.config_loader.outputs.vault_aws_role }}
+          CONFIG_VAULT_GCR_ROLE: ${{ steps.config_loader.outputs.vault_gcr_role }}
+          CONFIG_VAULT_GCR_SECRET_PATH: ${{ steps.config_loader.outputs.vault_gcr_secret_path }}
           CONFIG_SLACK_CHANNEL: ${{ steps.config_loader.outputs.slack_channel }}
           CONFIG_FOSSA_LICENSING_MODE: ${{ steps.config_loader.outputs.fossa_licensing_mode }}
           CONFIG_FOSSA_LICENSING_BLOCK_ON: ${{ steps.config_loader.outputs.fossa_licensing_block_on }}
@@ -232,6 +225,8 @@ jobs:
             echo "vault_role=$CONFIG_VAULT_ROLE" >> $GITHUB_OUTPUT
             echo "vault_secret_path=$CONFIG_VAULT_SECRET_PATH" >> $GITHUB_OUTPUT
             echo "vault_aws_role=$CONFIG_VAULT_AWS_ROLE" >> $GITHUB_OUTPUT
+            echo "vault_gcr_role=$CONFIG_VAULT_GCR_ROLE" >> $GITHUB_OUTPUT
+            echo "vault_gcr_secret_path=$CONFIG_VAULT_GCR_SECRET_PATH" >> $GITHUB_OUTPUT
             echo "slack_channel=$CONFIG_SLACK_CHANNEL" >> $GITHUB_OUTPUT
             echo "fossa_licensing_mode=$CONFIG_FOSSA_LICENSING_MODE" >> $GITHUB_OUTPUT
             echo "fossa_licensing_block_on=$CONFIG_FOSSA_LICENSING_BLOCK_ON" >> $GITHUB_OUTPUT
@@ -246,6 +241,8 @@ jobs:
             echo "vault_role=$INPUT_VAULT_ROLE" >> $GITHUB_OUTPUT
             echo "vault_secret_path=$INPUT_VAULT_SECRET_PATH" >> $GITHUB_OUTPUT
             echo "vault_aws_role=" >> $GITHUB_OUTPUT
+            echo "vault_gcr_role=" >> $GITHUB_OUTPUT
+            echo "vault_gcr_secret_path=" >> $GITHUB_OUTPUT
             echo "slack_channel=$INPUT_SLACK_CHANNEL" >> $GITHUB_OUTPUT
             echo "fossa_licensing_mode=$INPUT_FOSSA_LICENSING_MODE" >> $GITHUB_OUTPUT
             echo "fossa_licensing_block_on=$INPUT_FOSSA_LICENSING_BLOCK_ON" >> $GITHUB_OUTPUT
@@ -400,26 +397,68 @@ jobs:
         uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2.0.1
 
       # The FOSSA CLI pulls the image itself, so a private GCR image needs docker
-      # credentials for the registry host on this runner.
+      # credentials for its registry host on this runner. Reading the GCP service
+      # account key usually needs its own JWT role, so role and path are separate.
+      - name: Determine Vault GCR Role
+        id: vault_gcr_role
+        if: inputs.use_vault == true
+        env:
+          CONFIG_VAULT_GCR_ROLE: ${{ steps.config.outputs.vault_gcr_role }}
+          CONFIG_VAULT_GCR_SECRET_PATH: ${{ steps.config.outputs.vault_gcr_secret_path }}
+          SECRET_VAULT_GCR_ROLE: ${{ secrets.VAULT_GCR_ROLE }}
+          SECRET_VAULT_GCR_SECRET_PATH: ${{ secrets.VAULT_GCR_SECRET_PATH }}
+          CONTAINER_IMAGE: ${{ inputs.container_image }}
+        run: |
+          # Use config values first, fall back to secrets if config is empty
+          gcr_role="${CONFIG_VAULT_GCR_ROLE:-${SECRET_VAULT_GCR_ROLE}}"
+          gcr_secret_path="${CONFIG_VAULT_GCR_SECRET_PATH:-${SECRET_VAULT_GCR_SECRET_PATH}}"
+
+          # The registry host is the first path segment of the image reference. It
+          # only counts as a host if the reference actually has a path separator and
+          # the segment looks like a host (contains a dot or a port), which is how
+          # docker itself distinguishes a registry from a Docker Hub namespace.
+          registry=""
+          if [[ "$CONTAINER_IMAGE" == */* ]]; then
+            candidate="${CONTAINER_IMAGE%%/*}"
+            if [[ "$candidate" == *.* || "$candidate" == *:* ]]; then
+              registry="$candidate"
+            fi
+          fi
+
+          if [[ -z "$gcr_role" || -z "$gcr_secret_path" ]]; then
+            echo "⚠️ No Vault GCR role/secret path configured - GCR authentication will be skipped"
+            registry=""
+          elif [[ -z "$registry" ]]; then
+            echo "⚠️ No registry host in '${CONTAINER_IMAGE}' - GCR authentication will be skipped"
+          else
+            echo "✅ Using Vault GCR role for registry ${registry}"
+          fi
+
+          {
+            echo "gcr_role=${gcr_role}"
+            echo "gcr_secret_path=${gcr_secret_path}"
+            echo "registry=${registry}"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Retrieve GCR Credentials from Vault
         id: gcr_creds
-        if: inputs.use_vault == true && inputs.gcr_registry != '' && inputs.gcr_vault_role != '' && inputs.gcr_vault_secret_path != ''
+        if: inputs.use_vault == true && steps.vault_gcr_role.outputs.registry != ''
         uses: hashicorp/vault-action@4c06c5ccf5c0761b6029f56cfb1dcf5565918a3b # v3.4.0
         with:
           url: ${{ secrets.VAULT_URL != '' && secrets.VAULT_URL || steps.config.outputs.vault_url }}
-          role: ${{ inputs.gcr_vault_role }}
+          role: ${{ steps.vault_gcr_role.outputs.gcr_role }}
           method: jwt
           path: jwt-github
           jwtGithubAudience: https://github.com/${{ github.repository_owner }}
           exportToken: false
           secrets: |
-            ${{ inputs.gcr_vault_secret_path }} GCP_SERVICE_ACCOUNT | GCP_SERVICE_ACCOUNT
+            ${{ steps.vault_gcr_role.outputs.gcr_secret_path }} GCP_SERVICE_ACCOUNT | GCP_SERVICE_ACCOUNT
 
       - name: Login to Google Container Registry
         if: steps.gcr_creds.conclusion == 'success'
         uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
         with:
-          registry: ${{ inputs.gcr_registry }}
+          registry: ${{ steps.vault_gcr_role.outputs.registry }}
           username: _json_key
           password: ${{ steps.gcr_creds.outputs.GCP_SERVICE_ACCOUNT }}
 

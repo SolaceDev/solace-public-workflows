@@ -80,9 +80,6 @@ jobs:
 | `fossa_vulnerability_mode` | No | `"REPORT"` | Vulnerability check mode: `BLOCK` or `REPORT` |
 | `fossa_vulnerability_block_on` | No | `"critical,high"` | Vulnerability severities to block on |
 | `slack_channel` | No | `"#sc-deploy-cicd-activity"` | Slack channel for failure notifications |
-| `gcr_registry` | No | (empty) | Google container registry host to log in to (e.g. `gcr.io`). Empty skips GCR login |
-| `gcr_vault_role` | No | (empty) | Vault JWT role used to read the GCP service account key |
-| `gcr_vault_secret_path` | No | (empty) | Vault secret path holding a `GCP_SERVICE_ACCOUNT` key |
 
 **Note**: When `config_file` is provided, configuration from the file takes precedence over individual inputs.
 
@@ -219,24 +216,43 @@ images hosted elsewhere are unaffected.
 ## GCR Authentication
 
 The FOSSA CLI pulls the image itself, so a private `gcr.io` image needs docker
-credentials for that registry on the runner. Point the workflow at a Vault path
-holding a `GCP_SERVICE_ACCOUNT` key:
+credentials for that registry on the runner. Configure the Vault role and path that
+hold a `GCP_SERVICE_ACCOUNT` key, alongside the existing `aws_role`:
+
+```json
+{
+  "secrets": {
+    "vault": {
+      "url": "https://vault.example.com:8200",
+      "role": "cicd-workflows-secret-read-role",
+      "gcr_role": "cicd-workflows-gcr-dev-read-role",
+      "gcr_secret_path": "secret/data/development/gcp"
+    }
+  }
+}
+```
+
+Unlike `aws_role`, which is read using the shared `role`, the GCP service account
+key usually requires its own JWT role — hence the separate `gcr_role`. Both keys can
+also be supplied as the `VAULT_GCR_ROLE` and `VAULT_GCR_SECRET_PATH` secrets, which
+apply when the config file does not set them.
+
+The registry host is taken from the first path segment of `container_image`, so no
+extra configuration is needed. Login is skipped unless both keys are set and the
+image reference actually carries a registry host.
+
+Note that the registry path must come from a variable rather than a secret:
 
 ```yaml
     with:
       container_image: gcr.io/${{ vars.GCLOUD_PROJECT_ID_DEV }}/my-service:${{ needs.build.outputs.image_tag }}
       use_vault: true
-      gcr_registry: gcr.io
-      gcr_vault_role: cicd-workflows-gcr-dev-read-role
-      gcr_vault_secret_path: secret/data/development/gcp
+      config_file: '.github/workflow-config.json'
 ```
 
-All three inputs are required together; if any is empty the GCR login is skipped.
-
-Note that the registry path must come from a variable rather than a secret. The
-`secrets` context is not available in a reusable workflow `with:` block, and a job
-output whose value contains a secret is redacted to an empty string — so passing a
-`gcr.io/$SECRET_PROJECT/...` image reference between jobs silently yields an empty
+The `secrets` context is not available in a reusable workflow `with:` block, and a
+job output whose value contains a secret is redacted to an empty string — so passing
+a `gcr.io/$SECRET_PROJECT/...` image reference between jobs silently yields an empty
 `container_image`.
 
 ## FOSSA Dashboard Links

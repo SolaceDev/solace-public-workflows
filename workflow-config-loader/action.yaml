@@ -26,6 +26,12 @@ outputs:
   vault_aws_role:
     description: "Vault AWS STS role path for ECR authentication"
     value: ${{ steps.parse.outputs.vault_aws_role }}
+  vault_gcr_role:
+    description: "Vault JWT role used to read the GCP service account key for GCR authentication"
+    value: ${{ steps.parse.outputs.vault_gcr_role }}
+  vault_gcr_secret_path:
+    description: "Vault secret path holding a GCP_SERVICE_ACCOUNT key for GCR authentication"
+    value: ${{ steps.parse.outputs.vault_gcr_secret_path }}
   vault_secret_mappings:
     description: "Formatted string of Vault secret mappings for hashicorp/vault-action"
     value: ${{ steps.parse.outputs.vault_secret_mappings }}
@@ -114,6 +120,15 @@ runs:
         VAULT_AWS_ROLE=$(echo "$CONFIG" | jq -r ".secrets.vault.aws_role // .${CONFIG_TYPE}.secrets.vault.aws_role // \"\"")
         echo "vault_aws_role=${VAULT_AWS_ROLE}" >> $GITHUB_OUTPUT
 
+        # Parse vault GCR role and secret path (for GCR authentication).
+        # Unlike AWS, reading the GCP service account key usually needs its own
+        # JWT role rather than the shared one, so both values are configurable.
+        VAULT_GCR_ROLE=$(echo "$CONFIG" | jq -r ".secrets.vault.gcr_role // .${CONFIG_TYPE}.secrets.vault.gcr_role // \"\"")
+        echo "vault_gcr_role=${VAULT_GCR_ROLE}" >> $GITHUB_OUTPUT
+
+        VAULT_GCR_SECRET_PATH=$(echo "$CONFIG" | jq -r ".secrets.vault.gcr_secret_path // .${CONFIG_TYPE}.secrets.vault.gcr_secret_path // \"\"")
+        echo "vault_gcr_secret_path=${VAULT_GCR_SECRET_PATH}" >> $GITHUB_OUTPUT
+
         # Parse vault secret mappings
         # Extract secret_mappings array
         SECRET_MAPPINGS=$(echo "$CONFIG" | jq -c ".secrets.vault.secret_mappings // .${CONFIG_TYPE}.secrets.vault.secret_mappings // empty")
@@ -182,6 +197,8 @@ runs:
         echo "  - Vault secret path: ${VAULT_PATH}"
         echo "  - Vault role: ${VAULT_ROLE:-<not set>}"
         echo "  - Vault AWS role: ${VAULT_AWS_ROLE:-<not set>}"
+        echo "  - Vault GCR role: ${VAULT_GCR_ROLE:-<not set>}"
+        echo "  - Vault GCR secret path: ${VAULT_GCR_SECRET_PATH:-<not set>}"
         echo "  - Slack channel: ${SLACK}"
         echo "  - FOSSA licensing: ${FOSSA_LIC_MODE} (block on: ${FOSSA_LIC_BLOCK})"
         echo "  - FOSSA vulnerability: ${FOSSA_VULN_MODE} (block on: ${FOSSA_VULN_BLOCK})"
