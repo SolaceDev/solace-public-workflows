@@ -58,14 +58,19 @@ on:
         required: false
         default: true
         description: "Validate dependency conflicts"
+      run_sonarqube_analysis:
+        type: boolean
+        required: false
+        default: true
+        description: "Run SonarQube scan and quality gate. Set to false (and omit SONAR_* secrets) to disable SonarQube."
 
     secrets:
       SONAR_TOKEN:
-        description: "SonarQube token for the repository."
-        required: true
+        description: "SonarQube token for the repository. Required only when run_sonarqube_analysis is true."
+        required: false
       SONAR_HOST_URL:
-        description: "SonarQube host URL for the repository."
-        required: true
+        description: "SonarQube host URL for the repository. Required only when run_sonarqube_analysis is true."
+        required: false
       WHITESOURCE_API_KEY:
         description: "WhiteSource API key"
         required: false
@@ -320,6 +325,7 @@ jobs:
         shell: bash
 
       - name: SonarQube Scan
+        if: ${{ inputs.run_sonarqube_analysis }}
         uses: sonarsource/sonarqube-scan-action@fd88b7d7ccbaefd23d8f36f73b59db7a3d246602 # v6.0.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
@@ -333,7 +339,7 @@ jobs:
             "-Dsonar.python.coverage.reportPaths=*coverage*.xml"
 
       - name: SonarQube Quality Gate check
-        if: github.event_name == 'pull_request'
+        if: ${{ inputs.run_sonarqube_analysis && github.event_name == 'pull_request' }}
         id: sonarqube-quality-gate-check
         uses: sonarsource/sonarqube-quality-gate-action@master
         env:
