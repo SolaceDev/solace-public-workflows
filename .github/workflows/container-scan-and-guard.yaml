@@ -144,7 +144,7 @@ jobs:
       - name: Load Workflow Configuration
         if: inputs.config_file != ''
         id: config_loader
-        uses: SolaceDev/solace-public-workflows/workflow-config-loader@DATAGO-148019-gcr-auth-container-scan
+        uses: SolaceDev/solace-public-workflows/workflow-config-loader@main
         with:
           config_file: ${{ inputs.config_file }}
           config_type: container_scanning
