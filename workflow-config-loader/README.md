@@ -75,14 +75,10 @@ No config file needed - pass secrets directly to workflows.
 
 ### Vault Configuration
 
-Two distinct kinds of value, which the key names do not make obvious:
+Two distinct kinds of values:
 
 - **auth role** — a Vault JWT auth role, the identity you log in as (`vault-action`'s `role:` input).
 - **path** — a location in Vault you read once authenticated (the left-hand side of a `vault-action` `secrets:` mapping).
-
-`aws_role` is a **path** despite its name: it points at an AWS STS engine role endpoint, read while authenticated as `vault_role`. That is why ECR needs no auth role of its own. GCR is the other shape — its service account key normally sits behind a dedicated auth role — so it has one key of each: `gcr_role` is read with, and reads, `gcr_secret_path`.
-
-Comparing across the two, the correspondence is by *kind*, not by usage: `gcr_role` holds the same kind of value as `role` (an auth role), while `aws_role` holds the same kind as `secret_path` (a path). `gcr_role` is not layered on top of `role` — each read performs its own independent login.
 
 | Output | Kind | Description |
 |--------|------|-------------|
