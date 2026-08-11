@@ -96,12 +96,6 @@ on:
       VAULT_AWS_ROLE:
         description: 'Vault AWS STS role path for ECR authentication'
         required: false
-      VAULT_GCR_ROLE:
-        description: 'Vault JWT role used to read the GCP service account key for GCR authentication (optional - defaults to config file value)'
-        required: false
-      VAULT_GCR_SECRET_PATH:
-        description: 'Vault secret path holding a GCP_SERVICE_ACCOUNT key for GCR authentication (optional - defaults to config file value)'
-        required: false
       AWS_ACCESS_KEY_ID:
         description: 'AWS Access Key ID for ECR authentication (required if use_vault is false and scanning ECR images)'
         required: false
@@ -405,13 +399,10 @@ jobs:
         env:
           CONFIG_VAULT_GCR_ROLE: ${{ steps.config.outputs.vault_gcr_role }}
           CONFIG_VAULT_GCR_SECRET_PATH: ${{ steps.config.outputs.vault_gcr_secret_path }}
-          SECRET_VAULT_GCR_ROLE: ${{ secrets.VAULT_GCR_ROLE }}
-          SECRET_VAULT_GCR_SECRET_PATH: ${{ secrets.VAULT_GCR_SECRET_PATH }}
           CONTAINER_IMAGE: ${{ inputs.container_image }}
         run: |
-          # Use config values first, fall back to secrets if config is empty
-          gcr_role="${CONFIG_VAULT_GCR_ROLE:-${SECRET_VAULT_GCR_ROLE}}"
-          gcr_secret_path="${CONFIG_VAULT_GCR_SECRET_PATH:-${SECRET_VAULT_GCR_SECRET_PATH}}"
+          gcr_role="${CONFIG_VAULT_GCR_ROLE}"
+          gcr_secret_path="${CONFIG_VAULT_GCR_SECRET_PATH}"
 
           # The registry host is the first path segment of the image reference. It
           # only counts as a host if the reference actually has a path separator and

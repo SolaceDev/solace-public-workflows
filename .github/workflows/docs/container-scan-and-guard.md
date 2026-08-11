@@ -232,10 +232,10 @@ hold a `GCP_SERVICE_ACCOUNT` key, alongside the existing `aws_role`:
 }
 ```
 
-Unlike `aws_role`, which is read using the shared `role`, the GCP service account
-key usually requires its own JWT role — hence the separate `gcr_role`. Both keys can
-also be supplied as the `VAULT_GCR_ROLE` and `VAULT_GCR_SECRET_PATH` secrets, which
-apply when the config file does not set them.
+Unlike `aws_role`, which is a Vault *path* read using the shared `role`, `gcr_role` is
+an auth role in its own right — the GCP service account key usually sits behind a
+dedicated one — so GCR takes both a role and a path. These two keys are config-file
+only; there is no GitHub secret equivalent.
 
 The registry host is taken from the first path segment of `container_image`, so no
 extra configuration is needed. Login is skipped unless both keys are set and the
