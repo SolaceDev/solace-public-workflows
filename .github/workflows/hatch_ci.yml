@@ -158,7 +158,7 @@ jobs:
 
       - name: Install uv
         id: setup-uv
-        uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
       - name: Install Hatch
         run: uv tool install --with virtualenv==20.26.6 hatch
       - name: Create Hatch Environment
@@ -244,7 +244,7 @@ jobs:
           python-version: ${{ inputs.max-python-version }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a # v4.2.0
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
 
       - name: Install Hatch
         run: uv tool install --with virtualenv==20.26.6 hatch
@@ -359,7 +359,7 @@ jobs:
           python-version: ${{ inputs.max-python-version }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a # v4.2.0
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           enable-cache: true
           cache-dependency-glob: "**/pyproject.toml"
