@@ -14,15 +14,6 @@ outputs:
   config_json:
     description: "Raw configuration JSON"
     value: ${{ steps.load.outputs.config_json }}
-  # Two distinct kinds of value are parsed below, and the config key names do not
-  # make the difference obvious:
-  #   AUTH ROLE - a Vault JWT auth role, the identity you log in as
-  #               (vault-action's `role:` input)
-  #   PATH      - a location in Vault you read once authenticated
-  #               (the left-hand side of a vault-action `secrets:` mapping)
-  # `aws_role` is a PATH despite its name: it points at an AWS STS engine role
-  # endpoint, read using the shared `role` auth role. GCR is the opposite shape,
-  # needing its own auth role plus a path, so it has one key of each.
   vault_url:
     description: "Vault server URL"
     value: ${{ steps.parse.outputs.vault_url }}
