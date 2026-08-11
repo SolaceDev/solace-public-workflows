@@ -80,6 +80,9 @@ jobs:
 | `fossa_vulnerability_mode` | No | `"REPORT"` | Vulnerability check mode: `BLOCK` or `REPORT` |
 | `fossa_vulnerability_block_on` | No | `"critical,high"` | Vulnerability severities to block on |
 | `slack_channel` | No | `"#sc-deploy-cicd-activity"` | Slack channel for failure notifications |
+| `gcr_registry` | No | (empty) | Google container registry host to log in to (e.g. `gcr.io`). Empty skips GCR login |
+| `gcr_vault_role` | No | (empty) | Vault JWT role used to read the GCP service account key |
+| `gcr_vault_secret_path` | No | (empty) | Vault secret path holding a `GCP_SERVICE_ACCOUNT` key |
 
 **Note**: When `config_file` is provided, configuration from the file takes precedence over individual inputs.
 
@@ -209,6 +212,32 @@ The workflow automatically:
 2. Retrieves AWS STS credentials
 3. Logs into ECR
 4. Pulls the container image for scanning
+
+ECR login is skipped when no AWS credentials are configured, so callers scanning
+images hosted elsewhere are unaffected.
+
+## GCR Authentication
+
+The FOSSA CLI pulls the image itself, so a private `gcr.io` image needs docker
+credentials for that registry on the runner. Point the workflow at a Vault path
+holding a `GCP_SERVICE_ACCOUNT` key:
+
+```yaml
+    with:
+      container_image: gcr.io/${{ vars.GCLOUD_PROJECT_ID_DEV }}/my-service:${{ needs.build.outputs.image_tag }}
+      use_vault: true
+      gcr_registry: gcr.io
+      gcr_vault_role: cicd-workflows-gcr-dev-read-role
+      gcr_vault_secret_path: secret/data/development/gcp
+```
+
+All three inputs are required together; if any is empty the GCR login is skipped.
+
+Note that the registry path must come from a variable rather than a secret. The
+`secrets` context is not available in a reusable workflow `with:` block, and a job
+output whose value contains a secret is redacted to an empty string — so passing a
+`gcr.io/$SECRET_PROJECT/...` image reference between jobs silently yields an empty
+`container_image`.
 
 ## FOSSA Dashboard Links
 

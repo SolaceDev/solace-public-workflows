@@ -79,6 +79,21 @@ on:
         required: false
         type: boolean
         default: false
+      gcr_registry:
+        description: 'Google container registry host to authenticate against (e.g. gcr.io). Leave empty to skip GCR login.'
+        required: false
+        type: string
+        default: ''
+      gcr_vault_role:
+        description: 'Vault JWT role used to read the GCP service account key for GCR authentication'
+        required: false
+        type: string
+        default: ''
+      gcr_vault_secret_path:
+        description: 'Vault secret path holding a GCP_SERVICE_ACCOUNT key for GCR authentication'
+        required: false
+        type: string
+        default: ''
 
     secrets:
       FOSSA_API_KEY:
@@ -378,8 +393,35 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
 
+      # ECR login only makes sense once AWS credentials are on the runner. Without
+      # this guard it fails the job for callers that scan images hosted elsewhere.
       - name: Login to Amazon ECR
+        if: (inputs.use_vault == true && steps.aws_creds.outcome == 'success') || (inputs.use_vault == false && secrets.AWS_ACCESS_KEY_ID != '')
         uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2.0.1
+
+      # The FOSSA CLI pulls the image itself, so a private GCR image needs docker
+      # credentials for the registry host on this runner.
+      - name: Retrieve GCR Credentials from Vault
+        id: gcr_creds
+        if: inputs.use_vault == true && inputs.gcr_registry != '' && inputs.gcr_vault_role != '' && inputs.gcr_vault_secret_path != ''
+        uses: hashicorp/vault-action@4c06c5ccf5c0761b6029f56cfb1dcf5565918a3b # v3.4.0
+        with:
+          url: ${{ secrets.VAULT_URL != '' && secrets.VAULT_URL || steps.config.outputs.vault_url }}
+          role: ${{ inputs.gcr_vault_role }}
+          method: jwt
+          path: jwt-github
+          jwtGithubAudience: https://github.com/${{ github.repository_owner }}
+          exportToken: false
+          secrets: |
+            ${{ inputs.gcr_vault_secret_path }} GCP_SERVICE_ACCOUNT | GCP_SERVICE_ACCOUNT
+
+      - name: Login to Google Container Registry
+        if: steps.gcr_creds.conclusion == 'success'
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
+        with:
+          registry: ${{ inputs.gcr_registry }}
+          username: _json_key
+          password: ${{ steps.gcr_creds.outputs.GCP_SERVICE_ACCOUNT }}
 
       - name: Validate FOSSA API Key
         id: fossa_key
