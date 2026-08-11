@@ -114,8 +114,12 @@ role — the identity you log in as. A **path** is a location you read once
 authenticated. `aws_role` is a **path** despite its name: it points at an AWS STS
 engine role endpoint, read while authenticated as `role`, which is why ECR needs no
 auth role of its own. GCR's service account key normally sits behind a dedicated auth
-role, so it has one key of each — `gcr_role` is parallel to `role`, while `aws_role`
-is parallel to `secret_path`.
+role, so it has one key of each: `gcr_secret_path` is read using `gcr_role`.
+
+Comparing across the two, the correspondence is by *kind*, not by usage: `gcr_role`
+holds the same kind of value as `role` (an auth role), while `aws_role` holds the same
+kind as `secret_path` (a path). `gcr_role` is not layered on top of `role` — each read
+performs its own independent login.
 
 | Field | Type | Kind | Required | Default | Description |
 |-------|------|------|----------|---------|-------------|

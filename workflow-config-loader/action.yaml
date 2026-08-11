@@ -36,7 +36,7 @@ outputs:
     description: "PATH: Vault path of the AWS STS engine role for ECR auth, read using vault_role (not an auth role, despite the name)"
     value: ${{ steps.parse.outputs.vault_aws_role }}
   vault_gcr_role:
-    description: "AUTH ROLE: Vault JWT auth role used to read the GCP service account key (parallel to vault_role, NOT to vault_aws_role)"
+    description: "AUTH ROLE: Vault JWT auth role used to read vault_gcr_secret_path. Same kind of value as vault_role, not vault_aws_role, and independent of vault_role"
     value: ${{ steps.parse.outputs.vault_gcr_role }}
   vault_gcr_secret_path:
     description: "PATH: Vault path holding a GCP_SERVICE_ACCOUNT key for GCR auth, read using vault_gcr_role"
@@ -132,9 +132,11 @@ runs:
         echo "vault_aws_role=${VAULT_AWS_ROLE}" >> $GITHUB_OUTPUT
 
         # GCR is the other shape: the GCP service account key normally sits behind a
-        # dedicated auth role, so it needs both an AUTH ROLE and a PATH. Note the
-        # asymmetry with the block above - `gcr_role` pairs with `role`, whereas
-        # `aws_role` pairs with `secret_path`.
+        # dedicated auth role, so it needs both an AUTH ROLE and a PATH. gcr_role is
+        # what gcr_secret_path is read with. The asymmetry with the block above is one
+        # of kind rather than usage: gcr_role holds the same kind of value as `role`
+        # (an auth role), while `aws_role` holds the same kind as `secret_path` (a
+        # path). It is not layered on top of `role` - each read logs in separately.
         VAULT_GCR_ROLE=$(echo "$CONFIG" | jq -r ".secrets.vault.gcr_role // .${CONFIG_TYPE}.secrets.vault.gcr_role // \"\"")
         echo "vault_gcr_role=${VAULT_GCR_ROLE}" >> $GITHUB_OUTPUT
 

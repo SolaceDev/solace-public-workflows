@@ -242,7 +242,9 @@ What each key does:
 | `gcr_role` | JWT auth role the GCR login authenticates as. Its Vault policy is what grants read access to `gcr_secret_path`. |
 | `gcr_secret_path` | Vault path holding the GCP service account key, in a `GCP_SERVICE_ACCOUNT` field. |
 
-
+The registry host is taken from the first path segment of `container_image`, so the
+caller only points at the config file. Note that the registry path has to come from a
+variable rather than a secret:
 
 ```yaml
     with:
