@@ -74,11 +74,20 @@ No config file needed - pass secrets directly to workflows.
 ## Outputs
 
 ### Vault Configuration
-| Output | Description |
-|--------|-------------|
-| `vault_url` | Vault URL (typically from `vars.GCP_VAULT_ADDR`) |
-| `vault_secret_path` | Vault secret path for API keys |
-| `vault_aws_role` | Vault AWS STS role path for ECR authentication |
+
+Two distinct kinds of values:
+
+- **auth role** — a Vault JWT auth role, the identity you log in as (`vault-action`'s `role:` input).
+- **path** — a location in Vault you read once authenticated (the left-hand side of a `vault-action` `secrets:` mapping).
+
+| Output | Kind | Description |
+|--------|------|-------------|
+| `vault_url` | - | Vault server URL |
+| `vault_role` | auth role | JWT auth role used for every Vault read unless overridden |
+| `vault_secret_path` | path | Path holding the FOSSA API key |
+| `vault_aws_role` | path | Path of the AWS STS engine role for ECR auth, read using `vault_role` |
+| `vault_gcr_role` | auth role | JWT auth role used to read the GCP service account key |
+| `vault_gcr_secret_path` | path | Path holding a `GCP_SERVICE_ACCOUNT` key, read using `vault_gcr_role` |
 
 ### FOSSA Configuration
 | Output | Description |

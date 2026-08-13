@@ -194,21 +194,64 @@ For private ECR images, use Vault to retrieve AWS credentials:
 
 ```json
 {
-  "container_scanning": {
-    "secrets": {
-      "vault": {
-        "aws_role": "secret/data/path/to/aws-sts"
-      }
+  "secrets": {
+    "vault": {
+      "url": "https://vault.example.com:8200",
+      "role": "cicd-workflows-secret-read-role",
+      "aws_role": "aws-development/sts/team-role"
     }
   }
 }
 ```
 
+Here `aws_role` **is a Vault path, not an auth role**, despite the name — it points at
+an AWS STS engine role endpoint, and it is read while authenticated as `role`.
+
 The workflow automatically:
-1. Authenticates to Vault
-2. Retrieves AWS STS credentials
+1. Authenticates to Vault as `role`
+2. Reads AWS STS credentials from `aws_role`
 3. Logs into ECR
 4. Pulls the container image for scanning
+
+ECR login is skipped when no AWS credentials are configured, so callers scanning
+images hosted elsewhere are unaffected.
+
+## GCR Authentication
+
+Configure the Vault role and path that hold a `GCP_SERVICE_ACCOUNT` key:
+
+```json
+{
+  "secrets": {
+    "vault": {
+      "url": "https://vault.example.com:8200",
+      "role": "cicd-workflows-secret-read-role",
+      "gcr_role": "cicd-workflows-gcr-dev-read-role",
+      "gcr_secret_path": "secret/data/development/gcp"
+    }
+  }
+}
+```
+
+What each key does:
+
+| Key | Purpose |
+|-----|---------|
+| `url` | Vault server address. Shared by every Vault read in this workflow. |
+| `role` | JWT auth role for the FOSSA API key and AWS STS reads. **Not used by the GCR login.** Still required, because `Validate Vault Configuration` fails when `url` or `role` is empty and `use_vault: true`. |
+| `gcr_role` | JWT auth role the GCR login authenticates as. Its Vault policy is what grants read access to `gcr_secret_path`. |
+| `gcr_secret_path` | Vault path holding the GCP service account key, in a `GCP_SERVICE_ACCOUNT` field. |
+
+The registry host is taken from the first path segment of `container_image`, so the
+caller only points at the config file. Note that the registry path has to come from a
+variable rather than a secret:
+
+```yaml
+    with:
+      container_image: gcr.io/${{ vars.GCLOUD_PROJECT_ID_DEV }}/my-service:${{ needs.build.outputs.image_tag }}
+      use_vault: true
+      config_file: '.github/workflow-config.json'
+```
 
 ## FOSSA Dashboard Links
 

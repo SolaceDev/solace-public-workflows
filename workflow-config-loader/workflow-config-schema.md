@@ -109,12 +109,18 @@ This file may already exist in your repository for other build configuration. Th
 
 **Note**: The `secrets` section is defined at the **root level** of the configuration file, not under `container_scanning`. It is shared across all workflows that use this configuration.
 
-| Field | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `secrets.vault.url` | string | Yes | - | Vault server URL (e.g., `https://vault.example.com:8200`) |
-| `secrets.vault.role` | string | Yes | - | Vault JWT authentication role for GitHub Actions (e.g., `github-actions-role`) |
-| `secrets.vault.secret_path` | string | No | `/path/to/secret` | Vault path for FOSSA_API_KEY |
-| `secrets.vault.aws_role` | string | No | `""` | Vault AWS STS role path for ECR authentication |
+These fields are two different kinds of thing. An **auth role** is a Vault JWT auth
+role — the identity you log in as. A **path** is a location you read once
+authenticated.
+
+| Field | Type | Kind | Required | Default | Description |
+|-------|------|------|----------|---------|-------------|
+| `secrets.vault.url` | string | - | Yes | - | Vault server URL (e.g., `https://vault.example.com:8200`) |
+| `secrets.vault.role` | string | auth role | Yes | - | JWT auth role for GitHub Actions (e.g., `github-actions-role`) |
+| `secrets.vault.secret_path` | string | path | No | `/path/to/secret` | Path holding `FOSSA_API_KEY`, read using `role` |
+| `secrets.vault.aws_role` | string | path | No | `""` | Path of the AWS STS engine role for ECR auth, read using `role` |
+| `secrets.vault.gcr_role` | string | auth role | No | `""` | JWT auth role used to read the GCP service account key |
+| `secrets.vault.gcr_secret_path` | string | path | No | `""` | Path holding a `GCP_SERVICE_ACCOUNT` key, read using `gcr_role` |
 
 ## Complete Examples
 
