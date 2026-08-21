@@ -36,6 +36,18 @@ inputs:
     description: "Whether Jira reporting should run in dry-run mode."
     required: false
     default: "false"
+  async:
+    description: "Submit to /db_synch_and_report_async and poll for completion instead of blocking on /db_synch_and_report. Avoids the gateway request timeout on long reconciles. Requires a Guardian build with the async endpoints."
+    required: false
+    default: "false"
+  poll-interval:
+    description: "Seconds between async status polls (only used when async=true)."
+    required: false
+    default: "10"
+  poll-timeout:
+    description: "Max seconds to wait for the async task before failing (only used when async=true)."
+    required: false
+    default: "1800"
   upload-logs:
     description: "Upload db sync request logs as a workflow artifact."
     required: false
@@ -122,6 +134,9 @@ runs:
           --guardian-key "${{ inputs.guardian-key }}"
           --product-name "$PRODUCT_NAME"
           --jira-dry-run "${{ inputs.jira-dry-run }}"
+          --async "${{ inputs.async }}"
+          --poll-interval "${{ inputs.poll-interval }}"
+          --poll-timeout "${{ inputs.poll-timeout }}"
           --output-dir "$response_dir"
         )
 

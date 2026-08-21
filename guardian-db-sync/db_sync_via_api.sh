@@ -10,6 +10,9 @@ COLLECTION=""
 JIRA_COLLECTION_NAME=""
 JIRA_PROFILE=""
 JIRA_DRY_RUN="false"
+ASYNC_MODE="false"
+POLL_INTERVAL="10"
+POLL_TIMEOUT="1800"
 OUTPUT_DIR=""
 
 usage() {
@@ -28,6 +31,11 @@ Optional:
   --jira-collection-name <name>
   --jira-profile <name>
   --jira-dry-run <true|false>   Default: false
+  --async <true|false>          Default: false. Submit to /db_synch_and_report_async and poll the
+                                status endpoint instead of blocking on /db_synch_and_report — avoids
+                                the gateway request timeout on long reconciles.
+  --poll-interval <seconds>     Default: 10. Async status poll interval.
+  --poll-timeout <seconds>      Default: 1800. Give up if the task hasn't finished by then.
   --output-dir <dir>
   -h, --help
 
@@ -133,6 +141,77 @@ api_post_json() {
     "$url"
 }
 
+api_get() {
+  local output_file="$1"
+  local token="$2"
+  local url="$3"
+  curl -sS \
+    -o "$output_file" \
+    -w "%{http_code}" \
+    -H "Authorization: Bearer $token" \
+    "$url"
+}
+
+# Submit to the async endpoint, then poll the status endpoint until the task finishes. Writes the
+# final DBSynchAndReportResponse (the task's .result) to RESPONSE_FILE so the sync-mode output
+# parsing below works unchanged. Each poll is a short request, so the gateway request timeout that
+# kills the blocking /db_synch_and_report on long reconciles never applies here.
+run_async() {
+  local submit_file
+  submit_file="$(mktemp)"
+  local code
+  code="$(api_post_json "$submit_file" "$GUARDIAN_KEY" "$REQUEST_BODY" "$GUARDIAN_URL/api/v1/db_synch_and_report_async")"
+  if [ "$code" -lt 200 ] || [ "$code" -ge 300 ]; then
+    echo "ERROR: async submit failed with HTTP $code" >&2
+    print_response "$submit_file"
+    exit 1
+  fi
+  local task_id
+  task_id="$(jq -r '.task_id // empty' "$submit_file")"
+  if [ -z "$task_id" ]; then
+    echo "ERROR: async submit did not return a task_id" >&2
+    print_response "$submit_file"
+    exit 1
+  fi
+  echo "  Submitted task $task_id; polling every ${POLL_INTERVAL}s (timeout ${POLL_TIMEOUT}s)"
+
+  local status_url="$GUARDIAN_URL/api/v1/db_synch_and_report/status/$task_id"
+  local elapsed=0 last_stage="" status_file
+  status_file="$(mktemp)"
+  while :; do
+    code="$(api_get "$status_file" "$GUARDIAN_KEY" "$status_url")"
+    if [ "$code" -ne 200 ]; then
+      echo "ERROR: status poll failed with HTTP $code" >&2
+      print_response "$status_file"
+      exit 1
+    fi
+    local task_status stage
+    task_status="$(jq -r '.status' "$status_file")"
+    stage="$(jq -r '.stage // "-"' "$status_file")"
+    if [ "$stage" != "$last_stage" ]; then
+      echo "  [$(date -u +%H:%M:%S)] stage: ${stage} (task ${task_status})"
+      last_stage="$stage"
+    fi
+    case "$task_status" in
+      success)
+        jq '.result' "$status_file" > "$RESPONSE_FILE"
+        echo "  Task $task_id completed."
+        return 0
+        ;;
+      failed)
+        echo "ERROR: reconcile task failed: $(jq -r '.error // "unknown error"' "$status_file")" >&2
+        exit 1
+        ;;
+    esac
+    if [ "$elapsed" -ge "$POLL_TIMEOUT" ]; then
+      echo "ERROR: timed out after ${POLL_TIMEOUT}s (task still '${task_status}', stage '${stage}')" >&2
+      exit 1
+    fi
+    sleep "$POLL_INTERVAL"
+    elapsed=$((elapsed + POLL_INTERVAL))
+  done
+}
+
 while [ $# -gt 0 ]; do
   case "$1" in
     --guardian-url)
@@ -169,6 +248,18 @@ while [ $# -gt 0 ]; do
       ;;
     --jira-dry-run)
       JIRA_DRY_RUN="$(normalize_bool "$2")"
+      shift 2
+      ;;
+    --async)
+      ASYNC_MODE="$(normalize_bool "$2")"
+      shift 2
+      ;;
+    --poll-interval)
+      POLL_INTERVAL="$2"
+      shift 2
+      ;;
+    --poll-timeout)
+      POLL_TIMEOUT="$2"
       shift 2
       ;;
     --output-dir)
@@ -233,7 +324,11 @@ REQUEST_BODY="$(
     + (if $jira_profile != "" then {jira_profile: $jira_profile} else {} end)'
 )"
 
-echo "Running Guardian sync and report via $GUARDIAN_URL/api/v1/db_synch_and_report"
+if [ "$ASYNC_MODE" = "true" ]; then
+  echo "Running Guardian sync and report (async) via $GUARDIAN_URL/api/v1/db_synch_and_report_async"
+else
+  echo "Running Guardian sync and report via $GUARDIAN_URL/api/v1/db_synch_and_report"
+fi
 echo "  Product: $PRODUCT_NAME"
 if [ -n "$PRODUCT_FULL_VERSION" ]; then
   echo "  Product full version override: $PRODUCT_FULL_VERSION"
@@ -252,13 +347,17 @@ if [ -n "$JIRA_PROFILE" ]; then
   echo "  Jira profile: $JIRA_PROFILE"
 fi
 echo "  Jira dry run: $JIRA_DRY_RUN"
+echo "  Mode: $([ "$ASYNC_MODE" = "true" ] && echo "async (submit + poll)" || echo "sync (blocking)")"
 
-HTTP_STATUS="$(api_post_json "$RESPONSE_FILE" "$GUARDIAN_KEY" "$REQUEST_BODY" "$GUARDIAN_URL/api/v1/db_synch_and_report")"
-
-if [ "$HTTP_STATUS" -lt 200 ] || [ "$HTTP_STATUS" -ge 300 ]; then
-  echo "ERROR: db_synch_and_report failed with HTTP $HTTP_STATUS" >&2
-  print_response "$RESPONSE_FILE"
-  exit 1
+if [ "$ASYNC_MODE" = "true" ]; then
+  run_async
+else
+  HTTP_STATUS="$(api_post_json "$RESPONSE_FILE" "$GUARDIAN_KEY" "$REQUEST_BODY" "$GUARDIAN_URL/api/v1/db_synch_and_report")"
+  if [ "$HTTP_STATUS" -lt 200 ] || [ "$HTTP_STATUS" -ge 300 ]; then
+    echo "ERROR: db_synch_and_report failed with HTTP $HTTP_STATUS" >&2
+    print_response "$RESPONSE_FILE"
+    exit 1
+  fi
 fi
 
 PRODUCT_NAME="$(jq -r '.db_synch.product_name' "$RESPONSE_FILE")"
