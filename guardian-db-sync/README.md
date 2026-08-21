@@ -18,6 +18,9 @@ This action does not upload scan files and does not run the vulnerability gate. 
 - `jira-collection-name`
 - `jira-profile`
 - `jira-dry-run`
+- `async` — default `false`. Submit to `/db_synch_and_report_async` and poll the status endpoint until the reconcile finishes, instead of blocking on `/db_synch_and_report`. Avoids the gateway request timeout on long reconciles. Requires a Guardian build with the async endpoints.
+- `poll-interval` — default `10`. Seconds between status polls (async only).
+- `poll-timeout` — default `1800`. Fail if the task hasn't finished by then (async only).
 - `upload-logs`
 
 ## Outputs
