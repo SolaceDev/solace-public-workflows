@@ -131,7 +131,9 @@ api_post_json() {
   local token="$2"
   local payload="$3"
   local url="$4"
-  curl -sS \
+  # No --max-time: the sync path posts to the blocking /db_synch_and_report which legitimately
+  # runs for minutes. --connect-timeout still bounds a dead connection.
+  curl -sS --connect-timeout 10 \
     -o "$output_file" \
     -w "%{http_code}" \
     -X POST \
@@ -145,7 +147,8 @@ api_get() {
   local output_file="$1"
   local token="$2"
   local url="$3"
-  curl -sS \
+  # Status polls return instantly, so bound them so a stalled poll can't hang until the job timeout.
+  curl -sS --connect-timeout 10 --max-time 30 \
     -o "$output_file" \
     -w "%{http_code}" \
     -H "Authorization: Bearer $token" \
@@ -157,10 +160,14 @@ api_get() {
 # parsing below works unchanged. Each poll is a short request, so the gateway request timeout that
 # kills the blocking /db_synch_and_report on long reconciles never applies here.
 run_async() {
-  local submit_file
+  local submit_file status_file
   submit_file="$(mktemp)"
+  status_file="$(mktemp)"
+  # shellcheck disable=SC2064
+  trap "rm -f '$submit_file' '$status_file' 2>/dev/null || true" EXIT
+
   local code
-  code="$(api_post_json "$submit_file" "$GUARDIAN_KEY" "$REQUEST_BODY" "$GUARDIAN_URL/api/v1/db_synch_and_report_async")"
+  code="$(api_post_json "$submit_file" "$GUARDIAN_KEY" "$REQUEST_BODY" "$GUARDIAN_URL/api/v1/db_synch_and_report_async")" || code="000"
   if [ "$code" -lt 200 ] || [ "$code" -ge 300 ]; then
     echo "ERROR: async submit failed with HTTP $code" >&2
     print_response "$submit_file"
@@ -176,39 +183,68 @@ run_async() {
   echo "  Submitted task $task_id; polling every ${POLL_INTERVAL}s (timeout ${POLL_TIMEOUT}s)"
 
   local status_url="$GUARDIAN_URL/api/v1/db_synch_and_report/status/$task_id"
-  local elapsed=0 last_stage="" status_file
-  status_file="$(mktemp)"
+  # Wall-clock deadline (not an iteration count) so it holds regardless of how long each poll takes.
+  local start_ts last_stage="" fails=0
+  local max_fails=6
+  start_ts="$(date +%s)"
   while :; do
-    code="$(api_get "$status_file" "$GUARDIAN_KEY" "$status_url")"
-    if [ "$code" -ne 200 ]; then
-      echo "ERROR: status poll failed with HTTP $code" >&2
-      print_response "$status_file"
-      exit 1
-    fi
-    local task_status stage
-    task_status="$(jq -r '.status' "$status_file")"
-    stage="$(jq -r '.stage // "-"' "$status_file")"
-    if [ "$stage" != "$last_stage" ]; then
-      echo "  [$(date -u +%H:%M:%S)] stage: ${stage} (task ${task_status})"
-      last_stage="$stage"
-    fi
-    case "$task_status" in
-      success)
-        jq '.result' "$status_file" > "$RESPONSE_FILE"
-        echo "  Task $task_id completed."
-        return 0
+    # A transport failure (reset/DNS/empty reply) makes curl exit non-zero and print "000"; capture
+    # both so set -e can't kill the loop on a single blip over a ~30-minute poll window.
+    code="$(api_get "$status_file" "$GUARDIAN_KEY" "$status_url")" || code="000"
+    case "$code" in
+      200)
+        fails=0
+        local task_status stage
+        task_status="$(jq -r '.status // "unknown"' "$status_file" 2>/dev/null || echo unknown)"
+        stage="$(jq -r '.stage // "-"' "$status_file" 2>/dev/null || echo -)"
+        if [ "$stage" != "$last_stage" ]; then
+          echo "  [$(date -u +%H:%M:%S)] stage: ${stage} (task ${task_status})"
+          last_stage="$stage"
+        fi
+        case "$task_status" in
+          success)
+            jq '.result' "$status_file" > "$RESPONSE_FILE"
+            echo "  Task $task_id completed."
+            return 0
+            ;;
+          failed)
+            echo "ERROR: reconcile task failed: $(jq -r '.error // "unknown error"' "$status_file")" >&2
+            exit 1
+            ;;
+          pending | running) : ;; # keep polling
+          *)
+            echo "ERROR: unexpected task status '$task_status' from status endpoint" >&2
+            print_response "$status_file"
+            exit 1
+            ;;
+        esac
         ;;
-      failed)
-        echo "ERROR: reconcile task failed: $(jq -r '.error // "unknown error"' "$status_file")" >&2
+      404)
+        echo "ERROR: task $task_id not found (HTTP 404) — it may have expired or the pod restarted; re-submit." >&2
+        exit 1
+        ;;
+      000 | 5[0-9][0-9] | 429)
+        fails=$((fails + 1))
+        echo "  transient poll failure (HTTP $code), ${fails}/${max_fails}" >&2
+        if [ "$fails" -ge "$max_fails" ]; then
+          echo "ERROR: giving up after ${max_fails} consecutive poll failures (last HTTP $code)" >&2
+          exit 1
+        fi
+        ;;
+      *)
+        echo "ERROR: status poll failed with HTTP $code" >&2
+        print_response "$status_file"
         exit 1
         ;;
     esac
+    local now elapsed
+    now="$(date +%s)"
+    elapsed=$((now - start_ts))
     if [ "$elapsed" -ge "$POLL_TIMEOUT" ]; then
-      echo "ERROR: timed out after ${POLL_TIMEOUT}s (task still '${task_status}', stage '${stage}')" >&2
+      echo "ERROR: timed out after ${elapsed}s (task still in progress; last HTTP $code)" >&2
       exit 1
     fi
     sleep "$POLL_INTERVAL"
-    elapsed=$((elapsed + POLL_INTERVAL))
   done
 }
 
@@ -289,6 +325,17 @@ if [ -z "$PRODUCT_NAME" ]; then
 fi
 
 require_value --product-name "$PRODUCT_NAME"
+
+# Reject non-positive-integer poll settings before submitting anything: 0 / 08 / abc / "" would
+# otherwise leave the async poll loop wedged (infinite tight loop, or a silently-disabled timeout).
+if [ "$ASYNC_MODE" = "true" ]; then
+  for pair in "poll-interval:$POLL_INTERVAL" "poll-timeout:$POLL_TIMEOUT"; do
+    if ! printf '%s' "${pair#*:}" | grep -qE '^[1-9][0-9]*$'; then
+      echo "ERROR: --${pair%%:*} must be a positive integer (got '${pair#*:}')" >&2
+      exit 1
+    fi
+  done
+fi
 
 GUARDIAN_URL="${GUARDIAN_URL%/}"
 

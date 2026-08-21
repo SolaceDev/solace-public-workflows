@@ -120,6 +120,9 @@ runs:
       env:
         INPUT_PRODUCT_NAME: ${{ inputs.product-name }}
         REPOSITORY_NAME: ${{ github.repository }}
+        INPUT_ASYNC: ${{ inputs.async }}
+        INPUT_POLL_INTERVAL: ${{ inputs.poll-interval }}
+        INPUT_POLL_TIMEOUT: ${{ inputs.poll-timeout }}
       run: |
         PRODUCT_NAME="$INPUT_PRODUCT_NAME"
         if [ -z "$PRODUCT_NAME" ]; then
@@ -134,9 +137,9 @@ runs:
           --guardian-key "${{ inputs.guardian-key }}"
           --product-name "$PRODUCT_NAME"
           --jira-dry-run "${{ inputs.jira-dry-run }}"
-          --async "${{ inputs.async }}"
-          --poll-interval "${{ inputs.poll-interval }}"
-          --poll-timeout "${{ inputs.poll-timeout }}"
+          --async "$INPUT_ASYNC"
+          --poll-interval "$INPUT_POLL_INTERVAL"
+          --poll-timeout "$INPUT_POLL_TIMEOUT"
           --output-dir "$response_dir"
         )
 
