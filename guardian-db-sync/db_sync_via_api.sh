@@ -10,7 +10,6 @@ COLLECTION=""
 JIRA_COLLECTION_NAME=""
 JIRA_PROFILE=""
 JIRA_DRY_RUN="false"
-ASYNC_MODE="false"
 POLL_INTERVAL="10"
 POLL_TIMEOUT="1800"
 OUTPUT_DIR=""
@@ -31,10 +30,7 @@ Optional:
   --jira-collection-name <name>
   --jira-profile <name>
   --jira-dry-run <true|false>   Default: false
-  --async <true|false>          Default: false. Submit to /db_synch_and_report_async and poll the
-                                status endpoint instead of blocking on /db_synch_and_report — avoids
-                                the gateway request timeout on long reconciles.
-  --poll-interval <seconds>     Default: 10. Async status poll interval.
+  --poll-interval <seconds>     Default: 10. Status poll interval (submit + poll is always used).
   --poll-timeout <seconds>      Default: 1800. Give up if the task hasn't finished by then.
   --output-dir <dir>
   -h, --help
@@ -286,10 +282,6 @@ while [ $# -gt 0 ]; do
       JIRA_DRY_RUN="$(normalize_bool "$2")"
       shift 2
       ;;
-    --async)
-      ASYNC_MODE="$(normalize_bool "$2")"
-      shift 2
-      ;;
     --poll-interval)
       POLL_INTERVAL="$2"
       shift 2
@@ -327,15 +319,13 @@ fi
 require_value --product-name "$PRODUCT_NAME"
 
 # Reject non-positive-integer poll settings before submitting anything: 0 / 08 / abc / "" would
-# otherwise leave the async poll loop wedged (infinite tight loop, or a silently-disabled timeout).
-if [ "$ASYNC_MODE" = "true" ]; then
-  for pair in "poll-interval:$POLL_INTERVAL" "poll-timeout:$POLL_TIMEOUT"; do
-    if ! printf '%s' "${pair#*:}" | grep -qE '^[1-9][0-9]*$'; then
-      echo "ERROR: --${pair%%:*} must be a positive integer (got '${pair#*:}')" >&2
-      exit 1
-    fi
-  done
-fi
+# otherwise leave the poll loop wedged (infinite tight loop, or a silently-disabled timeout).
+for pair in "poll-interval:$POLL_INTERVAL" "poll-timeout:$POLL_TIMEOUT"; do
+  if ! printf '%s' "${pair#*:}" | grep -qE '^[1-9][0-9]*$'; then
+    echo "ERROR: --${pair%%:*} must be a positive integer (got '${pair#*:}')" >&2
+    exit 1
+  fi
+done
 
 GUARDIAN_URL="${GUARDIAN_URL%/}"
 
@@ -371,11 +361,7 @@ REQUEST_BODY="$(
     + (if $jira_profile != "" then {jira_profile: $jira_profile} else {} end)'
 )"
 
-if [ "$ASYNC_MODE" = "true" ]; then
-  echo "Running Guardian sync and report (async) via $GUARDIAN_URL/api/v1/db_synch_and_report_async"
-else
-  echo "Running Guardian sync and report via $GUARDIAN_URL/api/v1/db_synch_and_report"
-fi
+echo "Running Guardian sync and report (async) via $GUARDIAN_URL/api/v1/db_synch_and_report_async"
 echo "  Product: $PRODUCT_NAME"
 if [ -n "$PRODUCT_FULL_VERSION" ]; then
   echo "  Product full version override: $PRODUCT_FULL_VERSION"
@@ -394,18 +380,12 @@ if [ -n "$JIRA_PROFILE" ]; then
   echo "  Jira profile: $JIRA_PROFILE"
 fi
 echo "  Jira dry run: $JIRA_DRY_RUN"
-echo "  Mode: $([ "$ASYNC_MODE" = "true" ] && echo "async (submit + poll)" || echo "sync (blocking)")"
+echo "  Poll: every ${POLL_INTERVAL}s, timeout ${POLL_TIMEOUT}s"
 
-if [ "$ASYNC_MODE" = "true" ]; then
-  run_async
-else
-  HTTP_STATUS="$(api_post_json "$RESPONSE_FILE" "$GUARDIAN_KEY" "$REQUEST_BODY" "$GUARDIAN_URL/api/v1/db_synch_and_report")"
-  if [ "$HTTP_STATUS" -lt 200 ] || [ "$HTTP_STATUS" -ge 300 ]; then
-    echo "ERROR: db_synch_and_report failed with HTTP $HTTP_STATUS" >&2
-    print_response "$RESPONSE_FILE"
-    exit 1
-  fi
-fi
+# This action always submits to the async endpoint and polls for completion — the reconcile
+# (ingest -> jira_sync -> jira_close) routinely runs longer than the gateway request timeout, so
+# there is no synchronous path.
+run_async
 
 PRODUCT_NAME="$(jq -r '.db_synch.product_name' "$RESPONSE_FILE")"
 PRODUCT_VERSION="$(jq -r '.db_synch.product_version' "$RESPONSE_FILE")"
