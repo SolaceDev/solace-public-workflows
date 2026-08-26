@@ -399,6 +399,15 @@ DB_RESOLVED="$(jq -r '.db_synch.summary.resolved // 0' "$RESPONSE_FILE")"
 DB_UPDATED="$(jq -r '.db_synch.summary.existing_with_diff // 0' "$RESPONSE_FILE")"
 DB_RESURFACED="$(jq -r '.db_synch.summary.resurfaced // 0' "$RESPONSE_FILE")"
 
+# Jira reconcile block (present only when the run included a Jira collection). jira_sync exposes a
+# status/message; jira_close exposes closed/skipped/failed counts plus the actual closed ticket keys.
+HAS_JIRA="$(jq -r '(.jira_sync != null) or (.jira_close != null)' "$RESPONSE_FILE")"
+JIRA_SYNC_STATUS="$(jq -r '.jira_sync.status // "-"' "$RESPONSE_FILE")"
+JIRA_CLOSED="$(jq -r '.jira_close.closed // 0' "$RESPONSE_FILE")"
+JIRA_SKIPPED="$(jq -r '.jira_close.skipped // 0' "$RESPONSE_FILE")"
+JIRA_FAILED="$(jq -r '.jira_close.failed // 0' "$RESPONSE_FILE")"
+CLOSED_JIRAS="$(jq -r '(.jira_close.closed_jiras // []) | join(", ")' "$RESPONSE_FILE")"
+
 echo "Guardian sync and report completed"
 echo "  Product: $PRODUCT_NAME"
 echo "  Display version: $DISPLAY_VERSION"
@@ -422,3 +431,19 @@ append_step_summary "| New | $DB_NEW |"
 append_step_summary "| Resolved | $DB_RESOLVED |"
 append_step_summary "| Updated | $DB_UPDATED |"
 append_step_summary "| Resurfaced | $DB_RESURFACED |"
+
+# Only render the Jira section when the run actually reconciled Jira (a scan-only run has neither
+# block), so the summary stays clean for db-sync-only callers.
+if [ "$HAS_JIRA" = "true" ]; then
+  append_step_summary ""
+  append_step_summary "#### Jira"
+  append_step_summary "- Sync: \`$JIRA_SYNC_STATUS\`"
+  append_step_summary ""
+  append_step_summary "| Closed | Skipped | Failed |"
+  append_step_summary "| ---: | ---: | ---: |"
+  append_step_summary "| $JIRA_CLOSED | $JIRA_SKIPPED | $JIRA_FAILED |"
+  if [ -n "$CLOSED_JIRAS" ]; then
+    append_step_summary ""
+    append_step_summary "Closed tickets: $CLOSED_JIRAS"
+  fi
+fi
