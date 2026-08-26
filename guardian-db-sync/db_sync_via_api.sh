@@ -127,9 +127,9 @@ api_post_json() {
   local token="$2"
   local payload="$3"
   local url="$4"
-  # No --max-time: the sync path posts to the blocking /db_synch_and_report which legitimately
-  # runs for minutes. --connect-timeout still bounds a dead connection.
-  curl -sS --connect-timeout 10 \
+  # The only POST is the async submit, which returns 202 immediately — bound it so a server that
+  # accepts the connection but never responds can't hang the job.
+  curl -sS --connect-timeout 10 --max-time 60 \
     -o "$output_file" \
     -w "%{http_code}" \
     -X POST \
@@ -152,9 +152,9 @@ api_get() {
 }
 
 # Submit to the async endpoint, then poll the status endpoint until the task finishes. Writes the
-# final DBSynchAndReportResponse (the task's .result) to RESPONSE_FILE so the sync-mode output
-# parsing below works unchanged. Each poll is a short request, so the gateway request timeout that
-# kills the blocking /db_synch_and_report on long reconciles never applies here.
+# final DBSynchAndReportResponse (the task's .result) to RESPONSE_FILE so the output/summary parsing
+# below works on it directly. Each poll is a short request, so a reconcile that runs for many minutes
+# never trips the gateway's request timeout.
 run_async() {
   local submit_file status_file
   submit_file="$(mktemp)"
