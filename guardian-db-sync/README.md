@@ -1,6 +1,8 @@
 # Guardian Sync and Report
 
-Runs Guardian `POST /api/v1/db_synch_and_report` for scan results that were already uploaded to S3.
+Runs Guardian's reconcile (ingest → Jira sync → dev-mode close) for scan results already uploaded to S3.
+
+The reconcile routinely runs longer than the API gateway's request timeout, so this action always submits to the asynchronous `POST /api/v1/db_synch_and_report_async` endpoint and polls `GET /api/v1/db_synch_and_report/status/{task_id}` until it finishes. There is no synchronous mode. **This requires a Guardian deployment that has the async endpoints.**
 
 This action does not upload scan files and does not run the vulnerability gate. Use `guardian-vulnerability-gate` as a separate step when needed.
 
@@ -18,6 +20,8 @@ This action does not upload scan files and does not run the vulnerability gate. 
 - `jira-collection-name`
 - `jira-profile`
 - `jira-dry-run`
+- `poll-interval` — default `10`. Seconds between status polls. The defaults are sufficient; override only if needed.
+- `poll-timeout` — default `1800`. Fail if the reconcile hasn't finished by then.
 - `upload-logs`
 
 ## Outputs

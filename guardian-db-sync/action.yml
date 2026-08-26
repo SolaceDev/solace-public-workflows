@@ -36,6 +36,14 @@ inputs:
     description: "Whether Jira reporting should run in dry-run mode."
     required: false
     default: "false"
+  poll-interval:
+    description: "Seconds between status polls. Defaults are sufficient; override only if needed."
+    required: false
+    default: "10"
+  poll-timeout:
+    description: "Max seconds to wait for the reconcile to finish before failing."
+    required: false
+    default: "1800"
   upload-logs:
     description: "Upload db sync request logs as a workflow artifact."
     required: false
@@ -108,6 +116,8 @@ runs:
       env:
         INPUT_PRODUCT_NAME: ${{ inputs.product-name }}
         REPOSITORY_NAME: ${{ github.repository }}
+        INPUT_POLL_INTERVAL: ${{ inputs.poll-interval }}
+        INPUT_POLL_TIMEOUT: ${{ inputs.poll-timeout }}
       run: |
         PRODUCT_NAME="$INPUT_PRODUCT_NAME"
         if [ -z "$PRODUCT_NAME" ]; then
@@ -122,6 +132,8 @@ runs:
           --guardian-key "${{ inputs.guardian-key }}"
           --product-name "$PRODUCT_NAME"
           --jira-dry-run "${{ inputs.jira-dry-run }}"
+          --poll-interval "$INPUT_POLL_INTERVAL"
+          --poll-timeout "$INPUT_POLL_TIMEOUT"
           --output-dir "$response_dir"
         )
 
