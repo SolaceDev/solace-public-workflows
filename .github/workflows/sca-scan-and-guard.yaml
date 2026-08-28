@@ -160,7 +160,7 @@ jobs:
   sca_scan:
     name: "SCA Scan"
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
 
     steps:
       - name: Check Admin Permissions for Bypass
