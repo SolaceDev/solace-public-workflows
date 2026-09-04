@@ -114,7 +114,13 @@ def main() -> int:
     block_on_compliance = to_bool(os.getenv("BLOCK_ON_COMPLIANCE"), default=False)
     grace_period_days = to_int(os.getenv("GRACE_PERIOD_DAYS"), default=7)
     bypass_blocking = to_bool(os.getenv("BYPASS_BLOCKING"), default=False)
-    guardian_managed_vulnerabilities = to_bool(os.getenv("GUARDIAN_ENABLED"), default=False)
+    # Guardian owns the vulnerability verdict when this lane uploads to Guardian
+    # (GUARDIAN_ENABLED) OR when the caller explicitly defers to Guardian — e.g. an
+    # arm64 lane that Guardian scans via the primary amd64 image. Either way the
+    # local publish-date policy neither blocks nor headlines its own verdict.
+    guardian_managed_vulnerabilities = to_bool(os.getenv("GUARDIAN_ENABLED"), default=False) or to_bool(
+        os.getenv("DEFER_VULNS_TO_GUARDIAN"), default=False
+    )
     grace_period_seconds = grace_period_days * 86400
     current_timestamp = int(datetime.now(tz=timezone.utc).timestamp())
     console_link = norm(os.getenv("CONSOLE_LINK"))

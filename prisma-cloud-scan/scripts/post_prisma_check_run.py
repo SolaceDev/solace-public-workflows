@@ -472,7 +472,7 @@ def main() -> int:
         conclusion = "failure"
     guardian_managed_vulnerabilities = to_bool(
         analysis.get("guardian_managed_vulnerabilities"),
-        default=bool_env("GUARDIAN_ENABLED", default=False),
+        default=bool_env("GUARDIAN_ENABLED", default=False) or bool_env("DEFER_VULNS_TO_GUARDIAN", default=False),
     )
 
     vuln_critical = to_int(analysis.get("vuln_critical"), to_int(os.getenv("VULN_CRITICAL")))
@@ -570,7 +570,7 @@ def main() -> int:
         summary_lines.extend(
             [
                 "",
-                "> 🛡️ Guardian manages vulnerability thresholds for this scan. Prisma findings are reported here, but vulnerability blocking is delegated to Guardian.",
+                "> 🛡️ Vulnerability blocking is managed by Guardian, the source of truth for this image. Prisma findings are shown here for visibility only.",
             ]
         )
     else:
@@ -596,7 +596,14 @@ def main() -> int:
         guardian_managed_vulnerabilities=guardian_managed_vulnerabilities,
     )
 
-    append_step_summary(summary_markdown)
+    if bool_env("WRITE_STEP_SUMMARY", default=True):
+        append_step_summary(summary_markdown)
+    else:
+        print("Step summary suppressed (write_step_summary=false).")
+
+    if not bool_env("CREATE_STATUS_CHECK", default=True):
+        print("Status check suppressed (create_status_check=false).")
+        return 0
 
     payload = {
         "name": check_name,

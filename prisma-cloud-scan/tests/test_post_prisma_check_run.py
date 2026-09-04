@@ -176,6 +176,59 @@ class TestPostPrismaCheckRun(unittest.TestCase):
                 step_summary,
             )
 
+    def test_main_suppresses_summary_and_check_when_disabled(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            analysis = {
+                "scan_passed": True,
+                "vuln_critical": 0, "vuln_high": 0, "vuln_medium": 0, "vuln_low": 0,
+                "compliance_critical": 0, "compliance_high": 0,
+                "compliance_medium": 0, "compliance_low": 0,
+                "blocking_vuln_critical": 0, "blocking_vuln_high": 0,
+                "blocking_compliance_critical": 0, "blocking_compliance_high": 0,
+                "blocking_total": 0, "grace_days": 7, "block_on_compliance": False,
+            }
+            (root / "pcc_scan_analysis.json").write_text(json.dumps(analysis), encoding="utf-8")
+
+            env = {
+                "GITHUB_TOKEN": "token",
+                "GITHUB_REPOSITORY": "owner/repo",
+                "RUNNER_OS": "Linux",
+                "RUNNER_ARCH": "ARM64",
+                "TARGET_SHA": "abc123",
+                "GITHUB_STEP_SUMMARY": str(root / "step_summary.md"),
+                "SCAN_EXIT_CODE": "0",
+                "IMAGE_NAME": "123456789125.dkr.ecr.us-east-1.amazonaws.com/repository:1.1.1",
+                "IMAGE_DIGEST": "sha256:deadbeef",
+                "REPO_VISIBILITY": "private",
+                "SHOW_DETAILED_LOGS": "false",
+                "CONSOLE_LINK": "https://example.prisma/scan",
+                "PCC_CONSOLE_URL": "https://example.prisma",
+                "FALLBACK_IMAGE": "repo/image:fallback",
+                "WRITE_STEP_SUMMARY": "false",
+                "CREATE_STATUS_CHECK": "false",
+            }
+
+            called = {"post": False}
+
+            def fake_post(payload):
+                called["post"] = True
+
+            cwd = os.getcwd()
+            os.chdir(root)
+            try:
+                with patch.dict(os.environ, env, clear=False):
+                    with patch.object(
+                        post_prisma_check_run, "post_check_run", side_effect=fake_post
+                    ):
+                        rc = post_prisma_check_run.main()
+            finally:
+                os.chdir(cwd)
+
+            self.assertEqual(rc, 0)
+            self.assertFalse(called["post"], "check run must not be posted when disabled")
+            self.assertFalse((root / "step_summary.md").exists(), "step summary must not be written when disabled")
+
     def test_main_detailed_mode_renders_issue_tables(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
