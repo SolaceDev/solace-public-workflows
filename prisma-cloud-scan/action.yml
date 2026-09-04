@@ -42,6 +42,14 @@ inputs:
     description: "Treat vulnerability blocking as Guardian-managed even when this lane does not upload to Guardian (e.g. arm64, which Guardian scans via the primary amd64 lane). Suppresses the local publish-date policy's blocking verdict and its summary so Guardian is the single source of truth for vulnerabilities. Compliance handling is unaffected."
     required: false
     default: "false"
+  write_step_summary:
+    description: "Write the Prisma scan panel to the GitHub job summary. Set to false on lanes where another system (e.g. Guardian) is the sole reporter, so the job summary is not cluttered with a second, potentially confusing panel."
+    required: false
+    default: "true"
+  create_status_check:
+    description: "Post the dedicated Prisma GitHub check run (status check) for this scan. Set to false on lanes where another system reports status, to avoid a redundant/confusing check. Requires `checks: write` when true."
+    required: false
+    default: "true"
   skip_image_pull:
     description: "Skip pulling the image (use when image is already available locally)"
     required: false
@@ -430,6 +438,8 @@ runs:
         GUARDIAN_ENABLED: ${{ inputs.guardian_url != '' && inputs.guardian_key != '' && 'true' || 'false' }}
         DEFER_VULNS_TO_GUARDIAN: ${{ inputs.defer_vulnerabilities_to_guardian }}
         BYPASS_BLOCKING: ${{ inputs.bypass_blocking }}
+        WRITE_STEP_SUMMARY: ${{ inputs.write_step_summary }}
+        CREATE_STATUS_CHECK: ${{ inputs.create_status_check }}
         CONSOLE_LINK: ${{ steps.scan_image.outputs.console_link }}
         PCC_CONSOLE_URL: ${{ inputs.pcc_console_url }}
         FALLBACK_IMAGE: ${{ inputs.image_registry }}/${{ steps.set_repo_name.outputs.repo_name }}:${{ inputs.image_tag }}

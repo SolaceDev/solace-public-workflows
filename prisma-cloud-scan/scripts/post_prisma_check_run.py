@@ -596,7 +596,14 @@ def main() -> int:
         guardian_managed_vulnerabilities=guardian_managed_vulnerabilities,
     )
 
-    append_step_summary(summary_markdown)
+    if bool_env("WRITE_STEP_SUMMARY", default=True):
+        append_step_summary(summary_markdown)
+    else:
+        print("Step summary suppressed (write_step_summary=false).")
+
+    if not bool_env("CREATE_STATUS_CHECK", default=True):
+        print("Status check suppressed (create_status_check=false).")
+        return 0
 
     payload = {
         "name": check_name,
