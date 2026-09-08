@@ -90,6 +90,16 @@ on:
         required: false
         type: string
         default: ""
+      concurrency_group:
+        description: >-
+          Overrides the group used to serialise writes. The default keys on table + calling repo,
+          which is right for the usual one-manifest-job-per-workflow case but collides when a
+          caller has TWO manifest jobs in the same workflow -- GitHub allows only one pending
+          run per group, so the second is cancelled rather than queued, and a cancelled job
+          reads as benign. Give each such job its own value, ideally including the item's key.
+        required: false
+        type: string
+        default: ""
       aws_region:
         description: "AWS region"
         required: false
@@ -119,9 +129,10 @@ jobs:
     runs-on: ubuntu-latest
     # Serialises writes for one table + calling repo, since the sort key is conventionally the
     # repository name. Without it two quick pushes can interleave. Not cancel-in-progress:
-    # abandoning a half-finished write is worse than queueing behind one.
+    # abandoning a half-finished write is worse than queueing behind one. Override via
+    # concurrency_group when one workflow has more than one manifest job -- see that input.
     concurrency:
-      group: update-manifest-${{ inputs.table_name }}-${{ github.repository }}
+      group: ${{ inputs.concurrency_group != '' && inputs.concurrency_group || format('update-manifest-{0}-{1}', inputs.table_name, github.repository) }}
       cancel-in-progress: false
     permissions:
       contents: read
