@@ -12,6 +12,12 @@ name: Update Manifest
 # The write is a MERGE -- only the attributes present in the item are set, so attributes written
 # by other jobs survive. Map-valued attributes are replaced wholesale, so supply the complete map.
 #
+# ORDERING IS NOT GUARANTEED. Writes are serialised per table + calling repo by a concurrency
+# group, but the item carries no sequence or timestamp attribute and the request uses no
+# ConditionExpression, so re-running an older commit overwrites a newer value with no error. If
+# that matters for your table, add an ordering attribute and gate on it in the caller rather than
+# relying on this workflow.
+#
 # Usage:
 #
 #   update_manifest:
@@ -51,7 +57,18 @@ on:
         required: true
         type: string
       allow_non_default_branch:
-        description: "Write even when the ref is not the repository's default branch"
+        description: >-
+          Write even when the ref is not the repository's default branch. This also permits tag
+          refs, so prefer allow_tags when a release flow is all you need -- this one opens writes
+          from any feature branch too.
+        required: false
+        type: boolean
+        default: false
+      allow_tags:
+        description: >-
+          Write on a tag push. Off by default because `github.ref_name` is the tag name on a tag
+          event, so the default-branch check alone skips every release build -- which is usually
+          the run you most want recorded.
         required: false
         type: boolean
         default: false
@@ -95,8 +112,17 @@ jobs:
     # The manifest records what landed on trunk, so a non-default branch must not overwrite it.
     # Expressed as a job condition rather than a shell step so there is nothing to run and
     # nothing to get wrong: the job is either skipped or it writes.
-    if: inputs.allow_non_default_branch || github.ref_name == github.event.repository.default_branch
+    if: >-
+      github.ref_name == github.event.repository.default_branch
+      || inputs.allow_non_default_branch
+      || (inputs.allow_tags && github.ref_type == 'tag')
     runs-on: ubuntu-latest
+    # Serialises writes for one table + calling repo, since the sort key is conventionally the
+    # repository name. Without it two quick pushes can interleave. Not cancel-in-progress:
+    # abandoning a half-finished write is worse than queueing behind one.
+    concurrency:
+      group: update-manifest-${{ inputs.table_name }}-${{ github.repository }}
+      cancel-in-progress: false
     permissions:
       contents: read
       id-token: write

@@ -26,9 +26,13 @@ inputs:
     required: false
     default: repository
   aws_region:
-    description: AWS region
+    description: >-
+      AWS region. Left empty by default so the ambient AWS_REGION -- the one
+      configure-aws-credentials exports at job level -- is respected. Set it only to override
+      that: a step-level value wins, so a non-empty default here would silently redirect a
+      caller who configured a different region.
     required: false
-    default: us-east-1
+    default: ""
 
 runs:
   using: composite
@@ -42,12 +46,18 @@ runs:
         DDB_TABLE_NAME: ${{ inputs.table_name }}
         DDB_PARTITION_KEY: ${{ inputs.partition_key }}
         DDB_SORT_KEY: ${{ inputs.sort_key }}
-        AWS_REGION: ${{ inputs.aws_region }}
+        AWS_REGION_INPUT: ${{ inputs.aws_region }}
         # Pinned so retry behaviour does not vary with the runner's CLI version.
         AWS_RETRY_MODE: standard
         AWS_MAX_ATTEMPTS: "5"
       run: |
         set -euo pipefail
+
+        # Override the ambient region only when a caller supplied one. Exporting it
+        # unconditionally would override the job-level value even when empty.
+        if [ -n "${AWS_REGION_INPUT}" ]; then
+          export AWS_REGION="${AWS_REGION_INPUT}"
+        fi
 
         payload="${RUNNER_TEMP}/ddb-update-item.json"
         summary="${RUNNER_TEMP}/ddb-update-item.md"
