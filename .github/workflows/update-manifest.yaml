@@ -75,8 +75,8 @@ on:
       manifest_aws_role:
         description: >-
           ARN of the role to assume. A role ARN is an identifier, not a credential -- access is
-          governed by the role's trust policy -- so a variable is usually the right home for it,
-          e.g. `${{ vars.MANIFEST_AWS_ROLE }}`. Takes precedence over the secret of the same name.
+          governed by the role's trust policy -- so a repo or org variable is usually the right
+          home for it. Takes precedence over the secret of the same name.
         required: false
         type: string
         default: ""
@@ -120,7 +120,9 @@ jobs:
           set -euo pipefail
 
           if [ "$HAS_ROLE" != "yes" ]; then
-            echo "::error::No role ARN supplied. Pass the manifest_aws_role input (e.g. \${{ vars.MANIFEST_AWS_ROLE }}) or the MANIFEST_AWS_ROLE secret."
+            # No ${{ }} in this message: a backslash does not escape an expression, so it would
+            # be parsed at validation time and fail the whole run before any job starts.
+            echo "::error::No role ARN supplied. Pass the manifest_aws_role input (from a repo or org variable) or the MANIFEST_AWS_ROLE secret."
             exit 1
           fi
 
