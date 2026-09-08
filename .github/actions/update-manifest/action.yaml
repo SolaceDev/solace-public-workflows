@@ -1,0 +1,59 @@
+name: Update Manifest
+description: Merge an item into a DynamoDB table.
+
+# Builds the request with python3 and sends it with the AWS CLI, both preinstalled on
+# GitHub-hosted runners. No container image, so callers do not need `packages: read`.
+#
+# The write is a MERGE, not a replace: only the attributes present in the item are set, so
+# attributes written by other jobs survive. Map-valued attributes are replaced wholesale rather
+# than merged key-by-key, so supply the complete map for any attribute you write.
+#
+# Credentials come from the environment. Run aws-actions/configure-aws-credentials first.
+
+inputs:
+  item:
+    description: JSON object for the item, including its primary key attribute(s)
+    required: true
+  table_name:
+    description: DynamoDB table name
+    required: true
+  partition_key:
+    description: Partition key attribute name
+    required: false
+    default: squad
+  sort_key:
+    description: Sort key attribute name (empty for a partition-key-only table)
+    required: false
+    default: repository
+  aws_region:
+    description: AWS region
+    required: false
+    default: us-east-1
+
+runs:
+  using: composite
+  steps:
+    - name: Merge item into DynamoDB
+      shell: bash
+      env:
+        # Inputs are passed as environment variables rather than interpolated into the script, so
+        # a value containing shell metacharacters cannot break out.
+        DDB_ITEM: ${{ inputs.item }}
+        DDB_TABLE_NAME: ${{ inputs.table_name }}
+        DDB_PARTITION_KEY: ${{ inputs.partition_key }}
+        DDB_SORT_KEY: ${{ inputs.sort_key }}
+        AWS_REGION: ${{ inputs.aws_region }}
+        # Pinned so retry behaviour does not vary with the runner's CLI version.
+        AWS_RETRY_MODE: standard
+        AWS_MAX_ATTEMPTS: "5"
+      run: |
+        set -euo pipefail
+
+        payload="${RUNNER_TEMP}/ddb-update-item.json"
+        summary="${RUNNER_TEMP}/ddb-update-item.md"
+
+        python3 "${GITHUB_ACTION_PATH}/build_payload.py" "$payload" "$summary"
+        aws dynamodb update-item --cli-input-json "file://${payload}"
+
+        # Appended only after the write succeeds, so the summary never reports a failed write.
+        cat "$summary" >> "$GITHUB_STEP_SUMMARY"
