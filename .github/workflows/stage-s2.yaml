@@ -1,0 +1,54 @@
+name: S2 +permissions
+'on':
+  workflow_call:
+    inputs:
+      item:
+        description: JSON object to merge, including its primary key attributes. Templated by the caller, so any additional fields can be included.
+        required: true
+        type: string
+      table_name:
+        description: DynamoDB table name
+        required: true
+        type: string
+      allow_non_default_branch:
+        description: Write even when the ref is not the repository's default branch
+        required: false
+        type: boolean
+        default: false
+      partition_key:
+        description: Partition key attribute name
+        required: false
+        type: string
+        default: squad
+      sort_key:
+        description: Sort key attribute name (empty for a partition-key-only table)
+        required: false
+        type: string
+        default: repository
+      manifest_aws_role:
+        description: ARN of the role to assume. A role ARN is an identifier, not a credential -- access is governed by the role's trust policy -- so a repo or org variable is usually the right home for it. Takes precedence over the secret of the same name.
+        required: false
+        type: string
+        default: ''
+      aws_region:
+        description: AWS region
+        required: false
+        type: string
+        default: us-east-1
+    secrets:
+      MANIFEST_AWS_ROLE:
+        description: 'ARN of the role to assume, for callers that prefer to keep it secret. Optional: supply either this or the manifest_aws_role input. Prefer this over passing a secret into the input -- a secret passed through `with:` is treated as a plain string and is NOT masked in the called workflow''s logs.'
+        required: false
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  j:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+    - name: noop
+      shell: bash
+      run: echo ok
