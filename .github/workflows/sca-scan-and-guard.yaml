@@ -80,10 +80,14 @@ on:
         type: string
         default: "17"
       java_distribution:
-        description: "Java distribution (default: 'temurin')"
+        description: "Java distribution"
         required: false
         type: string
-        default: ""
+        # Must be non-empty: this value is forwarded to actions/setup-java unconditionally, so an
+        # empty default overrides that action's own 'temurin' default and fails the step with
+        # "Input required and not supplied: distribution". Any caller using setup-java without
+        # passing java_distribution hit this.
+        default: temurin
       node_version:
         description: "Node version"
         required: false
