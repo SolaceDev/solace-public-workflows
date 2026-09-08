@@ -5,8 +5,9 @@ name: Update Manifest
 # Centralises the AWS wiring and the default-branch check. The item body is passed through
 # unchanged, so callers control its shape and can include whatever fields they need.
 #
-# By default the write happens only on the repository's default branch: a pull request run is
-# skipped, and the reason is reported in the job summary rather than silently succeeding.
+# By default the write happens only on the repository's default branch, so a pull request run
+# leaves the manifest alone. When the branch does not qualify the job is skipped, which shows as a
+# skipped job on the run rather than as a passing one that quietly did nothing.
 #
 # The write is a MERGE -- only the attributes present in the item are set, so attributes written
 # by other jobs survive. Map-valued attributes are replaced wholesale, so supply the complete map.
@@ -79,45 +80,22 @@ permissions:
 
 jobs:
   update_manifest:
+    # The manifest records what landed on trunk, so a non-default branch must not overwrite it.
+    # Expressed as a job condition rather than a shell step so there is nothing to run and
+    # nothing to get wrong: the job is either skipped or it writes.
+    if: inputs.allow_non_default_branch || github.ref_name == github.event.repository.default_branch
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
     steps:
-      # Reports the decision instead of relying on a job-level `if:` in every caller, where a
-      # skipped job is indistinguishable from a successful no-op.
-      - name: Check branch
-        id: target
-        shell: bash
-        env:
-          ALLOW_NON_DEFAULT: ${{ inputs.allow_non_default_branch }}
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-          REF_NAME: ${{ github.ref_name }}
-        run: |
-          set -euo pipefail
-
-          if [ "$REF_NAME" = "$DEFAULT_BRANCH" ] || [ "$ALLOW_NON_DEFAULT" = "true" ]; then
-            echo "should_write=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          echo "should_write=false" >> "$GITHUB_OUTPUT"
-          echo "::notice::Skipping write: ref '${REF_NAME}' is not the default branch ('${DEFAULT_BRANCH}'). Set allow_non_default_branch to override."
-          {
-            echo "### Write skipped"
-            echo
-            echo "Ref \`${REF_NAME}\` is not the default branch (\`${DEFAULT_BRANCH}\`)."
-          } >> "$GITHUB_STEP_SUMMARY"
-
       - name: Configure AWS credentials
-        if: steps.target.outputs.should_write == 'true'
         uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
           role-to-assume: ${{ secrets.MANIFEST_AWS_ROLE }}
           aws-region: ${{ inputs.aws_region }}
 
       - name: Update manifest
-        if: steps.target.outputs.should_write == 'true'
         uses: SolaceDev/solace-public-workflows/.github/actions/update-manifest@DATAGO-update-manifest-action
         with:
           item: ${{ inputs.item }}
