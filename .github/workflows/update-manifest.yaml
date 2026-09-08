@@ -26,6 +26,7 @@ name: Update Manifest
 #           "repository": "MY_REPO_EXPRESSION",
 #           "dev": { "sha": "MY_SHA_EXPRESSION", "version": "MY_REF_EXPRESSION" }
 #         }
+#       manifest_aws_role: MY_ROLE_VARIABLE      # or, instead:
 #     secrets:
 #       MANIFEST_AWS_ROLE: MY_SECRET_EXPRESSION
 #
@@ -64,6 +65,14 @@ on:
         required: false
         type: string
         default: repository
+      manifest_aws_role:
+        description: >-
+          ARN of the role to assume. A role ARN is an identifier rather than a credential -- what
+          protects the role is its trust policy -- so a repo or org variable is a reasonable home
+          for it. Takes precedence over the secret of the same name. Supply one or the other.
+        required: false
+        type: string
+        default: ""
       aws_region:
         description: "AWS region"
         required: false
@@ -71,8 +80,11 @@ on:
         default: us-east-1
     secrets:
       MANIFEST_AWS_ROLE:
-        description: "ARN of the role to assume"
-        required: true
+        description: >-
+          ARN of the role to assume, for callers that prefer to keep it secret. Optional: supply
+          either this or the manifest_aws_role input. Prefer this over passing a secret into the
+          input -- a value routed through `with:` is treated as a plain string and is not masked.
+        required: false
 
 permissions:
   contents: read
@@ -92,7 +104,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
-          role-to-assume: ${{ secrets.MANIFEST_AWS_ROLE }}
+          role-to-assume: ${{ inputs.manifest_aws_role != '' && inputs.manifest_aws_role || secrets.MANIFEST_AWS_ROLE }}
           aws-region: ${{ inputs.aws_region }}
 
       - name: Update manifest
