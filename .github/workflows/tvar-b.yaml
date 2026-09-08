@@ -1,0 +1,161 @@
+name: TVAR B
+
+# Merges an item into a DynamoDB table, assuming a role via OIDC.
+#
+# Centralises the AWS wiring and the default-branch check. The item body is passed through
+# unchanged, so callers control its shape and can include whatever fields they need.
+#
+# By default the write happens only on the repository's default branch: a pull request run is
+# skipped, and the reason is reported in the job summary rather than silently succeeding.
+#
+# The write is a MERGE -- only the attributes present in the item are set, so attributes written
+# by other jobs survive. Map-valued attributes are replaced wholesale, so supply the complete map.
+#
+# Usage:
+#
+#   update_manifest:
+#     needs: sca_scan
+#     if: needs.sca_scan.result == 'success'
+#     uses: SolaceDev/solace-public-workflows/.github/workflows/update-manifest.yaml@main
+#     with:
+#       table_name: my-table
+#       manifest_aws_role: ${{ vars.MANIFEST_AWS_ROLE }}
+#       item: |
+#         {
+#           "squad": "my-squad",
+#           "repository": "${{ github.event.repository.name }}",
+#           "dev": {
+#             "sha": "${{ github.sha }}",
+#             "version": "${{ github.ref_name }}"
+#           }
+#         }
+#
+# The role ARN can come from either the manifest_aws_role input (above) or the MANIFEST_AWS_ROLE
+# secret; supply one. An ARN is an identifier rather than a credential -- what protects the role is
+# its trust policy -- so a variable is usually the right home for it. If you would still rather
+# keep it secret, pass it via `secrets:` and NOT into the input: a secret routed through `with:`
+# is treated as a plain string and is not masked in this workflow's logs.
+#
+#     secrets:
+#       MANIFEST_AWS_ROLE: ${{ secrets.MANIFEST_AWS_ROLE }}
+#
+# The caller needs `id-token: write` at workflow or job level for OIDC.
+#
+# The calling repository must be authorised to assume the role, which requires configuration
+# outside this workflow. Ask the platform team if the assume-role step fails.
+
+on:
+  workflow_call:
+    inputs:
+      item:
+        description: >-
+          JSON object to merge, including its primary key attributes. Templated by the caller, so
+          any additional fields can be included.
+        required: true
+        type: string
+      table_name:
+        description: "DynamoDB table name"
+        required: true
+        type: string
+      allow_non_default_branch:
+        description: "Write even when the ref is not the repository's default branch"
+        required: false
+        type: boolean
+        default: false
+      partition_key:
+        description: "Partition key attribute name"
+        required: false
+        type: string
+        default: squad
+      sort_key:
+        description: "Sort key attribute name (empty for a partition-key-only table)"
+        required: false
+        type: string
+        default: repository
+      manifest_aws_role:
+        description: >-
+          ARN of the role to assume. A role ARN is an identifier, not a credential -- access is
+          governed by the role's trust policy -- so a repo or org variable is usually the right
+          home for it. Takes precedence over the secret of the same name.
+        required: false
+        type: string
+        default: ""
+      aws_region:
+        description: "AWS region"
+        required: false
+        type: string
+        default: us-east-1
+    secrets:
+      MANIFEST_AWS_ROLE:
+        description: >-
+          ARN of the role to assume, for callers that prefer to keep it secret. Optional: supply
+          either this or the manifest_aws_role input. Prefer this over passing a secret into the
+          input -- a secret passed through `with:` is treated as a plain string and is NOT masked
+          in the called workflow's logs.
+        required: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  update_manifest:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      # Reports the decision instead of relying on a job-level `if:`, where a skipped job is
+      # indistinguishable from a successful no-op.
+      - name: Check branch
+        id: target
+        shell: bash
+        env:
+          ALLOW_NON_DEFAULT: ${{ inputs.allow_non_default_branch }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          REF_NAME: ${{ github.ref_name }}
+          # Presence only, never the value, so this stays log-safe either way.
+          HAS_ROLE: ${{ (inputs.manifest_aws_role != '' || secrets.MANIFEST_AWS_ROLE != '') && 'yes' || 'no' }}
+        run: |
+          set -euo pipefail
+
+          if [ "$HAS_ROLE" != "yes" ]; then
+            # No ${{ }} in this message: a backslash does not escape an expression, so it would
+            # be parsed at validation time and fail the whole run before any job starts.
+            echo "::error::No role ARN supplied. Pass the manifest_aws_role input (from a repo or org variable) or the MANIFEST_AWS_ROLE secret."
+            exit 1
+          fi
+
+          if [ "$REF_NAME" = "$DEFAULT_BRANCH" ] || [ "$ALLOW_NON_DEFAULT" = "true" ]; then
+            echo "should_write=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "should_write=false" >> "$GITHUB_OUTPUT"
+          echo "::notice::Skipping write: ref '${REF_NAME}' is not the default branch ('${DEFAULT_BRANCH}'). Set allow_non_default_branch to override."
+          {
+            echo "### Write skipped"
+            echo
+            echo "Ref \`${REF_NAME}\` is not the default branch (\`${DEFAULT_BRANCH}\`)."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Configure AWS credentials
+        if: steps.target.outputs.should_write == 'true'
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          # Input wins when set; the secret is the fallback for callers that prefer it.
+          role-to-assume: ${{ secrets.MANIFEST_AWS_ROLE }}   # variant B: no fallback expression
+          aws-region: ${{ inputs.aws_region }}
+
+      - name: Update manifest
+        if: steps.target.outputs.should_write == 'true'
+        # TODO before merging to main: change this ref back to @main. It points at this branch
+        # only so the action resolves while the branch is under test -- @main does not carry
+        # .github/actions/update-manifest until this merges.
+        uses: SolaceDev/solace-public-workflows/.github/actions/update-manifest@DATAGO-update-manifest-action
+        with:
+          item: ${{ inputs.item }}
+          table_name: ${{ inputs.table_name }}
+          partition_key: ${{ inputs.partition_key }}
+          sort_key: ${{ inputs.sort_key }}
+          aws_region: ${{ inputs.aws_region }}
