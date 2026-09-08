@@ -1,0 +1,154 @@
+name: Update Manifest
+
+# Merges an item into a DynamoDB table, assuming a role via OIDC.
+#
+# Centralises the AWS wiring and the default-branch check. The item body is passed through
+# unchanged, so callers control its shape and can include whatever fields they need.
+#
+# By default the write happens only on the repository's default branch, so a pull request run
+# leaves the manifest alone. When the branch does not qualify the job is skipped, which shows as a
+# skipped job on the run rather than as a passing one that quietly did nothing.
+#
+# The write is a MERGE -- only the attributes present in the item are set, so attributes written
+# by other jobs survive. Map-valued attributes are replaced wholesale, so supply the complete map.
+#
+# ORDERING IS NOT GUARANTEED. Writes are serialised per table + calling repo by a concurrency
+# group, but the item carries no sequence or timestamp attribute and the request uses no
+# ConditionExpression, so re-running an older commit overwrites a newer value with no error. If
+# that matters for your table, add an ordering attribute and gate on it in the caller rather than
+# relying on this workflow.
+#
+# Usage:
+#
+#   update_manifest:
+#     needs: sca_scan
+#     if: needs.sca_scan.result == 'success'
+#     uses: SolaceDev/solace-public-workflows/.github/workflows/update-manifest.yaml@main
+#     with:
+#       table_name: my-table
+#       item: |
+#         {
+#           "squad": "my-squad",
+#           "repository": "MY_REPO_EXPRESSION",
+#           "dev": { "sha": "MY_SHA_EXPRESSION", "version": "MY_REF_EXPRESSION" }
+#         }
+#       manifest_aws_role: MY_ROLE_VARIABLE      # or, instead:
+#     secrets:
+#       MANIFEST_AWS_ROLE: MY_SECRET_EXPRESSION
+#
+# The caller needs `id-token: write` at workflow or job level for OIDC. A caller that also runs
+# another shared workflow must still grant whatever permissions that one declares -- this workflow
+# needs no registry access, but that does not remove a sibling job's requirements.
+#
+# The calling repository must be authorised to assume the role, which requires configuration
+# outside this workflow. Ask the platform team if the assume-role step fails.
+
+on:
+  workflow_call:
+    inputs:
+      item:
+        description: >-
+          JSON object to merge, including its primary key attributes. Templated by the caller, so
+          any additional fields can be included.
+        required: true
+        type: string
+      table_name:
+        description: "DynamoDB table name"
+        required: true
+        type: string
+      allow_non_default_branch:
+        description: >-
+          Write even when the ref is not the repository's default branch. This also permits tag
+          refs, so prefer allow_tags when a release flow is all you need -- this one opens writes
+          from any feature branch too.
+        required: false
+        type: boolean
+        default: false
+      allow_tags:
+        description: >-
+          Write on a tag push. Off by default because `github.ref_name` is the tag name on a tag
+          event, so the default-branch check alone skips every release build -- which is usually
+          the run you most want recorded.
+        required: false
+        type: boolean
+        default: false
+      partition_key:
+        description: "Partition key attribute name"
+        required: false
+        type: string
+        default: squad
+      sort_key:
+        description: "Sort key attribute name (empty for a partition-key-only table)"
+        required: false
+        type: string
+        default: repository
+      manifest_aws_role:
+        description: >-
+          ARN of the role to assume. A role ARN is an identifier rather than a credential -- what
+          protects the role is its trust policy -- so a repo or org variable is a reasonable home
+          for it. Takes precedence over the secret of the same name. Supply one or the other.
+        required: false
+        type: string
+        default: ""
+      concurrency_group:
+        description: >-
+          Overrides the group used to serialise writes. The default keys on table + calling repo,
+          which is right for the usual one-manifest-job-per-workflow case but collides when a
+          caller has TWO manifest jobs in the same workflow -- GitHub allows only one pending
+          run per group, so the second is cancelled rather than queued, and a cancelled job
+          reads as benign. Give each such job its own value, ideally including the item's key.
+        required: false
+        type: string
+        default: ""
+      aws_region:
+        description: "AWS region"
+        required: false
+        type: string
+        default: us-east-1
+    secrets:
+      MANIFEST_AWS_ROLE:
+        description: >-
+          ARN of the role to assume, for callers that prefer to keep it secret. Optional: supply
+          either this or the manifest_aws_role input. Prefer this over passing a secret into the
+          input -- a value routed through `with:` is treated as a plain string and is not masked.
+        required: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  update_manifest:
+    # The manifest records what landed on trunk, so a non-default branch must not overwrite it.
+    # Expressed as a job condition rather than a shell step so there is nothing to run and
+    # nothing to get wrong: the job is either skipped or it writes.
+    if: >-
+      github.ref_name == github.event.repository.default_branch
+      || inputs.allow_non_default_branch
+      || (inputs.allow_tags && github.ref_type == 'tag')
+    runs-on: ubuntu-latest
+    # Serialises writes for one table + calling repo, since the sort key is conventionally the
+    # repository name. Without it two quick pushes can interleave. Not cancel-in-progress:
+    # abandoning a half-finished write is worse than queueing behind one. Override via
+    # concurrency_group when one workflow has more than one manifest job -- see that input.
+    concurrency:
+      group: ${{ inputs.concurrency_group != '' && inputs.concurrency_group || format('update-manifest-{0}-{1}', inputs.table_name, github.repository) }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          role-to-assume: ${{ inputs.manifest_aws_role != '' && inputs.manifest_aws_role || secrets.MANIFEST_AWS_ROLE }}
+          aws-region: ${{ inputs.aws_region }}
+
+      - name: Update manifest
+        uses: SolaceDev/solace-public-workflows/.github/actions/update-manifest@main
+        with:
+          item: ${{ inputs.item }}
+          table_name: ${{ inputs.table_name }}
+          partition_key: ${{ inputs.partition_key }}
+          sort_key: ${{ inputs.sort_key }}
+          aws_region: ${{ inputs.aws_region }}
