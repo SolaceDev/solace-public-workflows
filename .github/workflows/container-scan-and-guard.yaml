@@ -321,7 +321,7 @@ jobs:
       - name: Retrieve FOSSA API key from Vault
         id: vault_secrets
         if: inputs.use_vault == true
-        uses: hashicorp/vault-action@4c06c5ccf5c0761b6029f56cfb1dcf5565918a3b # v3.4.0
+        uses: hashicorp/vault-action@892a26828f195e65540a40b4768ae4571f51ebfc # v4.0.0
         with:
           url: ${{ secrets.VAULT_URL != '' && secrets.VAULT_URL || steps.config.outputs.vault_url }}
           role: ${{ secrets.VAULT_ROLE != '' && secrets.VAULT_ROLE || steps.config.outputs.vault_role }}
@@ -355,7 +355,7 @@ jobs:
         id: aws_creds
         if: inputs.use_vault == true && steps.vault_aws_role.outputs.aws_role != ''
         continue-on-error: true
-        uses: hashicorp/vault-action@4c06c5ccf5c0761b6029f56cfb1dcf5565918a3b # v3.4.0
+        uses: hashicorp/vault-action@892a26828f195e65540a40b4768ae4571f51ebfc # v4.0.0
         with:
           url: ${{ secrets.VAULT_URL != '' && secrets.VAULT_URL || steps.config.outputs.vault_url }}
           role: ${{ secrets.VAULT_ROLE != '' && secrets.VAULT_ROLE || steps.config.outputs.vault_role }}
@@ -461,7 +461,7 @@ jobs:
       - name: Retrieve GCR Credentials from Vault
         id: gcr_creds
         if: inputs.use_vault == true && steps.vault_gcr_role.outputs.registry != ''
-        uses: hashicorp/vault-action@4c06c5ccf5c0761b6029f56cfb1dcf5565918a3b # v3.4.0
+        uses: hashicorp/vault-action@892a26828f195e65540a40b4768ae4571f51ebfc # v4.0.0
         with:
           url: ${{ secrets.VAULT_URL != '' && secrets.VAULT_URL || steps.config.outputs.vault_url }}
           role: ${{ steps.vault_gcr_role.outputs.gcr_role }}
