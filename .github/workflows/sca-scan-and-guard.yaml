@@ -270,7 +270,7 @@ jobs:
       - name: Load Workflow Configuration
         if: inputs.config_file != ''
         id: config_loader
-        uses: SolaceDev/solace-public-workflows/workflow-config-loader@main
+        uses: SolaceDev/solace-public-workflows/workflow-config-loader@55aba02b3ed20d1ec61684f19d660425362c2cf4 # main
         with:
           config_file: ${{ inputs.config_file }}
           config_type: sca_scanning
@@ -392,7 +392,7 @@ jobs:
 
       - name: Setup SCA Dependencies
         id: setup_deps
-        uses: SolaceDev/solace-public-workflows/sca-setup-deps@main
+        uses: SolaceDev/solace-public-workflows/sca-setup-deps@55aba02b3ed20d1ec61684f19d660425362c2cf4 # main
         with:
           setup_actions: ${{ inputs.setup_actions }}
           java_version: ${{ inputs.java_version }}
@@ -542,7 +542,7 @@ jobs:
           } >> $GITHUB_OUTPUT
 
       - name: SCA Scan - FOSSA
-        uses: SolaceDev/solace-public-workflows/.github/actions/sca/sca-scan@main
+        uses: SolaceDev/solace-public-workflows/.github/actions/sca/sca-scan@55aba02b3ed20d1ec61684f19d660425362c2cf4 # main
         with:
           scanners: "fossa"
           additional_scan_params: ${{ steps.fossa_params.outputs.params }}
@@ -553,7 +553,7 @@ jobs:
 
       - name: FOSSA Policy/Licensing Check
         id: fossa_licensing
-        uses: SolaceDev/solace-public-workflows/.github/actions/fossa-guard@main
+        uses: SolaceDev/solace-public-workflows/.github/actions/fossa-guard@55aba02b3ed20d1ec61684f19d660425362c2cf4 # main
         continue-on-error: true
         with:
           fossa_api_key: ${{ steps.fossa_key.outputs.FOSSA_KEY }}
@@ -572,7 +572,7 @@ jobs:
 
       - name: FOSSA Vulnerability Check
         id: fossa_vulnerabilities
-        uses: SolaceDev/solace-public-workflows/.github/actions/fossa-guard@main
+        uses: SolaceDev/solace-public-workflows/.github/actions/fossa-guard@55aba02b3ed20d1ec61684f19d660425362c2cf4 # main
         continue-on-error: true
         with:
           fossa_api_key: ${{ steps.fossa_key.outputs.FOSSA_KEY }}

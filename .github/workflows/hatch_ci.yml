@@ -335,7 +335,7 @@ jobs:
       - name: SonarQube Quality Gate check
         if: github.event_name == 'pull_request'
         id: sonarqube-quality-gate-check
-        uses: sonarsource/sonarqube-quality-gate-action@master
+        uses: sonarsource/sonarqube-quality-gate-action@7a5fffe8e523c40e0c740b6bc2712ab503e52efa # master
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
@@ -389,7 +389,7 @@ jobs:
           echo '```' >> $GITHUB_STEP_SUMMARY
 
       - name: Upload dependency tree
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: dependency-tree
           path: dependency-tree.txt
@@ -416,7 +416,7 @@ jobs:
           # and security vulnerability detection.
 
       - name: sca-scan
-        uses: SolaceDev/solace-public-workflows/.github/actions/sca/sca-scan@main
+        uses: SolaceDev/solace-public-workflows/.github/actions/sca/sca-scan@55aba02b3ed20d1ec61684f19d660425362c2cf4 # main
         with:
           scanners: "fossa"
           additional_scan_params: |
@@ -426,7 +426,7 @@ jobs:
           fossa_api_key: ${{ secrets.FOSSA_API_KEY }}
 
       - name: FOSSA Guard - Block on Policy Violations
-        uses: SolaceDev/solace-public-workflows/.github/actions/fossa-guard@main
+        uses: SolaceDev/solace-public-workflows/.github/actions/fossa-guard@55aba02b3ed20d1ec61684f19d660425362c2cf4 # main
         continue-on-error: true
         with:
           fossa_api_key: ${{ secrets.FOSSA_API_KEY}}
