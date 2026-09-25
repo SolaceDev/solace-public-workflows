@@ -1,0 +1,10 @@
+# zizmor configuration (https://docs.zizmor.sh).
+# Headline gate: every `uses:` must be pinned to a full commit SHA (hash-pin),
+# so an unpinned ref like `@master` on a reusable-workflow call fails CI in THIS
+# repo instead of only surfacing downstream in a consumer (cf. maas-build-actions
+# PR #864). Same-repo local (`./`) uses are exempt by zizmor.
+rules:
+  unpinned-uses:
+    config:
+      policies:
+        "*": hash-pin
