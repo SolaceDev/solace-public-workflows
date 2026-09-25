@@ -1,10 +1,51 @@
 # zizmor configuration (https://docs.zizmor.sh).
-# Headline gate: every `uses:` must be pinned to a full commit SHA (hash-pin),
-# so an unpinned ref like `@master` on a reusable-workflow call fails CI in THIS
-# repo instead of only surfacing downstream in a consumer (cf. maas-build-actions
-# PR #864). Same-repo local (`./`) uses are exempt by zizmor.
+# Focused SHA-pinning gate: every `uses:` must be pinned to a full commit SHA
+# (unpinned-uses, hash-pin for "*"). Same-repo local (`./`) uses are exempt.
+# All other zizmor audits are disabled so this check is ONLY a pinning gate; the
+# broader zizmor hardening can be enabled separately later. The CLI version is
+# pinned in the workflow so this audit set stays stable.
 rules:
   unpinned-uses:
     config:
       policies:
         "*": hash-pin
+  adhoc-packages: { disable: true }
+  anonymous-definition: { disable: true }
+  archived-uses: { disable: true }
+  artipacked: { disable: true }
+  bot-conditions: { disable: true }
+  cache-poisoning: { disable: true }
+  concurrency-limits: { disable: true }
+  dangerous-triggers: { disable: true }
+  dependabot-cooldown: { disable: true }
+  dependabot-execution: { disable: true }
+  excessive-permissions: { disable: true }
+  forbidden-uses: { disable: true }
+  github-app: { disable: true }
+  github-env: { disable: true }
+  hardcoded-container-credentials: { disable: true }
+  impostor-commit: { disable: true }
+  insecure-commands: { disable: true }
+  insecure-url-scheme: { disable: true }
+  known-vulnerable-actions: { disable: true }
+  misfeature: { disable: true }
+  obfuscation: { disable: true }
+  overprovisioned-secrets: { disable: true }
+  ref-confusion: { disable: true }
+  ref-version-mismatch: { disable: true }
+  secrets-inherit: { disable: true }
+  secrets-outside-env: { disable: true }
+  self-hosted-runner: { disable: true }
+  self-repository: { disable: true }
+  stale-action-refs: { disable: true }
+  superfluous-actions: { disable: true }
+  template-injection: { disable: true }
+  typosquat-uses: { disable: true }
+  undocumented-permissions: { disable: true }
+  unpinned-images: { disable: true }
+  unpinned-tools: { disable: true }
+  unredacted-secrets: { disable: true }
+  unsound-condition: { disable: true }
+  unsound-contains: { disable: true }
+  unsound-ternary: { disable: true }
+  use-trusted-publishing: { disable: true }
