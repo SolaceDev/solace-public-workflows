@@ -61,7 +61,7 @@ runs:
     - name: Generate Release Notes
       id: generate_release_notes
       continue-on-error: true
-      uses: SolaceDev/solace-public-workflows/generate-github-release-notes@main
+      uses: SolaceDev/solace-public-workflows/generate-github-release-notes@55aba02b3ed20d1ec61684f19d660425362c2cf4 # main
       with:
         from-ref: ${{ inputs.current_version }}
         to-ref: ${{ inputs.new_version }}
