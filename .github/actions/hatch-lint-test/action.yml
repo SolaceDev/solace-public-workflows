@@ -13,7 +13,7 @@ runs:
   steps:
     - name: Set up Hatch
       id: hatch-setup
-      uses: SolaceDev/solace-public-workflows/.github/actions/hatch-setup@44c2b69cc8ffc5d33f09eb95395bfeadb16d84c0 # main
+      uses: SolaceDev/solace-public-workflows/.github/actions/hatch-setup@d6e02f40b79b06621cefb8979e24bd28923532bd # main
       with:
         min-python-version: ${{ inputs.min-python-version }}
         max-python-version: ${{ inputs.max-python-version }}
