@@ -200,7 +200,7 @@ jobs:
           npm run build
 
       - name: Set up Hatch
-        uses: SolaceDev/solace-public-workflows/.github/actions/hatch-setup@44c2b69cc8ffc5d33f09eb95395bfeadb16d84c0 # main
+        uses: SolaceDev/solace-public-workflows/.github/actions/hatch-setup@d6e02f40b79b06621cefb8979e24bd28923532bd # main
         with:
           build: "false"
 
@@ -284,7 +284,7 @@ jobs:
       - name: Generate Release Notes
         id: generate_release_notes
         continue-on-error: true
-        uses: SolaceDev/solace-public-workflows/generate-github-release-notes@44c2b69cc8ffc5d33f09eb95395bfeadb16d84c0 # main
+        uses: SolaceDev/solace-public-workflows/generate-github-release-notes@d6e02f40b79b06621cefb8979e24bd28923532bd # main
         with:
           from-ref: ${{ env.CURRENT_VERSION }}
           to-ref: ${{ env.NEW_VERSION }}
