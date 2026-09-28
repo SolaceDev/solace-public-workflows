@@ -145,7 +145,7 @@ jobs:
           aws-region: ${{ inputs.aws_region }}
 
       - name: Update manifest
-        uses: SolaceDev/solace-public-workflows/.github/actions/update-manifest@55aba02b3ed20d1ec61684f19d660425362c2cf4 # main
+        uses: SolaceDev/solace-public-workflows/.github/actions/update-manifest@44c2b69cc8ffc5d33f09eb95395bfeadb16d84c0 # main
         with:
           item: ${{ inputs.item }}
           table_name: ${{ inputs.table_name }}
