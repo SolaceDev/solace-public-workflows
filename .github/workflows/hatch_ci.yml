@@ -416,7 +416,7 @@ jobs:
           # and security vulnerability detection.
 
       - name: sca-scan
-        uses: SolaceDev/solace-public-workflows/.github/actions/sca/sca-scan@d6e02f40b79b06621cefb8979e24bd28923532bd # main
+        uses: $/.github/actions/sca/sca-scan
         with:
           scanners: "fossa"
           additional_scan_params: |
@@ -426,7 +426,7 @@ jobs:
           fossa_api_key: ${{ secrets.FOSSA_API_KEY }}
 
       - name: FOSSA Guard - Block on Policy Violations
-        uses: SolaceDev/solace-public-workflows/.github/actions/fossa-guard@d6e02f40b79b06621cefb8979e24bd28923532bd # main
+        uses: $/.github/actions/fossa-guard
         continue-on-error: true
         with:
           fossa_api_key: ${{ secrets.FOSSA_API_KEY}}
