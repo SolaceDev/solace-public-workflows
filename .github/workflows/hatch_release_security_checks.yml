@@ -72,7 +72,7 @@ jobs:
 
       - name: FOSSA Guard - Block on Policy Violations
         if: github.ref_name == github.event.repository.default_branch && fromJson(inputs.fossa_check)
-        uses: SolaceDev/solace-public-workflows/.github/actions/fossa-guard@d6e02f40b79b06621cefb8979e24bd28923532bd # main
+        uses: $/.github/actions/fossa-guard
         continue-on-error: true
         with:
           fossa_api_key: ${{ secrets.FOSSA_API_KEY }}
@@ -85,7 +85,7 @@ jobs:
 
       - name: FOSSA Guard - Block on Security Vulnerabilities
         if: github.ref_name == github.event.repository.default_branch && fromJson(inputs.fossa_check)
-        uses: SolaceDev/solace-public-workflows/.github/actions/fossa-guard@d6e02f40b79b06621cefb8979e24bd28923532bd # main
+        uses: $/.github/actions/fossa-guard
         continue-on-error: true
         with:
           fossa_api_key: ${{ secrets.FOSSA_API_KEY }}
