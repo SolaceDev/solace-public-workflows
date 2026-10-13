@@ -49,6 +49,16 @@ on:
         required: false
         type: string
         default: ""
+      environment:
+        description: |
+          GitHub Environment the scan job runs in. Leave empty for no Environment.
+          Environment secrets take precedence over same-named secrets passed by the caller,
+          and the Environment's protection rules (e.g. required reviewers) gate the job.
+          The caller must still pass each secret by name (or use `secrets: inherit`),
+          otherwise it resolves to empty even when the Environment defines it.
+        required: false
+        type: string
+        default: ""
 
       # Dependency Setup Configuration
       setup_actions:
@@ -165,6 +175,7 @@ jobs:
     name: "SCA Scan"
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    environment: ${{ inputs.environment }}
 
     steps:
       - name: Check Admin Permissions for Bypass
@@ -198,6 +209,8 @@ jobs:
         env:
           INPUT_GIT_REF: ${{ inputs.git_ref }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_NAME: ${{ github.event_name }}
           HEAD_REF: ${{ github.head_ref }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           GITHUB_SHA: ${{ github.sha }}
@@ -211,7 +224,12 @@ jobs:
             # PR context - diff-based scan
             echo "branch=PR" >> $GITHUB_OUTPUT
             echo "revision=${HEAD_REF}" >> $GITHUB_OUTPUT
-            echo "git_ref=${GITHUB_REF}" >> $GITHUB_OUTPUT
+            # pull_request_target runs on the base branch ref, so scan the PR head explicitly
+            if [[ "$EVENT_NAME" == "pull_request_target" ]]; then
+              echo "git_ref=${PR_HEAD_SHA}" >> $GITHUB_OUTPUT
+            else
+              echo "git_ref=${GITHUB_REF}" >> $GITHUB_OUTPUT
+            fi
             echo "scan_type=PR" >> $GITHUB_OUTPUT
             echo "**Context**: Pull Request #${PR_NUMBER}" >> $GITHUB_STEP_SUMMARY
             echo "**Scan Type**: Diff-based (new issues only)" >> $GITHUB_STEP_SUMMARY
@@ -245,6 +263,21 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ steps.context.outputs.git_ref }}
+          # Never leave a write token in an untrusted pull_request_target checkout
+          persist-credentials: ${{ github.event_name != 'pull_request_target' }}
+
+      # Under pull_request_target the checkout above is the (possibly forked) PR head,
+      # so its config file is untrusted: it could point Guardian uploads or Vault reads
+      # somewhere else. Load the configuration from the base commit instead.
+      - name: Checkout trusted configuration (pull_request_target)
+        if: github.event_name == 'pull_request_target' && inputs.config_file != ''
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: .sca-trusted-config
+          sparse-checkout: ${{ inputs.config_file }}
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
 
       - name: Detect Repository Visibility and Set Privacy Mode
         id: privacy_mode
@@ -272,8 +305,12 @@ jobs:
         id: config_loader
         uses: $/workflow-config-loader
         with:
-          config_file: ${{ inputs.config_file }}
+          config_file: ${{ github.event_name == 'pull_request_target' && format('.sca-trusted-config/{0}', inputs.config_file) || inputs.config_file }}
           config_type: sca_scanning
+
+      - name: Remove trusted configuration checkout
+        if: github.event_name == 'pull_request_target' && inputs.config_file != ''
+        run: rm -rf .sca-trusted-config
 
       - name: Merge Configuration and Inputs
         id: config
@@ -563,9 +600,9 @@ jobs:
           fossa_category: licensing
           fossa_mode: ${{ steps.config.outputs.fossa_licensing_mode }}
           block_on: ${{ steps.config.outputs.fossa_licensing_block_on }}
-          enable_diff_mode: ${{ github.event_name == 'pull_request' }}
-          enable_pr_comment: ${{ github.event_name == 'pull_request' }}
-          enable_status_check: ${{ github.event_name == 'pull_request' }}
+          enable_diff_mode: ${{ github.event_name == 'pull_request' || github.event_name == 'pull_request_target' }}
+          enable_pr_comment: ${{ github.event_name == 'pull_request' || github.event_name == 'pull_request_target' }}
+          enable_status_check: ${{ github.event_name == 'pull_request' || github.event_name == 'pull_request_target' }}
           status_check_name: "FOSSA SCA Licensing"
           enable_privacy_mode: ${{ steps.privacy_mode.outputs.enable_privacy_mode }}
           github_token: ${{ github.token }}
@@ -582,9 +619,9 @@ jobs:
           fossa_category: vulnerability
           fossa_mode: ${{ steps.config.outputs.fossa_vulnerability_mode }}
           block_on: ${{ steps.config.outputs.fossa_vulnerability_block_on }}
-          enable_diff_mode: ${{ github.event_name == 'pull_request' }}
-          enable_pr_comment: ${{ github.event_name == 'pull_request' }}
-          enable_status_check: ${{ github.event_name == 'pull_request' }}
+          enable_diff_mode: ${{ github.event_name == 'pull_request' || github.event_name == 'pull_request_target' }}
+          enable_pr_comment: ${{ github.event_name == 'pull_request' || github.event_name == 'pull_request_target' }}
+          enable_status_check: ${{ github.event_name == 'pull_request' || github.event_name == 'pull_request_target' }}
           status_check_name: "FOSSA SCA Vulnerabilities"
           enable_privacy_mode: ${{ steps.privacy_mode.outputs.enable_privacy_mode }}
           github_token: ${{ github.token }}

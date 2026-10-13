@@ -87,6 +87,63 @@ jobs:
         fossa.only_path=plugins/${{ matrix.plugin }}
 ```
 
+### Fork Pull Requests (Environment Approval)
+
+`pull_request` runs from forks never receive secrets, so the scan cannot authenticate to FOSSA. To scan fork PRs, trigger on `pull_request_target` and run the scan job in a GitHub Environment whose required reviewers approve each fork run:
+
+```yaml
+name: SCA Scan
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write
+  packages: read
+  actions: read
+  statuses: write
+  checks: write
+  pull-requests: write
+
+jobs:
+  sca-scan:
+    uses: SolaceDev/solace-public-workflows/.github/workflows/sca-scan-and-guard.yaml@main
+    with:
+      # Fork PRs wait for a reviewer on `sca-scan-fork`; everything else uses `sca-scan`.
+      environment: >-
+        ${{ github.event_name == 'pull_request_target'
+            && github.event.pull_request.head.repo.full_name != github.repository
+            && 'sca-scan-fork' || 'sca-scan' }}
+      additional_scan_params: |
+        fossa.endpoint=https://app.fossa.com
+        fossa.static_only_analysis=true
+    secrets:
+      # Must be passed by name: the Environment's FOSSA_API_KEY then takes precedence.
+      FOSSA_API_KEY: ${{ secrets.FOSSA_API_KEY }}
+```
+
+Environment setup (repository **Settings → Environments**):
+
+| Environment | Secrets | Protection rules |
+|-------------|---------|------------------|
+| `sca-scan` | `FOSSA_API_KEY` | Deployment branches: default branch only |
+| `sca-scan-fork` | `FOSSA_API_KEY` | Required reviewers (maintainers/admins), prevent self-review, deployment branches: default branch only |
+
+`pull_request_target` always runs on the base branch, so the default-branch-only policy holds for PRs too. A reviewer who rejects the deployment stops the scan before the job, and its secrets, start.
+
+What the workflow does differently under `pull_request_target`:
+
+- It checks out the PR head commit (not the base branch) and does not persist the token in the checkout.
+- It loads `config_file` from the PR's **base** commit, so a PR cannot point Guardian uploads or Vault reads somewhere else.
+- It treats the run as a PR: diff mode, PR comment, and status checks are on, and there is no Guardian upload unless `pr_scan_upload` is set.
+
+> **Warning**: the PR head is untrusted code running with secrets. Pin `fossa.endpoint` (the CLI flag overrides any `server:` in a PR-supplied `.fossa.yml`) and prefer `fossa.static_only_analysis=true`. Do not combine `pull_request_target` with `setup_actions` or a `custom_setup_script` that builds or installs the PR's code (`npm ci`, `mvn install`, …), because that executes it.
+
 ## Inputs
 
 ### Core Inputs
@@ -100,6 +157,7 @@ jobs:
 | `use_vault` | No | `false` | Retrieve FOSSA API key from Vault (true for private repos) |
 | `config_file` | No | `.github/workflow-config.json` | Path to workflow configuration file |
 | `additional_scan_params` | No | (empty) | Additional scanner-specific parameters (see below) |
+| `environment` | No | (empty) | GitHub Environment for the scan job. Its secrets override same-named caller secrets (the caller must still pass the secret name), and its protection rules gate the run. See [Fork Pull Requests](#fork-pull-requests-environment-approval). |
 
 ### Dependency Setup Inputs
 
