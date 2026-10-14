@@ -1,0 +1,340 @@
+name: "Guardian Container Scan and Sync"
+description: "Scan a container image with Prisma Cloud (and optionally Trivy), upload the results to Guardian, then run Guardian's DB and Jira sync."
+author: "Solace"
+
+inputs:
+  image_registry:
+    description: "Docker image registry. The image must already be pushed (or available locally with `skip_image_pull`)."
+    required: true
+  image_repo:
+    description: "Docker image repository name. Defaults to the GitHub repository name."
+    required: false
+    default: ""
+  image_tag:
+    description: "Docker image tag to scan."
+    required: true
+  pcc_console_url:
+    description: "Prisma Cloud Console URL."
+    required: true
+  pcc_user:
+    description: "Prisma Cloud Access Key ID."
+    required: true
+  pcc_pass:
+    description: "Prisma Cloud Secret Access Key."
+    required: true
+  guardian_url:
+    description: "Guardian API base URL. Masked in logs."
+    required: true
+  guardian_key:
+    description: "Guardian API bearer token. Masked in logs."
+    required: true
+  guardian_product_name:
+    description: "Guardian product name. Defaults to `image_repo`."
+    required: false
+    default: ""
+  guardian_product_version:
+    description: "Guardian product version (stream) the scans are uploaded under. Defaults to the repository default branch. Should match the product's trunk branch in Guardian, which is what the sync reconciles."
+    required: false
+    default: ""
+  guardian_product_full_version:
+    description: "Guardian product full version (the build). Defaults to `image_tag`."
+    required: false
+    default: ""
+  run_trivy:
+    description: "Also scan the image with Trivy and sync its findings (`true`/`false`)."
+    required: false
+    default: "false"
+  trivy_version:
+    description: "Trivy version used when `run_trivy` is true."
+    required: false
+    default: "v0.69.2"
+  show_detailed_logs:
+    description: "Show per-finding detail in logs, job summaries and artifacts (`true`/`false`). Defaults to `false` for public repositories (or when visibility cannot be determined) and `true` otherwise."
+    required: false
+    default: ""
+  twistcli_publish:
+    description: "Publish Prisma scan results to the Prisma Cloud Console."
+    required: false
+    default: "false"
+  bypass_blocking:
+    description: "Never fail on Prisma scan findings. Guardian owns vulnerability blocking when it is configured."
+    required: false
+    default: "true"
+  skip_image_pull:
+    description: "Skip pulling the image (use when it is already available locally)."
+    required: false
+    default: "false"
+  create_status_check:
+    description: "Post the Prisma GitHub check run. Requires `checks: write` when true."
+    required: false
+    default: "true"
+  jira_dry_run:
+    description: "Run Guardian's Jira reporting in dry-run mode."
+    required: false
+    default: "false"
+  upload_logs:
+    description: "Upload Guardian sync request logs as a workflow artifact."
+    required: false
+    default: "false"
+
+outputs:
+  prisma_scan_passed:
+    description: "Whether the Prisma scan passed this action's policy (true/false)."
+    value: ${{ steps.prisma.outputs.scan_passed }}
+  prisma_vuln_critical:
+    description: "Prisma critical vulnerability count."
+    value: ${{ steps.prisma.outputs.vuln_critical }}
+  prisma_vuln_high:
+    description: "Prisma high vulnerability count."
+    value: ${{ steps.prisma.outputs.vuln_high }}
+  prisma_vuln_medium:
+    description: "Prisma medium vulnerability count."
+    value: ${{ steps.prisma.outputs.vuln_medium }}
+  prisma_vuln_low:
+    description: "Prisma low vulnerability count."
+    value: ${{ steps.prisma.outputs.vuln_low }}
+  prisma_console_link:
+    description: "Link to the Prisma Cloud Console results, when available."
+    value: ${{ steps.prisma.outputs.console_link }}
+  trivy_status:
+    description: "Trivy result: `success` (scanned and uploaded), `failure`, or `skipped`."
+    value: ${{ steps.unifiers.outputs.trivy_status }}
+  trivy_vuln_critical:
+    description: "Trivy critical vulnerability count."
+    value: ${{ steps.trivy_summary.outputs.vuln_critical }}
+  trivy_vuln_high:
+    description: "Trivy high vulnerability count."
+    value: ${{ steps.trivy_summary.outputs.vuln_high }}
+  trivy_vuln_medium:
+    description: "Trivy medium vulnerability count."
+    value: ${{ steps.trivy_summary.outputs.vuln_medium }}
+  trivy_vuln_low:
+    description: "Trivy low vulnerability count."
+    value: ${{ steps.trivy_summary.outputs.vuln_low }}
+  trivy_vuln_unknown:
+    description: "Trivy unknown-severity vulnerability count."
+    value: ${{ steps.trivy_summary.outputs.vuln_unknown }}
+  unifiers:
+    description: "Comma-separated scanners included in the Guardian sync (e.g. `prisma` or `prisma,trivy`)."
+    value: ${{ steps.unifiers.outputs.unifiers }}
+  product_name:
+    description: "Product name reported by the Guardian sync."
+    value: ${{ steps.sync.outputs.product_name }}
+  product_version:
+    description: "Product version reported by the Guardian sync."
+    value: ${{ steps.sync.outputs.product_version }}
+  response_json:
+    description: "Compact JSON response from the Guardian sync."
+    value: ${{ steps.sync.outputs.response_json }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Mask credentials and validate inputs
+      shell: bash
+      env:
+        GUARDIAN_URL: ${{ inputs.guardian_url }}
+        GUARDIAN_KEY: ${{ inputs.guardian_key }}
+        PCC_CONSOLE_URL: ${{ inputs.pcc_console_url }}
+        PCC_USER: ${{ inputs.pcc_user }}
+        PCC_PASS: ${{ inputs.pcc_pass }}
+        RUN_TRIVY: ${{ inputs.run_trivy }}
+      run: |
+        set -euo pipefail
+        for value in "$GUARDIAN_URL" "$GUARDIAN_KEY" "$PCC_CONSOLE_URL" "$PCC_USER" "$PCC_PASS"; do
+          if [ -n "$value" ]; then
+            echo "::add-mask::$value"
+          fi
+        done
+
+        if [ -z "$GUARDIAN_URL" ] || [ -z "$GUARDIAN_KEY" ]; then
+          echo "::error::guardian_url and guardian_key are required."
+          exit 1
+        fi
+        if [ "$RUN_TRIVY" != "true" ] && [ "$RUN_TRIVY" != "false" ]; then
+          echo "::error::run_trivy must be 'true' or 'false' (got '$RUN_TRIVY')."
+          exit 1
+        fi
+
+    # Resolve names once and pass them explicitly to every step, so the Prisma
+    # upload, the Trivy upload and the sync all target the same Guardian scan.
+    - name: Resolve scan context
+      id: ctx
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        INPUT_IMAGE_REPO: ${{ inputs.image_repo }}
+        IMAGE_REGISTRY: ${{ inputs.image_registry }}
+        IMAGE_TAG: ${{ inputs.image_tag }}
+        INPUT_PRODUCT_NAME: ${{ inputs.guardian_product_name }}
+        INPUT_PRODUCT_VERSION: ${{ inputs.guardian_product_version }}
+        INPUT_FULL_VERSION: ${{ inputs.guardian_product_full_version }}
+        DEFAULT_BRANCH: ${{ github.event.repository.default_branch || '' }}
+        EVENT_VISIBILITY: ${{ github.event.repository.visibility || '' }}
+        INPUT_SHOW_DETAILED_LOGS: ${{ inputs.show_detailed_logs }}
+      run: |
+        set -euo pipefail
+        REPO_NAME="${INPUT_IMAGE_REPO:-${GITHUB_REPOSITORY#*/}}"
+        PRODUCT_NAME="${INPUT_PRODUCT_NAME:-$REPO_NAME}"
+        PRODUCT_VERSION="${INPUT_PRODUCT_VERSION:-$DEFAULT_BRANCH}"
+        FULL_VERSION="${INPUT_FULL_VERSION:-$IMAGE_TAG}"
+        if [ -z "$PRODUCT_VERSION" ]; then
+          echo "::error::guardian_product_version is required when the repository default branch is unavailable."
+          exit 1
+        fi
+
+        VISIBILITY="$EVENT_VISIBILITY"
+        if [ -z "$VISIBILITY" ]; then
+          VISIBILITY="$(gh api "repos/$GITHUB_REPOSITORY" --jq .visibility 2>/dev/null || true)"
+        fi
+
+        # Fail closed: unknown visibility is treated like public.
+        SHOW_DETAILS="$(printf '%s' "$INPUT_SHOW_DETAILED_LOGS" | tr '[:upper:]' '[:lower:]')"
+        if [ -z "$SHOW_DETAILS" ]; then
+          if [ "$VISIBILITY" = "private" ] || [ "$VISIBILITY" = "internal" ]; then
+            SHOW_DETAILS="true"
+          else
+            SHOW_DETAILS="false"
+          fi
+        fi
+
+        SAFE_TAG="$(printf '%s' "$IMAGE_TAG" | tr '/:@ ' '-' | tr -cd '[:alnum:]._-')"
+        TRIVY_DIR="${RUNNER_TEMP}/guardian-trivy-${SAFE_TAG:-scan}"
+        mkdir -p "$TRIVY_DIR"
+
+        {
+          echo "repo_name=$REPO_NAME"
+          echo "image_ref=${IMAGE_REGISTRY}/${REPO_NAME}:${IMAGE_TAG}"
+          echo "image_display=${REPO_NAME}:${IMAGE_TAG}"
+          echo "product_name=$PRODUCT_NAME"
+          echo "product_version=$PRODUCT_VERSION"
+          echo "full_version=$FULL_VERSION"
+          echo "visibility=${VISIBILITY:-unknown}"
+          echo "show_details=$SHOW_DETAILS"
+          echo "safe_tag=${SAFE_TAG:-scan}"
+          echo "trivy_dir=$TRIVY_DIR"
+        } >> "$GITHUB_OUTPUT"
+        echo "Scanning ${REPO_NAME}:${IMAGE_TAG} for Guardian product ${PRODUCT_NAME} (${PRODUCT_VERSION} / ${FULL_VERSION})."
+
+    - name: Prisma Cloud scan and Guardian upload
+      id: prisma
+      uses: $/prisma-cloud-scan
+      with:
+        image_registry: ${{ inputs.image_registry }}
+        image_repo: ${{ steps.ctx.outputs.repo_name }}
+        image_tag: ${{ inputs.image_tag }}
+        pcc_console_url: ${{ inputs.pcc_console_url }}
+        pcc_user: ${{ inputs.pcc_user }}
+        pcc_pass: ${{ inputs.pcc_pass }}
+        twistcli_publish: ${{ inputs.twistcli_publish }}
+        bypass_blocking: ${{ inputs.bypass_blocking }}
+        skip_image_pull: ${{ inputs.skip_image_pull }}
+        create_status_check: ${{ inputs.create_status_check }}
+        show_detailed_logs: ${{ steps.ctx.outputs.show_details }}
+        guardian_url: ${{ inputs.guardian_url }}
+        guardian_key: ${{ inputs.guardian_key }}
+        guardian_product_name: ${{ steps.ctx.outputs.product_name }}
+        guardian_product_version: ${{ steps.ctx.outputs.product_version }}
+        guardian_product_full_version: ${{ steps.ctx.outputs.full_version }}
+
+    # Trivy failures must not stop the Prisma findings from syncing, but they
+    # must not pass silently either: the sync runs with prisma only and the
+    # action fails at the end (see the last step).
+    - name: Trivy scan
+      id: trivy_scan
+      if: ${{ inputs.run_trivy == 'true' }}
+      continue-on-error: true
+      uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+      with:
+        image-ref: ${{ steps.ctx.outputs.image_ref }}
+        format: json
+        output: ${{ steps.ctx.outputs.trivy_dir }}/trivy_scan.json
+        scanners: vuln
+        version: ${{ inputs.trivy_version }}
+
+    - name: Summarize Trivy results
+      id: trivy_summary
+      if: ${{ inputs.run_trivy == 'true' }}
+      shell: bash
+      env:
+        TRIVY_FILE: ${{ steps.ctx.outputs.trivy_dir }}/trivy_scan.json
+        IMAGE_DISPLAY: ${{ steps.ctx.outputs.image_display }}
+        TRIVY_VERSION: ${{ inputs.trivy_version }}
+        SHOW_DETAILS: ${{ steps.ctx.outputs.show_details }}
+        REPO_VISIBILITY: ${{ steps.ctx.outputs.visibility }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: python3 "$ACTION_PATH/scripts/summarize_trivy_results.py"
+
+    - name: Upload Trivy results to Guardian
+      id: trivy_upload
+      if: ${{ inputs.run_trivy == 'true' && steps.trivy_summary.outputs.scan_ok == 'true' }}
+      continue-on-error: true
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        GUARDIAN_URL: ${{ inputs.guardian_url }}
+        GUARDIAN_KEY: ${{ inputs.guardian_key }}
+        PRODUCT_NAME: ${{ steps.ctx.outputs.product_name }}
+        PRODUCT_VERSION: ${{ steps.ctx.outputs.product_version }}
+        FULL_VERSION: ${{ steps.ctx.outputs.full_version }}
+        TRIVY_FILE: ${{ steps.ctx.outputs.trivy_dir }}/trivy_scan.json
+      run: |
+        bash "$ACTION_PATH/scripts/upload_trivy_to_guardian.sh" \
+          --guardian-url "$GUARDIAN_URL" \
+          --guardian-key "$GUARDIAN_KEY" \
+          --product-name "$PRODUCT_NAME" \
+          --product-version "$PRODUCT_VERSION" \
+          --product-full-version "$FULL_VERSION" \
+          --trivy-file "$TRIVY_FILE"
+
+    # The raw report lists every finding, so it is only kept when detail is enabled.
+    - name: Upload Trivy report artifact
+      if: ${{ always() && inputs.run_trivy == 'true' && steps.ctx.outputs.show_details == 'true' && steps.trivy_summary.outputs.scan_ok == 'true' }}
+      uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+      with:
+        name: trivy-scan-results-${{ runner.os }}-${{ runner.arch }}-${{ steps.ctx.outputs.safe_tag }}
+        path: ${{ steps.ctx.outputs.trivy_dir }}/trivy_scan.json
+        retention-days: 30
+        if-no-files-found: warn
+
+    - name: Resolve sync scanners
+      id: unifiers
+      shell: bash
+      env:
+        RUN_TRIVY: ${{ inputs.run_trivy }}
+        TRIVY_UPLOAD_OUTCOME: ${{ steps.trivy_upload.outcome }}
+      run: |
+        set -euo pipefail
+        UNIFIERS="prisma"
+        TRIVY_STATUS="skipped"
+        if [ "$RUN_TRIVY" = "true" ]; then
+          if [ "$TRIVY_UPLOAD_OUTCOME" = "success" ]; then
+            UNIFIERS="prisma,trivy"
+            TRIVY_STATUS="success"
+          else
+            TRIVY_STATUS="failure"
+            echo "::warning::Trivy did not produce or upload results; syncing Prisma findings only."
+          fi
+        fi
+        echo "unifiers=$UNIFIERS" >> "$GITHUB_OUTPUT"
+        echo "trivy_status=$TRIVY_STATUS" >> "$GITHUB_OUTPUT"
+        echo "Syncing scanners: $UNIFIERS"
+
+    - name: Guardian DB and Jira sync
+      id: sync
+      uses: $/guardian-db-sync
+      with:
+        guardian-url: ${{ inputs.guardian_url }}
+        guardian-key: ${{ inputs.guardian_key }}
+        product-name: ${{ steps.ctx.outputs.product_name }}
+        product-full-version: ${{ steps.ctx.outputs.full_version }}
+        unifiers: ${{ steps.unifiers.outputs.unifiers }}
+        jira-dry-run: ${{ inputs.jira_dry_run }}
+        upload-logs: ${{ inputs.upload_logs }}
+
+    - name: Fail on Trivy error
+      if: ${{ steps.unifiers.outputs.trivy_status == 'failure' }}
+      shell: bash
+      run: |
+        echo "::error::run_trivy was requested but Trivy results were not synced. Prisma findings were synced; Trivy-only findings were left unchanged."
+        exit 1
