@@ -25,8 +25,8 @@ The nested actions run at the same commit as this action.
 | `pcc_console_url` | yes | | Prisma Cloud Console URL. |
 | `pcc_user` | yes | | Prisma Cloud access key ID. |
 | `pcc_pass` | yes | | Prisma Cloud secret key. |
-| `guardian_url` | yes | | Guardian API base URL. Masked in logs. |
-| `guardian_key` | yes | | Guardian API token. Masked in logs. |
+| `guardian_url` | yes | | Guardian API base URL. |
+| `guardian_key` | yes | | Guardian API token. |
 | `guardian_product_name` | no | `image_repo` | Guardian product name. |
 | `guardian_product_version` | no | default branch | Guardian product version. Should match the product's trunk branch in Guardian. |
 | `guardian_product_full_version` | no | `image_tag` | Guardian product full version. |
@@ -51,6 +51,10 @@ The nested actions run at the same commit as this action.
 | `trivy_vuln_critical` / `_high` / `_medium` / `_low` / `_unknown` | Trivy vulnerability counts. |
 | `unifiers` | Scanners included in the sync (`prisma` or `prisma,trivy`). |
 | `product_name`, `product_version`, `response_json` | Sync results from `guardian-db-sync`. |
+
+## Credentials
+
+The action masks the Guardian URL, the Guardian token and the Prisma credentials for all of its own steps. GitHub logs an action's inputs before its first step runs, though, so pass these as secrets (as in the example) to keep them out of that input list as well.
 
 ## Trivy failures
 

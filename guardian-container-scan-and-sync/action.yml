@@ -23,10 +23,10 @@ inputs:
     description: "Prisma Cloud Secret Access Key."
     required: true
   guardian_url:
-    description: "Guardian API base URL. Masked in logs."
+    description: "Guardian API base URL. Masked from the action's first step onward; pass it as a secret to keep it out of the logged inputs too."
     required: true
   guardian_key:
-    description: "Guardian API bearer token. Masked in logs."
+    description: "Guardian API bearer token. Pass it as a secret."
     required: true
   guardian_product_name:
     description: "Guardian product name. Defaults to `image_repo`."
