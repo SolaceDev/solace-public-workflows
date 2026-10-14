@@ -65,9 +65,17 @@ inputs:
     required: false
     default: "false"
   create_status_check:
-    description: "Post the Prisma GitHub check run. Requires `checks: write` when true."
+    description: "Post a \"Guardian Scan\" check run with the Guardian report. Skipped with a notice when the token lacks `checks: write`."
     required: false
     default: "true"
+  guardian_dashboard_url:
+    description: "Guardian dashboard base URL. When set, the detailed report links findings to it."
+    required: false
+    default: ""
+  jira_base_url:
+    description: "Jira base URL used to link the Jira issues in the detailed report."
+    required: false
+    default: "https://sol-jira.atlassian.net"
   jira_dry_run:
     description: "Run Guardian's Jira reporting in dry-run mode."
     required: false
@@ -114,6 +122,15 @@ outputs:
   trivy_vuln_unknown:
     description: "Trivy unknown-severity vulnerability count."
     value: ${{ steps.trivy_summary.outputs.vuln_unknown }}
+  guardian_blocking_count:
+    description: "Findings past their SLA for this build, per Guardian."
+    value: ${{ steps.report.outputs.blocking_count }}
+  guardian_pending_count:
+    description: "Findings still within their SLA for this build, per Guardian."
+    value: ${{ steps.report.outputs.pending_count }}
+  guardian_check_run_url:
+    description: "URL of the Guardian Scan check run, when one was posted."
+    value: ${{ steps.report.outputs.check_run_url }}
   unifiers:
     description: "Comma-separated scanners included in the Guardian sync (e.g. `prisma` or `prisma,trivy`)."
     value: ${{ steps.unifiers.outputs.unifiers }}
@@ -229,7 +246,9 @@ runs:
         twistcli_publish: ${{ inputs.twistcli_publish }}
         bypass_blocking: ${{ inputs.bypass_blocking }}
         skip_image_pull: ${{ inputs.skip_image_pull }}
-        create_status_check: ${{ inputs.create_status_check }}
+        # Guardian is the single reporter for this action (see the report step).
+        create_status_check: "false"
+        write_step_summary: "false"
         show_detailed_logs: ${{ steps.ctx.outputs.show_details }}
         guardian_url: ${{ inputs.guardian_url }}
         guardian_key: ${{ inputs.guardian_key }}
@@ -262,6 +281,7 @@ runs:
         TRIVY_VERSION: ${{ inputs.trivy_version }}
         SHOW_DETAILS: ${{ steps.ctx.outputs.show_details }}
         REPO_VISIBILITY: ${{ steps.ctx.outputs.visibility }}
+        WRITE_STEP_SUMMARY: "false"
         ACTION_PATH: ${{ github.action_path }}
       run: python3 "$ACTION_PATH/scripts/summarize_trivy_results.py"
 
@@ -331,6 +351,29 @@ runs:
         unifiers: ${{ steps.unifiers.outputs.unifiers }}
         jira-dry-run: ${{ inputs.jira_dry_run }}
         upload-logs: ${{ inputs.upload_logs }}
+
+    # Report-only: it reads Guardian after the sync and never fails the action.
+    - name: Guardian report
+      id: report
+      continue-on-error: true
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        GUARDIAN_URL: ${{ inputs.guardian_url }}
+        GUARDIAN_KEY: ${{ inputs.guardian_key }}
+        PRODUCT_NAME: ${{ steps.ctx.outputs.product_name }}
+        PRODUCT_VERSION: ${{ steps.sync.outputs.product_version || steps.ctx.outputs.product_version }}
+        FULL_VERSION: ${{ steps.ctx.outputs.full_version }}
+        UNIFIERS: ${{ steps.unifiers.outputs.unifiers }}
+        TRIVY_STATUS: ${{ steps.unifiers.outputs.trivy_status }}
+        SYNC_RESPONSE: ${{ steps.sync.outputs.response_json }}
+        SHOW_DETAILS: ${{ steps.ctx.outputs.show_details }}
+        DASHBOARD_URL: ${{ inputs.guardian_dashboard_url }}
+        JIRA_BASE_URL: ${{ inputs.jira_base_url }}
+        CREATE_CHECK: ${{ inputs.create_status_check }}
+        GITHUB_TOKEN: ${{ github.token }}
+        TARGET_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      run: python3 "$ACTION_PATH/scripts/guardian_report.py"
 
     - name: Fail on Trivy error
       if: ${{ steps.unifiers.outputs.trivy_status == 'failure' }}

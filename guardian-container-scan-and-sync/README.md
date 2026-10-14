@@ -5,6 +5,7 @@ Scans a container image, uploads the results to Guardian, and runs Guardian's DB
 1. Scans with Prisma Cloud and uploads the results ([`prisma-cloud-scan`](../prisma-cloud-scan/)).
 2. Optionally scans with Trivy and uploads those results to the same Guardian scan.
 3. Runs the sync ([`guardian-db-sync`](../guardian-db-sync/)) for every scanner that uploaded successfully.
+4. Reports the open Guardian findings for the build in the job summary and, optionally, a "Guardian Scan" check run. See [Guardian report](#guardian-report).
 
 The nested actions run at the same commit as this action.
 
@@ -12,7 +13,7 @@ The nested actions run at the same commit as this action.
 
 - The image is already pushed, and the job is logged in to its registry (or the image is local and `skip_image_pull: "true"`).
 - A Docker daemon on the runner.
-- `checks: write` when `create_status_check` is `true` (the default).
+- `checks: write` for the Guardian check run (optional; without it the check run is skipped with a notice).
 - Enough free disk for Trivy's vulnerability database when `run_trivy` is `true`.
 
 ## Inputs
@@ -36,7 +37,9 @@ The nested actions run at the same commit as this action.
 | `twistcli_publish` | no | `false` | Publish Prisma results to the Prisma Cloud Console. |
 | `bypass_blocking` | no | `true` | Never fail on Prisma findings. |
 | `skip_image_pull` | no | `false` | Use a local image instead of pulling. |
-| `create_status_check` | no | `true` | Post the Prisma check run. |
+| `create_status_check` | no | `true` | Post the "Guardian Scan" check run. Skipped with a notice when the token lacks `checks: write`. |
+| `guardian_dashboard_url` | no | | Guardian dashboard URL, used for links in the report. |
+| `jira_base_url` | no | `https://sol-jira.atlassian.net` | Jira URL, used for issue links in the report. |
 | `jira_dry_run` | no | `false` | Run Guardian's Jira reporting in dry-run mode. |
 | `upload_logs` | no | `false` | Upload the sync logs as an artifact. |
 
@@ -51,6 +54,16 @@ The nested actions run at the same commit as this action.
 | `trivy_vuln_critical` / `_high` / `_medium` / `_low` / `_unknown` | Trivy vulnerability counts. |
 | `unifiers` | Scanners included in the sync (`prisma` or `prisma,trivy`). |
 | `product_name`, `product_version`, `response_json` | Sync results from `guardian-db-sync`. |
+| `guardian_blocking_count` / `guardian_pending_count` | Open findings with a fix that are past / within their SLA. |
+| `guardian_check_run_url` | URL of the Guardian check run, when one was posted. |
+
+## Guardian report
+
+After the sync, the action reads the build's open findings that have a fix available from Guardian and writes a report to the job summary. With `create_status_check` on and `checks: write` granted, it also posts the report as a "Guardian Scan" check run on the commit. The report never fails the job: the check concludes `success` when nothing is past its SLA and `neutral` otherwise.
+
+The Prisma and Trivy scans don't post their own check runs or job summaries.
+
+With details shown (see [Public repositories](#public-repositories)), the report has one row per Jira issue, grouping that issue's CVEs for a component, with severity, package and version, the earliest version that fixes all of them, when it's due, the scanners that found it, and a short description. Issues and CVEs link to Jira and to the Guardian dashboard (when `guardian_dashboard_url` is set). With details hidden, the report shows only counts by severity.
 
 ## Credentials
 
@@ -62,7 +75,7 @@ If `run_trivy` is `true` but Trivy produces no report or its upload fails, the s
 
 ## Public repositories
 
-`show_detailed_logs` defaults to `false` for public repositories, and when visibility can't be determined. With it off, the job summary shows only severity counts, Prisma finding details are hidden from logs, and the raw Trivy report is not uploaded as an artifact. Set it to `"true"` to include them.
+`show_detailed_logs` defaults to `false` for public repositories, and when visibility can't be determined. With it off, the job summary and the Guardian check run show only severity counts, Prisma finding details are hidden from logs, and the raw Trivy report is not uploaded as an artifact. Set it to `"true"` to include them.
 
 ## Example
 
@@ -87,6 +100,7 @@ steps:
       guardian_url: ${{ secrets.GUARDIAN_API_URL }}
       guardian_key: ${{ secrets.GUARDIAN_API_TOKEN }}
       guardian_product_version: develop
+      guardian_dashboard_url: https://guardian-dashboard.example.com
       run_trivy: "true"
 ```
 
