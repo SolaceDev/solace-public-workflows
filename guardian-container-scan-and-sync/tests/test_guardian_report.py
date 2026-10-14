@@ -77,6 +77,15 @@ class TestVersions(unittest.TestCase):
         self.assertIsNone(report.earliest_fix("1.0", []))
 
 
+class TestRendering(unittest.TestCase):
+    def test_plain_description_drops_markdown(self):
+        text = "### Impact\nIf the **Unpacker** is used `twice`, it crashes."
+        self.assertEqual(
+            report.truncate(report.plain_description(text), 140),
+            "Impact If the Unpacker is used twice, it crashes.",
+        )
+
+
 class TestGrouping(unittest.TestCase):
     def setUp(self):
         result = GATE["results"][0]

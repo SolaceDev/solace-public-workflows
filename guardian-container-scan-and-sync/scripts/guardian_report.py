@@ -243,6 +243,12 @@ def truncate(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 3].rstrip() + "..."
 
 
+def plain_description(text: str) -> str:
+    """Advisory text is often Markdown; drop headings and emphasis so it reads inline in a cell."""
+    text = re.sub(r"(?m)^\s*#+\s*", "", text or "")
+    return re.sub(r"\*\*|__|`", "", text)
+
+
 def due_label(row: dict) -> str:
     if row["blocking"]:
         return "🚨 now"
@@ -340,7 +346,7 @@ def build_table(rows: list[dict], links: dict, max_rows: int) -> list[str]:
             f"| {cvss} | {cell(row['component'])} | {cell(row['version'])} "
             f"| {cell(status)} | {due_label(row)} | {shown or '—'} "
             f"| {cell(', '.join(row['scanners']))} "
-            f"| {cell(truncate(row['description'], DESCRIPTION_LIMIT))} |"
+            f"| {cell(truncate(plain_description(row['description']), DESCRIPTION_LIMIT))} |"
         )
     if len(rows) > max_rows:
         lines.append("")
