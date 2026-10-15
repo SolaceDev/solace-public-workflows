@@ -4,7 +4,7 @@ Scans a container image, uploads the results to Guardian, and runs Guardian's DB
 
 1. Scans with Prisma Cloud and uploads the results ([`prisma-cloud-scan`](../prisma-cloud-scan/)).
 2. Optionally scans with Trivy and uploads those results to the same Guardian scan.
-3. Runs the sync ([`guardian-db-sync`](../guardian-db-sync/)) for every scanner that uploaded successfully.
+3. Runs the sync ([`guardian-db-sync`](../guardian-db-sync/)) for every scanner whose results reached Guardian.
 4. Reports the open Guardian findings for the build in the job summary and, optionally, a "Guardian Scan" check run. See [Guardian report](#guardian-report).
 
 The nested actions run at the same commit as this action.
@@ -52,7 +52,7 @@ The nested actions run at the same commit as this action.
 | `prisma_console_link` | Link to the Prisma Cloud results. |
 | `trivy_status` | `success`, `failure` or `skipped`. |
 | `trivy_vuln_critical` / `_high` / `_medium` / `_low` / `_unknown` | Trivy vulnerability counts. |
-| `unifiers` | Scanners included in the sync (`prisma` or `prisma,trivy`). |
+| `unifiers` | Scanners included in the sync (for example `prisma` or `prisma,trivy`; empty if nothing was synced). |
 | `product_name`, `product_version`, `response_json` | Sync results from `guardian-db-sync`. |
 | `guardian_blocking_count` / `guardian_pending_count` | Open findings with a fix that are past / within their SLA. |
 | `guardian_check_run_url` | URL of the Guardian check run, when one was posted. |
@@ -69,9 +69,9 @@ With details shown (see [Public repositories](#public-repositories)), the report
 
 The action masks the Guardian URL, the Guardian token and the Prisma credentials for all of its own steps. GitHub logs an action's inputs before its first step runs, though, so pass these as secrets (as in the example) to keep them out of that input list as well.
 
-## Trivy failures
+## Scanner failures
 
-If `run_trivy` is `true` but Trivy produces no report or its upload fails, the sync still runs with Prisma only, and the action then fails. Prisma findings stay current, and the failure is visible. Findings reported only by Trivy are left unchanged until a later sync that includes Trivy.
+If one scanner's results don't reach Guardian (Prisma's scan or upload fails, or `run_trivy` is `true` and Trivy produces no report or its upload fails), the sync still runs for the other scanner, and the action then fails. The other scanner's findings stay current, and the failure is visible. Findings reported only by the failed scanner are left unchanged until a later sync that includes it. If neither scanner's results reached Guardian, the sync is skipped.
 
 ## Public repositories
 

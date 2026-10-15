@@ -245,17 +245,31 @@ class TestMain(unittest.TestCase):
 
     def test_trivy_failure_is_called_out(self):
         _, summary, _ = self._run(UNIFIERS="prisma", TRIVY_STATUS="failure")
-        self.assertIn("prisma (Trivy requested but not synced)", summary)
+        self.assertIn("prisma (Trivy not synced)", summary)
+
+    def test_prisma_failure_is_called_out(self):
+        _, summary, _ = self._run(UNIFIERS="trivy", PRISMA_STATUS="failure")
+        self.assertIn("trivy (Prisma not synced)", summary)
 
 
 class TestPostCheckRun(unittest.TestCase):
     def test_missing_checks_permission_is_skipped(self):
-        error = urllib.error.HTTPError("u", 403, "Forbidden", {}, io.BytesIO(b"{}"))
+        body = b'{"message": "Resource not accessible by integration"}'
+        error = urllib.error.HTTPError("u", 403, "Forbidden", {}, io.BytesIO(body))
         with patch.dict(os.environ, {"GITHUB_TOKEN": "t", "GITHUB_REPOSITORY": "o/r"}), \
                 patch("urllib.request.urlopen", side_effect=error), \
                 patch("sys.stdout", new_callable=io.StringIO) as out:
             self.assertIsNone(report.post_check_run({"name": "x"}))
+        self.assertIn("HTTP 403: Resource not accessible by integration", out.getvalue())
         self.assertIn("checks: write", out.getvalue())
+
+    def test_skip_notice_without_body(self):
+        error = urllib.error.HTTPError("u", 404, "Not Found", {}, io.BytesIO(b"not json"))
+        with patch.dict(os.environ, {"GITHUB_TOKEN": "t", "GITHUB_REPOSITORY": "o/r"}), \
+                patch("urllib.request.urlopen", side_effect=error), \
+                patch("sys.stdout", new_callable=io.StringIO) as out:
+            self.assertIsNone(report.post_check_run({"name": "x"}))
+        self.assertIn("(HTTP 404)", out.getvalue())
 
     def test_other_errors_propagate(self):
         error = urllib.error.HTTPError("u", 500, "Boom", {}, io.BytesIO(b"{}"))

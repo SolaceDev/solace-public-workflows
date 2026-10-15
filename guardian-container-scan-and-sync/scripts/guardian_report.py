@@ -280,8 +280,12 @@ def build_overview(ctx: dict, gate_result: dict | None, links: dict) -> list[str
         f"- **Product:** `{ctx['product']}` · `{ctx['product_version']}` · build `{ctx['full_version']}`"
     )
     scanners = ctx["unifiers"].replace(",", ", ")
-    if ctx["trivy_status"] == "failure":
-        scanners += " (Trivy requested but not synced)"
+    not_synced = [
+        name for name, status in (("Prisma", ctx.get("prisma_status")), ("Trivy", ctx["trivy_status"]))
+        if status == "failure"
+    ]
+    if not_synced:
+        scanners += f" ({' and '.join(not_synced)} not synced)"
     lines.append(f"- **Scanners synced:** {scanners}")
 
     sync = ctx.get("sync") or {}
@@ -384,7 +388,17 @@ def post_check_run(payload: dict) -> str | None:
             return (json.loads(response.read().decode() or "{}") or {}).get("html_url")
     except urllib.error.HTTPError as exc:
         if exc.code in (403, 404):
-            print("::notice::Guardian check run skipped: the token does not have `checks: write`.")
+            # Usually a missing `checks: write`, but rate limits and a wrong API URL
+            # answer the same way, so show what GitHub said.
+            try:
+                message = (json.loads(exc.read().decode() or "{}") or {}).get("message") or ""
+            except (ValueError, OSError):
+                message = ""
+            detail = f"HTTP {exc.code}" + (f": {message[:200]}" if message else "")
+            print(
+                f"::notice::Guardian check run skipped ({detail}). "
+                "The token may lack `checks: write`."
+            )
             return None
         raise
 
@@ -417,6 +431,7 @@ def main() -> int:
         "product_version": env("PRODUCT_VERSION"),
         "full_version": env("FULL_VERSION"),
         "unifiers": env("UNIFIERS") or "prisma",
+        "prisma_status": env("PRISMA_STATUS"),
         "trivy_status": env("TRIVY_STATUS"),
         "sync": sync if isinstance(sync, dict) else {},
     }
