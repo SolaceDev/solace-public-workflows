@@ -49,6 +49,11 @@ on:
         required: false
         type: string
         default: ""
+      pr_base_scan:
+        description: "Pull requests only: when FOSSA has no revision for the PR's base commit, scan it under the FOSSA branch PR_BASE so the PR is diffed against its real base. When false, an unscanned base falls back to FOSSA's default-branch revision."
+        required: false
+        type: boolean
+        default: true
 
       # Dependency Setup Configuration
       setup_actions:
@@ -208,15 +213,17 @@ jobs:
 
           # Detect if this is a PR, Release, or Manual scan
           if [[ -n "$PR_NUMBER" ]]; then
-            # PR context - diff-based scan
+            # PR context - diff-based scan. The revision is the merge commit the checkout scans,
+            # so each push is its own FOSSA revision instead of overwriting one named after the
+            # head branch.
             echo "branch=PR" >> $GITHUB_OUTPUT
-            echo "revision=${HEAD_REF}" >> $GITHUB_OUTPUT
+            echo "revision=${GITHUB_SHA}" >> $GITHUB_OUTPUT
             echo "git_ref=${GITHUB_REF}" >> $GITHUB_OUTPUT
             echo "scan_type=PR" >> $GITHUB_OUTPUT
-            echo "**Context**: Pull Request #${PR_NUMBER}" >> $GITHUB_STEP_SUMMARY
+            echo "**Context**: Pull Request #${PR_NUMBER} (${HEAD_REF})" >> $GITHUB_STEP_SUMMARY
             echo "**Scan Type**: Diff-based (new issues only)" >> $GITHUB_STEP_SUMMARY
             echo "**Branch**: PR" >> $GITHUB_STEP_SUMMARY
-            echo "**Revision**: ${HEAD_REF}" >> $GITHUB_STEP_SUMMARY
+            echo "**Revision**: ${GITHUB_SHA}" >> $GITHUB_STEP_SUMMARY
           elif [[ -n "$INPUT_GIT_REF" ]]; then
             # Release context (called by orchestrator) - full scan
             echo "branch=${DEFAULT_BRANCH}" >> $GITHUB_OUTPUT
@@ -551,6 +558,122 @@ jobs:
           guardian_token: ${{ steps.guardian_key.outputs.GUARDIAN_TOKEN }}
           pr_scan_upload: ${{ steps.config.outputs.guardian_pr_scan_upload }}
 
+      # A PR is diffed against the commit it merges into. Left to itself, fossa-guard compares
+      # against the newest revision of a main/master/develop branch, or failing that of any branch,
+      # which for a PR into a release branch, or a project whose base was never scanned, means main,
+      # the PR itself or another PR. An existing revision of the base commit (a push scan on main or
+      # a release branch) is reused as it is; only a base FOSSA has never seen is scanned, once,
+      # under the PR_BASE branch, so no revision is analysed twice and branches do not multiply.
+      - name: Resolve PR base revision
+        id: pr_base
+        if: github.event_name == 'pull_request'
+        env:
+          FOSSA_API_KEY: ${{ steps.fossa_key.outputs.FOSSA_KEY }}
+          FOSSA_PROJECT_ID: ${{ steps.fossa_project.outputs.FOSSA_PROJECT_ID }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_REF: ${{ github.base_ref }}
+          PR_BASE_SCAN: ${{ inputs.pr_base_scan }}
+        run: |
+          locator="custom+48578/${FOSSA_PROJECT_ID}\$${BASE_SHA}"
+          encoded=$(jq -rn --arg v "$locator" '$v | @uri')
+          status=$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer ${FOSSA_API_KEY}" \
+            "https://app.fossa.com/api/revisions/${encoded}") || status="unreachable"
+          case "$status" in
+            200)
+              echo "Base ${BASE_REF}@${BASE_SHA} is already scanned in FOSSA; diffing against it"
+              echo "revision=${BASE_SHA}" >> "$GITHUB_OUTPUT"
+              echo "scan=false" >> "$GITHUB_OUTPUT" ;;
+            404)
+              if [[ "$PR_BASE_SCAN" == "true" ]]; then
+                echo "Base ${BASE_REF}@${BASE_SHA} has no FOSSA revision; scanning it under branch PR_BASE"
+                echo "scan=true" >> "$GITHUB_OUTPUT"
+              else
+                echo "::warning::Base ${BASE_REF}@${BASE_SHA} has no FOSSA revision and pr_base_scan is off; diffing against FOSSA's default-branch revision"
+                echo "scan=false" >> "$GITHUB_OUTPUT"
+              fi ;;
+            *)
+              echo "::warning::Could not look up the base revision in FOSSA (HTTP ${status}); diffing against FOSSA's default-branch revision"
+              echo "scan=false" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      - name: Checkout PR base
+        if: steps.pr_base.outputs.scan == 'true'
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+
+      # The base's own build inputs (lockfiles, generated manifests) come from the caller's setup.
+      - name: Setup SCA Dependencies (PR base)
+        id: setup_deps_base
+        if: steps.pr_base.outputs.scan == 'true'
+        continue-on-error: true
+        uses: $/sca-setup-deps
+        with:
+          setup_actions: ${{ inputs.setup_actions }}
+          java_version: ${{ inputs.java_version }}
+          java_distribution: ${{ inputs.java_distribution }}
+          maven_settings_repositories: ${{ inputs.maven_settings_repositories }}
+          maven_settings_servers: ${{ inputs.maven_settings_servers }}
+          node_version: ${{ inputs.node_version }}
+          npm_registry_url: ${{ inputs.npm_registry_url }}
+          npm_auth_token: ${{ secrets.NPM_AUTH_TOKEN != '' && secrets.NPM_AUTH_TOKEN || github.token }}
+          python_version: ${{ inputs.python_version }}
+          uv_version: ${{ inputs.uv_version }}
+          dotnet_versions: ${{ inputs.dotnet_versions }}
+          nuget_source_url: ${{ inputs.nuget_source_url }}
+          nuget_auth_token: ${{ secrets.NUGET_AUTH_TOKEN != '' && secrets.NUGET_AUTH_TOKEN || github.token }}
+          custom_setup_script: ${{ inputs.custom_setup_script }}
+
+      # The head scan's parameters, with the branch and revision appended last so they win over
+      # any the caller passed.
+      - name: Build FOSSA Scan Parameters (PR base)
+        id: base_params
+        if: steps.pr_base.outputs.scan == 'true' && steps.setup_deps_base.outcome == 'success'
+        env:
+          PARAMS: ${{ steps.fossa_params.outputs.params }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          {
+            echo "params<<EOF"
+            echo "$PARAMS"
+            echo "fossa.branch=PR_BASE"
+            echo "fossa.revision=${BASE_SHA}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      # No Guardian upload: the base belongs to its own branch's scans, not to this PR.
+      - name: SCA Scan - FOSSA (PR base)
+        id: base_scan
+        if: steps.base_params.outcome == 'success'
+        continue-on-error: true
+        uses: $/.github/actions/sca/sca-scan
+        with:
+          scanners: "fossa"
+          additional_scan_params: ${{ steps.base_params.outputs.params }}
+          fossa_api_key: ${{ steps.fossa_key.outputs.FOSSA_KEY }}
+
+      - name: Settle PR diff base
+        id: diff_base
+        if: github.event_name == 'pull_request'
+        env:
+          EXISTING: ${{ steps.pr_base.outputs.revision }}
+          SCANNED: ${{ steps.base_scan.outcome }}
+          ATTEMPTED: ${{ steps.pr_base.outputs.scan }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [[ -n "$EXISTING" ]]; then
+            revision="$EXISTING"; source="existing FOSSA revision"
+          elif [[ "$SCANNED" == "success" ]]; then
+            revision="$BASE_SHA"; source="scanned now, branch PR_BASE"
+          else
+            revision=""; source="FOSSA default-branch revision (fallback)"
+            [[ "$ATTEMPTED" == "true" ]] && echo "::warning::Scanning base ${BASE_REF}@${BASE_SHA} failed; diffing against FOSSA's default-branch revision"
+          fi
+          echo "revision=${revision}" >> "$GITHUB_OUTPUT"
+          echo "**Diff Base**: ${BASE_REF}@${BASE_SHA:0:12}, ${source}" >> "$GITHUB_STEP_SUMMARY"
+
       - name: FOSSA Policy/Licensing Check
         id: fossa_licensing
         uses: $/.github/actions/fossa-guard
@@ -564,6 +687,7 @@ jobs:
           fossa_mode: ${{ steps.config.outputs.fossa_licensing_mode }}
           block_on: ${{ steps.config.outputs.fossa_licensing_block_on }}
           enable_diff_mode: ${{ github.event_name == 'pull_request' }}
+          diff_base_revision_sha: ${{ steps.diff_base.outputs.revision }}
           enable_pr_comment: ${{ github.event_name == 'pull_request' }}
           enable_status_check: ${{ github.event_name == 'pull_request' }}
           status_check_name: "FOSSA SCA Licensing"
@@ -583,6 +707,7 @@ jobs:
           fossa_mode: ${{ steps.config.outputs.fossa_vulnerability_mode }}
           block_on: ${{ steps.config.outputs.fossa_vulnerability_block_on }}
           enable_diff_mode: ${{ github.event_name == 'pull_request' }}
+          diff_base_revision_sha: ${{ steps.diff_base.outputs.revision }}
           enable_pr_comment: ${{ github.event_name == 'pull_request' }}
           enable_status_check: ${{ github.event_name == 'pull_request' }}
           status_check_name: "FOSSA SCA Vulnerabilities"
@@ -751,7 +876,8 @@ jobs:
 # - Optional: Vault (use_vault: true) - for private repos with Vault access
 #
 # Context Detection:
-# - PR: Diff-based scan (only new issues), branch=PR, revision=head_ref
+# - PR: Diff-based scan (only new issues) against the PR's base commit, branch=PR,
+#   revision=merge commit SHA; an unscanned base is scanned once under branch PR_BASE
 # - Release: Full scan with version tag, branch=default_branch, revision=git_ref input
 # - Manual: Full scan with SHA, branch=default_branch, revision=github.sha
 #

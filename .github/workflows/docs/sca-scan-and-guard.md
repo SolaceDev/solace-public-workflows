@@ -100,6 +100,7 @@ jobs:
 | `use_vault` | No | `false` | Retrieve FOSSA API key from Vault (true for private repos) |
 | `config_file` | No | `.github/workflow-config.json` | Path to workflow configuration file |
 | `additional_scan_params` | No | (empty) | Additional scanner-specific parameters (see below) |
+| `pr_base_scan` | No | `true` | Pull requests only: scan the PR's base commit under the FOSSA branch `PR_BASE` when FOSSA has no revision for it (see [PR Context](#pr-context)) |
 
 ### Dependency Setup Inputs
 
@@ -300,8 +301,23 @@ The workflow automatically detects the scan context:
 
 Triggered by pull requests:
 - Branch: `PR`
-- Scans diff against base branch
+- Revision: the merge commit scanned (`github.sha`), so each push is its own revision
+- Blocks only on issues the PR adds over its base commit
 - Comments results on PR
+
+#### Diff base
+
+The PR is compared with the commit it merges into, `github.event.pull_request.base.sha`, whichever branch that is (the default branch or a release branch):
+
+1. **FOSSA already has a revision for the base commit**, for example from a push scan on `main` or a release branch: that revision is the base, and nothing more is scanned.
+2. **FOSSA has no revision for it**: the base commit is checked out, set up with the same dependency inputs, and scanned once under the FOSSA branch `PR_BASE`, with the commit SHA as the revision. A later PR on the same base reuses it.
+3. **The lookup fails, the base scan fails, or `pr_base_scan` is `false`**: the guards fall back to the newest revision of FOSSA's default branch, with a warning in the run.
+
+The job summary's **Diff Base** line says which case applied.
+
+#### FOSSA branches
+
+FOSSA branches cannot be deleted, so a project keeps a small, fixed set of them: the default branch (push and release scans, with SHA or version revisions), any release lines it scans, `PR` (pull request heads) and `PR_BASE` (base commits scanned only for a diff). The workflow never creates a branch per base branch or per PR.
 
 ### Release Context
 
