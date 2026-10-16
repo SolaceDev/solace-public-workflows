@@ -49,11 +49,6 @@ on:
         required: false
         type: string
         default: ""
-      pr_base_scan:
-        description: "Pull requests only: when FOSSA has no revision for the PR's base commit, scan it under the FOSSA branch PR_BASE so the PR is diffed against its real base. When false, an unscanned base falls back to FOSSA's default-branch revision."
-        required: false
-        type: boolean
-        default: true
 
       # Dependency Setup Configuration
       setup_actions:
@@ -572,7 +567,6 @@ jobs:
           FOSSA_PROJECT_ID: ${{ steps.fossa_project.outputs.FOSSA_PROJECT_ID }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           BASE_REF: ${{ github.base_ref }}
-          PR_BASE_SCAN: ${{ inputs.pr_base_scan }}
         run: |
           locator="custom+48578/${FOSSA_PROJECT_ID}\$${BASE_SHA}"
           encoded=$(jq -rn --arg v "$locator" '$v | @uri')
@@ -584,13 +578,8 @@ jobs:
               echo "revision=${BASE_SHA}" >> "$GITHUB_OUTPUT"
               echo "scan=false" >> "$GITHUB_OUTPUT" ;;
             404)
-              if [[ "$PR_BASE_SCAN" == "true" ]]; then
-                echo "Base ${BASE_REF}@${BASE_SHA} has no FOSSA revision; scanning it under branch PR_BASE"
-                echo "scan=true" >> "$GITHUB_OUTPUT"
-              else
-                echo "::warning::Base ${BASE_REF}@${BASE_SHA} has no FOSSA revision and pr_base_scan is off; diffing against FOSSA's default-branch revision"
-                echo "scan=false" >> "$GITHUB_OUTPUT"
-              fi ;;
+              echo "Base ${BASE_REF}@${BASE_SHA} has no FOSSA revision; scanning it under branch PR_BASE"
+              echo "scan=true" >> "$GITHUB_OUTPUT" ;;
             *)
               echo "::warning::Could not look up the base revision in FOSSA (HTTP ${status}); diffing against FOSSA's default-branch revision"
               echo "scan=false" >> "$GITHUB_OUTPUT" ;;
