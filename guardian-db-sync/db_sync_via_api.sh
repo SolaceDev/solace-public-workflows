@@ -6,6 +6,8 @@ GUARDIAN_KEY=""
 PRODUCT_NAME=""
 PRODUCT_FULL_VERSION=""
 UNIFIERS=""
+DEPENDENCY_GRAPH=""
+PRODUCT_VERSION_FOR_UPLOAD=""
 COLLECTION=""
 JIRA_COLLECTION_NAME=""
 JIRA_PROFILE=""
@@ -26,6 +28,9 @@ Optional:
   --product-name <name>            Defaults to the repository name without the org
   --product-full-version <full-version>
   --unifiers <csv>                 Comma-separated unifiers, e.g. fossa,prisma
+  --dependency-graph <path>        trivy repo JSON to upload before the sync (fix reachability).
+                                   Needs --product-version and --product-full-version.
+  --product-version <version>      Version the scans were uploaded under, e.g. main
   --collection <name>
   --jira-collection-name <name>
   --jira-profile <name>
@@ -266,6 +271,14 @@ while [ $# -gt 0 ]; do
       UNIFIERS="$2"
       shift 2
       ;;
+    --dependency-graph)
+      DEPENDENCY_GRAPH="$2"
+      shift 2
+      ;;
+    --product-version)
+      PRODUCT_VERSION_FOR_UPLOAD="$2"
+      shift 2
+      ;;
     --collection)
       COLLECTION="$2"
       shift 2
@@ -381,6 +394,47 @@ if [ -n "$JIRA_PROFILE" ]; then
 fi
 echo "  Jira dry run: $JIRA_DRY_RUN"
 echo "  Poll: every ${POLL_INTERVAL}s, timeout ${POLL_TIMEOUT}s"
+
+# Fix reachability: the dependency graph goes next to the uploaded scans, so the
+# sync below can check whether each fix is reachable. Best effort: without it
+# Guardian holds new fixes as pending until a run that has a graph.
+upload_dependency_graph() {
+  if [ ! -f "$DEPENDENCY_GRAPH" ]; then
+    echo "::warning::Dependency graph $DEPENDENCY_GRAPH not found, syncing without it"
+    return 0
+  fi
+  if [ -z "$PRODUCT_VERSION_FOR_UPLOAD" ] || [ -z "$PRODUCT_FULL_VERSION" ]; then
+    echo "::warning::--dependency-graph needs --product-version and --product-full-version, syncing without it"
+    return 0
+  fi
+  local upload_file code
+  upload_file="$(mktemp)"
+  echo "Uploading dependency graph $DEPENDENCY_GRAPH"
+  code="$(
+    curl -sS --connect-timeout 10 --max-time 120 \
+      -o "$upload_file" \
+      -w "%{http_code}" \
+      -X POST \
+      -H "Authorization: Bearer $GUARDIAN_KEY" \
+      -F "product_name=$PRODUCT_NAME" \
+      -F "product_version=$PRODUCT_VERSION_FOR_UPLOAD" \
+      -F "product_full_version=$PRODUCT_FULL_VERSION" \
+      -F "scan_time=$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+      -F "dependency_graph=@${DEPENDENCY_GRAPH};type=application/json" \
+      "$GUARDIAN_URL/api/v1/upload_scan_results"
+  )" || code="000"
+  if [ "$code" -lt 200 ] || [ "$code" -ge 300 ]; then
+    echo "::warning::Dependency graph upload failed with HTTP $code, syncing without it"
+    print_response "$upload_file"
+  else
+    echo "  Dependency graph uploaded"
+  fi
+  rm -f "$upload_file"
+}
+
+if [ -n "$DEPENDENCY_GRAPH" ]; then
+  upload_dependency_graph
+fi
 
 # This action always submits to the async endpoint and polls for completion — the reconcile
 # (ingest -> jira_sync -> jira_close) routinely runs longer than the gateway request timeout, so

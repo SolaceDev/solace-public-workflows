@@ -20,6 +20,14 @@ inputs:
     description: "Optional comma-separated list of scan unifiers to sync (for example: fossa,prisma). When omitted, Guardian uses metadata.json."
     required: false
     default: ""
+  dependency-graph:
+    description: "Optional path to a `trivy repo --list-all-pkgs --format json` report of the scanned source. Uploaded before the sync so Guardian can check fix reachability (products with fix_reachability_enabled). Needs product-version and product-full-version. A missing file or failed upload is a warning, not a failure."
+    required: false
+    default: ""
+  product-version:
+    description: "Product version (for example: main) the scans were uploaded under. Only used to upload dependency-graph."
+    required: false
+    default: ""
   collection:
     description: "Optional vulnerability collection override."
     required: false
@@ -118,6 +126,8 @@ runs:
         REPOSITORY_NAME: ${{ github.repository }}
         INPUT_POLL_INTERVAL: ${{ inputs.poll-interval }}
         INPUT_POLL_TIMEOUT: ${{ inputs.poll-timeout }}
+        INPUT_DEPENDENCY_GRAPH: ${{ inputs.dependency-graph }}
+        INPUT_PRODUCT_VERSION: ${{ inputs.product-version }}
       run: |
         PRODUCT_NAME="$INPUT_PRODUCT_NAME"
         if [ -z "$PRODUCT_NAME" ]; then
@@ -142,6 +152,9 @@ runs:
         fi
         if [ -n "${{ inputs.unifiers }}" ]; then
           args+=(--unifiers "${{ inputs.unifiers }}")
+        fi
+        if [ -n "$INPUT_DEPENDENCY_GRAPH" ]; then
+          args+=(--dependency-graph "$INPUT_DEPENDENCY_GRAPH" --product-version "$INPUT_PRODUCT_VERSION")
         fi
         if [ -n "${{ inputs.collection }}" ]; then
           args+=(--collection "${{ inputs.collection }}")
