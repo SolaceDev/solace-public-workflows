@@ -164,9 +164,13 @@ jobs:
   sca_scan:
     name: "SCA Scan"
     runs-on: ubuntu-latest
-    # Room for a PR's base scan on top of the head scan; each base step has its own, smaller
-    # timeout, so a slow base falls back instead of running into this one.
+    # Room for a PR's base scan on top of the head scan. The base steps size their timeouts from
+    # what is left of this, so a slow head or base falls back instead of cancelling the job.
     timeout-minutes: 90
+    env:
+      FOSSA_ORG_ID: custom+48578
+      # Keep equal to timeout-minutes above, which cannot read env.
+      JOB_TIMEOUT_MINUTES: "90"
 
     steps:
       - name: Check Admin Permissions for Bypass
@@ -207,15 +211,19 @@ jobs:
         run: |
           echo "### 🔍 SCA Scan Context Detection" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          # The PR base steps budget their timeouts against the job's, from here.
+          echo "started_at=$(date +%s)" >> "$GITHUB_OUTPUT"
 
           # Detect if this is a PR, Release, or Manual scan
           if [[ -n "$PR_NUMBER" ]]; then
             # PR context - diff-based scan. The revision is the merge commit the checkout scans,
             # so each push is its own FOSSA revision instead of overwriting one named after the
-            # head branch.
+            # head branch. The checkout is that commit, not refs/pull/N/merge: on a re-run after
+            # the base moved, the ref names a newer merge, which would be recorded under the old
+            # SHA and diffed against the old base.
             echo "branch=PR" >> $GITHUB_OUTPUT
             echo "revision=${GITHUB_SHA}" >> $GITHUB_OUTPUT
-            echo "git_ref=${GITHUB_REF}" >> $GITHUB_OUTPUT
+            echo "git_ref=${GITHUB_SHA}" >> $GITHUB_OUTPUT
             echo "scan_type=PR" >> $GITHUB_OUTPUT
             echo "**Context**: Pull Request #${PR_NUMBER} (${HEAD_REF})" >> $GITHUB_STEP_SUMMARY
             echo "**Scan Type**: Diff-based (new issues only)" >> $GITHUB_STEP_SUMMARY
@@ -562,9 +570,11 @@ jobs:
       # a release branch) is reused as it is; only a base FOSSA has never seen is scanned, once,
       # under the PR_BASE branch, so no revision is analysed twice and branches do not multiply.
       #
-      # Every base step is continue-on-error with its own timeout: a base that cannot be looked up,
-      # fetched, set up or scanned in time falls back to fossa-guard's own base detection instead of
-      # failing or timing out the job, which would leave the PR without its status checks.
+      # Every base step is continue-on-error: a base that cannot be looked up, fetched, set up or
+      # scanned falls back to fossa-guard's own base detection instead of failing the job, which
+      # would leave the PR without its status checks. Their timeouts are sized here from what is
+      # left of the job's, after GUARD_RESERVE_SECONDS for the guards and the report, so a slow
+      # head scan shrinks the base's budget instead of letting the job time out.
       - name: Resolve PR base revision
         id: pr_base
         if: github.event_name == 'pull_request'
@@ -575,50 +585,67 @@ jobs:
           FOSSA_PROJECT_ID: ${{ steps.fossa_project.outputs.FOSSA_PROJECT_ID }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           BASE_REF: ${{ github.base_ref }}
+          STARTED_AT: ${{ steps.context.outputs.started_at }}
           # A revision exists from upload, before its analysis finishes; a base still being analysed
           # (a PR opened right after its base's push scan started) is waited for, up to this long.
           ANALYSIS_WAIT_SECONDS: "600"
+          GUARD_RESERVE_SECONDS: "600"
+          # Below this, a base checkout, setup and scan is not worth starting.
+          MIN_BASE_MINUTES: "15"
         run: |
-          locator="custom+48578/${FOSSA_PROJECT_ID}\$${BASE_SHA}"
+          fallback="diffing against fossa-guard's auto-detected base, which may be the wrong commit"
+          seconds_left() { echo $(( JOB_TIMEOUT_MINUTES * 60 - ($(date +%s) - STARTED_AT) - GUARD_RESERVE_SECONDS )); }
+          locator="${FOSSA_ORG_ID}/${FOSSA_PROJECT_ID}\$${BASE_SHA}"
           encoded=$(jq -rn --arg v "$locator" '$v | @uri')
           body="${RUNNER_TEMP}/pr-base-revision.json"
-          deadline=$(( SECONDS + ANALYSIS_WAIT_SECONDS ))
+          wait_for=$(seconds_left); (( wait_for > ANALYSIS_WAIT_SECONDS )) && wait_for=$ANALYSIS_WAIT_SECONDS
+          deadline=$(( SECONDS + wait_for ))
           while :; do
             # --retry covers timeouts, 429 and 5xx, so one transient error is not mistaken for an outage.
             status=$(curl -sS --max-time 30 --retry 2 -o "$body" -w '%{http_code}' \
               -H "Authorization: Bearer ${FOSSA_API_KEY}" \
               "https://app.fossa.com/api/revisions/${encoded}") || status="unreachable"
-            if [[ "$status" != 200 ]] || [[ "$(jq -r '.resolved' "$body" 2>/dev/null)" == true ]]; then
-              break
-            fi
-            if (( SECONDS >= deadline )); then
-              status="unresolved"
-              break
-            fi
+            [[ "$status" == 200 ]] || break
+            [[ "$(jq -r '.resolved' "$body")" == true ]] && break
+            # A failed or unsupported analysis never resolves; waiting for it would only cost time.
+            analysis_error=$(jq -r 'if .unsupported == true then "unsupported" else (.error // "") end' "$body")
+            if [[ -n "$analysis_error" ]]; then status="failed"; break; fi
+            if (( SECONDS >= deadline )); then status="unresolved"; break; fi
             echo "Base ${BASE_REF}@${BASE_SHA} is still being analysed in FOSSA; waiting"
             sleep 20
           done
+          scan=false
           case "$status" in
             200)
               echo "Base ${BASE_REF}@${BASE_SHA} is already scanned in FOSSA; diffing against it"
-              echo "revision=${BASE_SHA}" >> "$GITHUB_OUTPUT"
-              echo "scan=false" >> "$GITHUB_OUTPUT" ;;
+              echo "revision=${BASE_SHA}" >> "$GITHUB_OUTPUT" ;;
             404)
-              echo "Base ${BASE_REF}@${BASE_SHA} has no FOSSA revision; scanning it under branch PR_BASE"
-              echo "scan=true" >> "$GITHUB_OUTPUT" ;;
+              minutes=$(( $(seconds_left) / 60 ))
+              if (( minutes < MIN_BASE_MINUTES )); then
+                echo "::warning::Base ${BASE_REF}@${BASE_SHA} has no FOSSA revision, and only ${minutes} minutes of the job are left to scan it; ${fallback}"
+              else
+                echo "Base ${BASE_REF}@${BASE_SHA} has no FOSSA revision; scanning it under branch PR_BASE within ${minutes} minutes"
+                scan=true
+                setup=$(( (minutes - 5) * 2 / 5 ))
+                echo "checkout_minutes=5" >> "$GITHUB_OUTPUT"
+                echo "setup_minutes=${setup}" >> "$GITHUB_OUTPUT"
+                echo "scan_minutes=$(( minutes - 5 - setup ))" >> "$GITHUB_OUTPUT"
+              fi ;;
+            failed)
+              echo "::warning::FOSSA's analysis of base ${BASE_REF}@${BASE_SHA} failed (${analysis_error}); ${fallback}" ;;
             unresolved)
-              echo "::warning::FOSSA's analysis of base ${BASE_REF}@${BASE_SHA} did not finish in time; diffing against fossa-guard's auto-detected base, which may be the wrong commit"
-              echo "scan=false" >> "$GITHUB_OUTPUT" ;;
+              echo "::warning::FOSSA's analysis of base ${BASE_REF}@${BASE_SHA} did not finish in time; ${fallback}" ;;
             *)
-              echo "::warning::Could not look up base ${BASE_REF}@${BASE_SHA} in FOSSA (HTTP ${status}); diffing against fossa-guard's auto-detected base, which may be the wrong commit"
-              echo "scan=false" >> "$GITHUB_OUTPUT" ;;
+              echo "::warning::Could not look up base ${BASE_REF}@${BASE_SHA} in FOSSA (HTTP ${status}); ${fallback}" ;;
           esac
+          echo "scan=${scan}" >> "$GITHUB_OUTPUT"
 
+      # The base step timeouts fall back to 1 only to keep the expressions valid when the step is skipped.
       - name: Checkout PR base
         id: base_checkout
         if: steps.pr_base.outputs.scan == 'true'
         continue-on-error: true
-        timeout-minutes: 10
+        timeout-minutes: ${{ fromJSON(steps.pr_base.outputs.checkout_minutes || '1') }}
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ github.event.pull_request.base.sha }}
@@ -629,7 +656,7 @@ jobs:
         id: setup_deps_base
         if: steps.base_checkout.outcome == 'success'
         continue-on-error: true
-        timeout-minutes: 20
+        timeout-minutes: ${{ fromJSON(steps.pr_base.outputs.setup_minutes || '1') }}
         uses: $/sca-setup-deps
         with:
           setup_actions: ${{ inputs.setup_actions }}
@@ -652,6 +679,7 @@ jobs:
       - name: Build FOSSA Scan Parameters (PR base)
         id: base_params
         if: steps.setup_deps_base.outcome == 'success'
+        continue-on-error: true
         env:
           PARAMS: ${{ steps.fossa_params.outputs.params }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -669,7 +697,7 @@ jobs:
         id: base_scan
         if: steps.base_params.outcome == 'success'
         continue-on-error: true
-        timeout-minutes: 30
+        timeout-minutes: ${{ fromJSON(steps.pr_base.outputs.scan_minutes || '1') }}
         uses: $/.github/actions/sca/sca-scan
         with:
           scanners: "fossa"
@@ -678,9 +706,11 @@ jobs:
 
       # From the PR base checkout on, the workspace holds the base commit, not the PR. Every step
       # below reads only FOSSA and GitHub APIs; one that needs the PR's files must check it out again.
+      # An empty revision is the fallback, so this step failing must not skip the guards.
       - name: Settle PR diff base
         id: diff_base
         if: github.event_name == 'pull_request'
+        continue-on-error: true
         env:
           RESOLVE: ${{ steps.pr_base.outcome }}
           EXISTING: ${{ steps.pr_base.outputs.revision }}
@@ -814,7 +844,7 @@ jobs:
           # URL encode the revision for the dashboard link
           ENCODED_REVISION=$(echo "$FOSSA_REVISION" | jq -sRr @uri)
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Dashboard**: [View in FOSSA](https://app.fossa.com/projects/custom%2B48578%2F$FOSSA_PROJECT_ID/refs/branch/$FOSSA_BRANCH/${ENCODED_REVISION})" >> $GITHUB_STEP_SUMMARY
+          echo "**Dashboard**: [View in FOSSA](https://app.fossa.com/projects/${FOSSA_ORG_ID/+/%2B}%2F$FOSSA_PROJECT_ID/refs/branch/$FOSSA_BRANCH/${ENCODED_REVISION})" >> $GITHUB_STEP_SUMMARY
 
       - name: Block on FOSSA Policy Failures
         if: |
@@ -827,7 +857,7 @@ jobs:
           FOSSA_PROJECT_ID: ${{ steps.fossa_project.outputs.FOSSA_PROJECT_ID }}
         run: |
           GUIDE_URL="https://sol-jira.atlassian.net/wiki/spaces/DevOps/pages/6542262516/Resolving+License+Compliance+Issues+in+FOSSA"
-          DASHBOARD_URL="https://app.fossa.com/projects/custom%2B48578%2F${FOSSA_PROJECT_ID}"
+          DASHBOARD_URL="https://app.fossa.com/projects/${FOSSA_ORG_ID/+/%2B}%2F${FOSSA_PROJECT_ID}"
 
           echo "❌ FOSSA licensing check failed. Policy conflicts detected ($LICENSING_BLOCK_ON)."
           echo "Review the FOSSA dashboard for details and remediate policy violations."
@@ -863,7 +893,7 @@ jobs:
           echo "❌ FOSSA vulnerability check failed. $VULNERABILITY_BLOCK_ON severity vulnerabilities detected."
           echo "Review the FOSSA dashboard for details and remediate vulnerabilities."
           echo ""
-          echo "Dashboard: https://app.fossa.com/projects/custom%2B48578%2F${{ steps.fossa_project.outputs.FOSSA_PROJECT_ID }}"
+          echo "Dashboard: https://app.fossa.com/projects/${FOSSA_ORG_ID/+/%2B}%2F${{ steps.fossa_project.outputs.FOSSA_PROJECT_ID }}"
           exit 1
 
       - name: Log Emergency Bypass
