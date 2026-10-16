@@ -100,6 +100,7 @@ jobs:
 | `use_vault` | No | `false` | Retrieve FOSSA API key from Vault (true for private repos) |
 | `config_file` | No | `.github/workflow-config.json` | Path to workflow configuration file |
 | `additional_scan_params` | No | (empty) | Additional scanner-specific parameters (see below) |
+
 ### Dependency Setup Inputs
 
 These inputs configure the build environment before FOSSA runs. See [SCA Setup Dependencies](../../../sca-setup-deps/README.md) for full documentation.
@@ -307,9 +308,9 @@ Triggered by pull requests:
 
 The PR is compared with the commit it merges into, `github.event.pull_request.base.sha`, whichever branch that is (the default branch or a release branch):
 
-1. **FOSSA already has a revision for the base commit**, for example from a push scan on `main` or a release branch: that revision is the base, and nothing more is scanned.
+1. **FOSSA already has a revision for the base commit**, for example from a push scan on `main` or a release branch: that revision is the base, and nothing more is scanned. A revision whose analysis is still running, because the PR arrived right after its base's push scan started, is waited for, for up to 10 minutes.
 2. **FOSSA has no revision for it**: the base commit is checked out, set up with the same dependency inputs, and scanned once under the FOSSA branch `PR_BASE`, with the commit SHA as the revision. A later PR on the same base reuses it.
-3. **The lookup or the base scan fails**: the guards fall back to the newest revision of FOSSA's default branch, with a warning in the run, so a broken base never blocks a PR.
+3. **The lookup, the wait, the base checkout, its setup or its scan fails or times out**: the guards fall back to `fossa-guard`'s auto-detected base, with a warning in the run, so a broken base never blocks a PR. That base is the newest revision of a `main`, `master`, `default` or `develop` branch, and failing that of whichever branch FOSSA lists first, which can be `PR` or `PR_BASE`, so it may be the wrong commit.
 
 The base scan is not optional: without it a PR is compared with the wrong commit and the gate stops meaning anything. It runs only for a base FOSSA has never seen, so a repository that wants to avoid it scans its base branches on push, which records the revisions PRs then reuse.
 
@@ -317,7 +318,13 @@ The job summary's **Diff Base** line says which case applied.
 
 #### FOSSA branches
 
-FOSSA branches cannot be deleted, so a project keeps a small, fixed set of them: the default branch (push and release scans, with SHA or version revisions), any release lines it scans, `PR` (pull request heads) and `PR_BASE` (base commits scanned only for a diff). The workflow never creates a branch per base branch or per PR.
+FOSSA branches cannot be deleted, so a project keeps a small, fixed set of them:
+
+- **The default branch**: every release and manual scan this workflow runs, whichever git branch it scanned, with SHA or version revisions, unless the caller sets `fossa.branch` in `additional_scan_params`.
+- **`PR`**: pull request heads.
+- **`PR_BASE`**: base commits scanned only to diff a PR.
+
+The base lookup is by commit SHA, so it finds a base commit under any branch. The workflow never creates a branch per base branch or per PR.
 
 ### Release Context
 
