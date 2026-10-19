@@ -16,6 +16,8 @@ This action does not upload scan files and does not run the vulnerability gate. 
 - `product-name`
 - `product-full-version`
 - `unifiers`
+- `dependency-graph` — path to a `trivy repo --list-all-pkgs --format json` report of the scanned source. Uploaded before the sync so Guardian can check whether each fix is reachable through the dependency tree (only for products with `fix_reachability_enabled`). Needs `product-version` and `product-full-version`. A missing file or failed upload is a warning: Guardian then holds new fixes as pending until a run that has a graph.
+- `product-version` — the version the scans were uploaded under (for example `main`). Only used to upload `dependency-graph`.
 - `collection`
 - `jira-collection-name`
 - `jira-profile`
