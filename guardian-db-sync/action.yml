@@ -56,6 +56,10 @@ inputs:
     description: "Upload db sync request logs as a workflow artifact."
     required: false
     default: "false"
+  write-step-summary:
+    description: "Write this action's report to the GitHub job summary. Set to false when the caller writes one consolidated summary (e.g. release-readiness-report)."
+    required: false
+    default: "true"
 
 outputs:
   product_name:
@@ -128,7 +132,9 @@ runs:
         INPUT_POLL_TIMEOUT: ${{ inputs.poll-timeout }}
         INPUT_DEPENDENCY_GRAPH: ${{ inputs.dependency-graph }}
         INPUT_PRODUCT_VERSION: ${{ inputs.product-version }}
+        WRITE_STEP_SUMMARY: ${{ inputs.write-step-summary }}
       run: |
+        if [ "$WRITE_STEP_SUMMARY" = "false" ]; then export GITHUB_STEP_SUMMARY=/dev/null; fi
         PRODUCT_NAME="$INPUT_PRODUCT_NAME"
         if [ -z "$PRODUCT_NAME" ]; then
           PRODUCT_NAME="${REPOSITORY_NAME#*/}"

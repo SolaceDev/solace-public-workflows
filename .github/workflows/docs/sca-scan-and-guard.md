@@ -120,6 +120,7 @@ These inputs configure the build environment before FOSSA runs. See [SCA Setup D
 | `nuget_source_url` | No | (empty) | NuGet source URL to add |
 | `maven_settings_repositories` | No | (empty) | Maven repositories configuration (JSON) |
 | `maven_settings_servers` | No | (empty) | Maven servers configuration (JSON) |
+| `write_step_summary` | No | `true` | Write the scan context, results and guard reports to the job summary. Set `false` when the caller writes one consolidated summary, e.g. with [`release-readiness-report`](../../../release-readiness-report/). |
 
 ## Secrets
 
