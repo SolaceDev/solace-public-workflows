@@ -8,8 +8,13 @@ Three parts, in this order:
    gate result, a link to the revision's licensing issues in FOSSA) and
    recommendations for the issue types that block. Individual issues are not
    listed; FOSSA is where they are resolved.
-3. Guardian: the report guardian-container-scan-and-sync writes (overview,
-   severity counts, one row per Jira issue), built with the same code.
+3. Guardian: guardian-container-scan-and-sync's overview and severity counts,
+   built with its code, and a compact table with one row per Jira issue. A
+   single CVE links to its dashboard page, several to the component in the
+   dashboard; without a dashboard, to the CVE's advisory.
+
+The verdict's header links the caller's `links` (commit, image...), each FOSSA
+revision, the scans Guardian recorded (Prisma) and the Guardian product page.
 
 Reporting never fails the action: a FOSSA or Guardian error becomes a warning
 and a reduced section.
@@ -166,8 +171,8 @@ def build_licensing(projects: list[dict], token: str, org_id: str, block_on: lis
         "Blocks on: " + ", ".join(f"`{ISSUE_TYPES.get(k, k)}`" for k in block_on) + "."
     )
     lines.append("")
-    lines.append("| Scope | FOSSA project | Revision | Policy | Result | Blocking | Not blocking |")
-    lines.append("| --- | --- | --- | --- | --- | --- | --- |")
+    lines.append("| Scope | FOSSA project | Policy | Result | Blocking | Not blocking |")
+    lines.append("| --- | --- | --- | --- | --- | --- |")
 
     total_blocking = 0
     blocking_kinds: set[str] = set()
@@ -200,7 +205,7 @@ def build_licensing(projects: list[dict], token: str, org_id: str, block_on: lis
             other_cell = describe_counts(counts, [k for k in ISSUE_TYPES if k in other] + [k for k in other if k not in ISSUE_TYPES])
 
         lines.append(
-            f"| {cell(project.get('label') or name)} | [{cell(name)}]({link}) | `{cell(revision)}` "
+            f"| {cell(project.get('label') or name)} | [{cell(name)}]({link}) "
             f"| {cell(policy)} | {result} | {blocking_cell} | {other_cell} |"
         )
 
@@ -220,18 +225,93 @@ def build_licensing(projects: list[dict], token: str, org_id: str, block_on: lis
 
 # ----------------------------------------------------------------------- guardian
 
+NVD_URL = "https://nvd.nist.gov/vuln/detail/{}"
+GHSA_URL = "https://github.com/advisories/{}"
+SCANNER_LABELS = {"prisma": "Prisma scan", "trivy": "Trivy scan"}
 
-def build_guardian() -> tuple[list[str], int | None]:
-    """guardian-container-scan-and-sync's report, under this report's heading."""
+
+def source_url(cve: str, cve_urls: dict) -> str | None:
+    """The advisory Guardian recorded for the CVE, else NVD or GitHub by its id."""
+    if cve_urls.get(cve):
+        return cve_urls[cve]
+    if cve.upper().startswith("CVE-"):
+        return NVD_URL.format(cve)
+    if cve.upper().startswith("GHSA-"):
+        return GHSA_URL.format(cve)
+    return None
+
+
+def guardian_cve_urls(base: str, token: str, product: str) -> dict[str, str]:
+    query = urllib.parse.urlencode({"product_name": product})
+    payload = guardian_report.fetch_json("GET", f"{base}/api/v1/vulnerabilities?{query}", token) or {}
+    return {
+        record["cve_id"]: record["cve_url"]
+        for record in payload.get("vulnerabilities") or []
+        if record.get("cve_id") and record.get("cve_url")
+    }
+
+
+def cves_cell(row: dict, links: dict, cve_urls: dict) -> str:
+    """One CVE links to itself; several link to the component in the dashboard, or to the first
+    CVE's advisory when there is no dashboard."""
+    cves = row["cves"]
+    if not cves:
+        return "—"
+    if len(cves) == 1:
+        if links.get("dashboard"):
+            return guardian_report.cve_link(cves[0], links)
+        url = source_url(cves[0], cve_urls)
+        return f"[{cves[0]}]({url})" if url else cves[0]
+    search = links.get("search")
+    if search:
+        component = row["component"].split(", ")[0]
+        return f"[{len(cves)} CVEs]({search}&q={urllib.parse.quote(component, safe='')})"
+    url = source_url(cves[0], cve_urls)
+    first = f"[{cves[0]}]({url})" if url else cves[0]
+    return f"{first} +{len(cves) - 1} more"
+
+
+def build_issue_table(rows: list[dict], links: dict, cve_urls: dict, max_rows: int) -> list[str]:
+    """guardian_report's rows in fewer, narrower columns: no descriptions, scanners or CVSS."""
+    if not rows:
+        return ["No open findings with a fix for this build."]
+    lines = [
+        f"#### Jira issues ({len(rows)})",
+        "",
+        "| Jira | Severity | Package | Version | Fix | Due | CVEs |",
+        "| --- | --- | --- | --- | --- | --- | --- |",
+    ]
+    for row in rows[:max_rows]:
+        lines.append(
+            f"| {guardian_report.jira_link(row['jira_key'], links)} "
+            f"| {guardian_report.SEVERITY_ICONS[row['severity']]} {row['severity']} "
+            f"| {cell(row['component'])} | {cell(row['version'])} | {cell(row['fix'])} "
+            f"| {guardian_report.due_label(row)} | {cves_cell(row, links, cve_urls)} |"
+        )
+    if len(rows) > max_rows:
+        lines.append("")
+        lines.append(f"_Showing {max_rows} of {len(rows)} issues._")
+    return lines
+
+
+def scan_links(gate_result: dict | None) -> list[tuple[str, str]]:
+    """The scan pages Guardian recorded for the build's findings, one per scanner (not FOSSA,
+    whose projects the licensing section links)."""
+    seen: dict[str, str] = {}
+    for key in ("vulnerabilities", "vulnerabilities_pending", "vulnerabilities_excluded"):
+        for hit in (gate_result or {}).get(key) or []:
+            for scanner, url in (hit.get("scan_urls") or {}).items():
+                if scanner in SCANNER_LABELS and url and scanner not in seen:
+                    seen[scanner] = url
+    return [(SCANNER_LABELS[s], seen[s]) for s in SCANNER_LABELS if s in seen]
+
+
+def read_guardian() -> dict:
+    """Reads the gate and the dashboard context once; build_guardian renders it."""
     base = env("GUARDIAN_URL").rstrip("/")
     token = env("GUARDIAN_KEY")
     product = env("GUARDIAN_PRODUCT_NAME")
     full_version = env("GUARDIAN_FULL_VERSION")
-    show_details = bool_env("SHOW_DETAILS")
-    try:
-        max_rows = int(env("MAX_ROWS") or guardian_report.DEFAULT_MAX_ROWS)
-    except ValueError:
-        max_rows = guardian_report.DEFAULT_MAX_ROWS
     try:
         sync = json.loads(env("GUARDIAN_SYNC_RESPONSE") or "{}")
     except ValueError:
@@ -253,37 +333,50 @@ def build_guardian() -> tuple[list[str], int | None]:
         gate_result = next((r for r in results if r.get("repository") == product), None)
         if gate_result is None:
             gate_result = results[0] if results else {}
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 - reporting must not fail the action
         warn(f"Could not read Guardian findings for the report: {exc}")
 
     links: dict = {}
-    details: dict = {}
-    if show_details and gate_result is not None:
-        dashboard = env("GUARDIAN_DASHBOARD_URL").rstrip("/")
-        jira_base = env("JIRA_BASE_URL").rstrip("/")
-        if jira_base:
-            links["jira"] = jira_base
-        if dashboard:
-            links["dashboard"] = dashboard
-            try:
-                squad = guardian_report.guardian_squad(base, token, product)
-            except Exception as exc:  # noqa: BLE001
-                squad = None
-                warn(f"Could not resolve the product's squad for dashboard links: {exc}")
-            if squad:
-                page = (
-                    f"/squads/{urllib.parse.quote(squad, safe='')}"
-                    f"/products/{urllib.parse.quote(product, safe='')}"
-                    f"/{urllib.parse.quote(ctx['product_version'], safe='')}"
-                )
-                links["scope"] = page
-                links["product_page"] = dashboard + page
+    jira_base = env("JIRA_BASE_URL").rstrip("/")
+    if jira_base:
+        links["jira"] = jira_base
+    dashboard = env("GUARDIAN_DASHBOARD_URL").rstrip("/")
+    if dashboard and gate_result is not None:
+        links["dashboard"] = dashboard
         try:
-            details = guardian_report.guardian_descriptions(base, token, product)
+            squad = guardian_report.guardian_squad(base, token, product)
         except Exception as exc:  # noqa: BLE001
-            warn(f"Could not read finding descriptions for the report: {exc}")
+            squad = None
+            warn(f"Could not resolve the product's squad for dashboard links: {exc}")
+        if squad:
+            product_path = (
+                f"/squads/{urllib.parse.quote(squad, safe='')}"
+                f"/products/{urllib.parse.quote(product, safe='')}"
+            )
+            page = f"{product_path}/{urllib.parse.quote(ctx['product_version'], safe='')}"
+            links["scope"] = page
+            links["product_page"] = dashboard + page
+            links["search"] = (
+                f"{dashboard}{product_path}?"
+                + urllib.parse.urlencode({"squad": squad, "product": product})
+            )
 
-    overview = guardian_report.build_overview(ctx, gate_result, links)
+    cve_urls: dict = {}
+    if gate_result is not None and bool_env("SHOW_DETAILS") and not links.get("dashboard"):
+        try:
+            cve_urls = guardian_cve_urls(base, token, product)
+        except Exception as exc:  # noqa: BLE001
+            warn(f"Could not read CVE advisory links for the report: {exc}")
+    return {"ctx": ctx, "gate": gate_result, "links": links, "cve_urls": cve_urls}
+
+
+def build_guardian(data: dict) -> tuple[list[str], int | None]:
+    try:
+        max_rows = int(env("MAX_ROWS") or guardian_report.DEFAULT_MAX_ROWS)
+    except ValueError:
+        max_rows = guardian_report.DEFAULT_MAX_ROWS
+    gate_result, links = data["gate"], data["links"]
+    overview = guardian_report.build_overview(data["ctx"], gate_result, links)
     overview[0] = "### 🛡️ Guardian"
     if gate_result is None:
         return overview, None
@@ -291,10 +384,10 @@ def build_guardian() -> tuple[list[str], int | None]:
     rows = guardian_report.group_issues(
         gate_result.get("vulnerabilities") or [],
         gate_result.get("vulnerabilities_pending") or [],
-        details,
+        {},
     )
-    if show_details:
-        detail = guardian_report.build_table(rows, links, max_rows)
+    if bool_env("SHOW_DETAILS"):
+        detail = build_issue_table(rows, links, data["cve_urls"], max_rows)
     else:
         detail = [
             "Per-issue details are hidden for this repository. "
@@ -306,10 +399,25 @@ def build_guardian() -> tuple[list[str], int | None]:
 # ------------------------------------------------------------------------ verdict
 
 
-def build_verdict() -> list[str]:
+def caller_links() -> list[tuple[str, str]]:
+    """`links` input lines, `Label | URL` each."""
+    pairs = []
+    for line in split_lines(env("LINKS")):
+        label, sep, url = line.rpartition("|")
+        if sep and label.strip() and url.strip():
+            pairs.append((label.strip(), url.strip()))
+        else:
+            warn(f"Ignoring links line without `Label | URL`: {line}")
+    return pairs
+
+
+def build_verdict(header_links: list[tuple[str, str]]) -> list[str]:
     ready = env("STATUS").lower() == "ready"
     title = env("TITLE") or "Release readiness"
     lines = [f"## {'✅' if ready else '❌'} {title} — {'ready' if ready else 'blocked'}", ""]
+    if header_links:
+        lines.append(" · ".join(f"[{label}]({url})" for label, url in header_links))
+        lines.append("")
     lines.extend(f"- {line}" for line in split_lines(env("CONTEXT")))
     reasons = split_lines(env("REASONS"))
     if reasons:
@@ -328,23 +436,34 @@ def build_verdict() -> list[str]:
 
 
 def main() -> int:
-    sections = [build_verdict()]
+    org_id = env("FOSSA_ORG_ID") or "custom+48578"
+    header_links = caller_links()
+    sections = []
 
     licensing_blocking = ""
     projects = fossa_projects()
     if projects:
-        licensing, count = build_licensing(
-            projects, env("FOSSA_API_KEY"), env("FOSSA_ORG_ID") or "custom+48578", block_on_types()
-        )
+        licensing, count = build_licensing(projects, env("FOSSA_API_KEY"), org_id, block_on_types())
         sections.append(licensing)
         licensing_blocking = str(count)
+        for project in projects:
+            project_locator = locator(org_id, str(project["project"]))
+            branch = str(project.get("branch") or "")
+            revision = str(project.get("revision") or "")
+            url = fossa_link(project_locator, branch, revision).removesuffix("/issues/licensing")
+            header_links.append((f"FOSSA {project.get('label') or project_locator.split('/', 1)[-1]}", url))
 
     guardian_blocking = ""
     if env("GUARDIAN_URL") and env("GUARDIAN_PRODUCT_NAME"):
-        guardian, count = build_guardian()
+        data = read_guardian()
+        header_links.extend(scan_links(data["gate"]))
+        if data["links"].get("product_page"):
+            header_links.append(("Guardian", data["links"]["product_page"]))
+        guardian, count = build_guardian(data)
         sections.append(guardian)
         guardian_blocking = "" if count is None else str(count)
 
+    sections.insert(0, build_verdict(header_links))
     report = "\n\n".join("\n".join(section) for section in sections) + "\n"
     report_path = Path(env("RUNNER_TEMP") or ".") / "release-readiness-report.md"
     report_path.write_text(report, encoding="utf-8")

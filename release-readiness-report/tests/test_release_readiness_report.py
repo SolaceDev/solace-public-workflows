@@ -51,6 +51,7 @@ GATE = {
                     "fix_versions": ["3.0.3"],
                     "jira_key": "DATAGO-1",
                     "scanners": ["prisma"],
+                    "scan_urls": {"prisma": "https://prisma.example/scan", "fossa": "https://app.fossa.com/x"},
                 }
             ],
             "vulnerabilities_pending": [
@@ -63,7 +64,17 @@ GATE = {
                     "jira_key": "DATAGO-2",
                     "days_until_blocking": 5,
                     "scanners": ["prisma"],
-                }
+                },
+                {
+                    "cve_id": "CVE-3",
+                    "component_name": "netty",
+                    "component_version": "4.1.1",
+                    "severity": "Medium",
+                    "fix_versions": ["4.1.2"],
+                    "jira_key": "DATAGO-2",
+                    "days_until_blocking": 20,
+                    "scanners": ["prisma"],
+                },
             ],
         }
     ]
@@ -83,7 +94,7 @@ def fake_fetch(method, url, token, body=None):
     if parsed.path == "/api/v1/configs/squads":
         return {"squads": [{"name": "squad-a", "products": [{"name": "app"}]}]}
     if parsed.path == "/api/v1/vulnerabilities":
-        return {"vulnerabilities": []}
+        return {"vulnerabilities": [{"cve_id": "CVE-1", "cve_url": "https://access.redhat.com/security/cve/CVE-1"}]}
     raise AssertionError(f"unexpected request {method} {url}")
 
 
@@ -101,6 +112,7 @@ class ReportTest(unittest.TestCase):
             "STATUS": "blocked",
             "REASONS": "FOSSA container licensing: failure",
             "CONTEXT": "Image `app:1.0.0-rc.1`",
+            "LINKS": "Commit `abc1234` | https://github.com/o/app/commit/abc1234",
             "FOSSA_API_KEY": "fossa-key",
             "FOSSA_PROJECTS": report.json.dumps([SOURCE, CONTAINER]),
             "GUARDIAN_URL": "https://guardian.example",
@@ -108,7 +120,7 @@ class ReportTest(unittest.TestCase):
             "GUARDIAN_PRODUCT_NAME": "app",
             "GUARDIAN_PRODUCT_VERSION": "main",
             "GUARDIAN_FULL_VERSION": "1.0.0-rc.1",
-            "GUARDIAN_DASHBOARD_URL": "https://guardian.example",
+            "GUARDIAN_DASHBOARD_URL": "https://dashboard.example",
             "JIRA_BASE_URL": "https://jira.example",
             "SHOW_DETAILS": "true",
         }
@@ -139,7 +151,7 @@ class ReportTest(unittest.TestCase):
         self.assertEqual(outputs["licensing_blocking"], "3")
         self.assertIn(
             "| Source | [SolaceDev_app](https://app.fossa.com/projects/custom%2B48578%2FSolaceDev_app"
-            "/refs/branch/main/1.0.0-rc.1/issues/licensing) | `1.0.0-rc.1` "
+            "/refs/branch/main/1.0.0-rc.1/issues/licensing) "
             "| Solace-Distributed-Standard | ✅ passed | 0 | 2 flagged |",
             text,
         )
@@ -188,12 +200,13 @@ class ReportTest(unittest.TestCase):
         self.assertIn("### 🛡️ Guardian", text)
         self.assertNotIn("Guardian Scan Overview", text)
         self.assertIn("| 🚨 Past SLA | 1 | 0 | 0 | 0 | 0 | 1 |", text)
+        self.assertIn("| Jira | Severity | Package | Version | Fix | Due | CVEs |", text)
         self.assertIn("[DATAGO-1](https://jira.example/browse/DATAGO-1)", text)
-        self.assertIn("https://guardian.example/squads/squad-a/products/app/main", text)
+        self.assertIn("https://dashboard.example/squads/squad-a/products/app/main", text)
 
     def test_guardian_details_hidden_without_show_details(self):
         text, _ = self.run_report(SHOW_DETAILS="false")
-        self.assertIn("| ⏳ Within SLA | 0 | 1 | 0 | 0 | 0 | 1 |", text)
+        self.assertIn("| ⏳ Within SLA | 0 | 1 | 1 | 0 | 0 | 2 |", text)
         self.assertNotIn("DATAGO-1", text)
         self.assertIn("Per-issue details are hidden", text)
 
@@ -211,6 +224,49 @@ class ReportTest(unittest.TestCase):
     def test_summary_is_the_report(self):
         text, _ = self.run_report()
         self.assertEqual(self.summary.read_text(), text)
+
+    def test_header_links_caller_fossa_scans_and_guardian(self):
+        text, _ = self.run_report()
+        header = text.splitlines()[2]
+        self.assertEqual(
+            header,
+            "[Commit `abc1234`](https://github.com/o/app/commit/abc1234)"
+            " · [FOSSA Source](https://app.fossa.com/projects/custom%2B48578%2FSolaceDev_app/refs/branch/main/1.0.0-rc.1)"
+            " · [FOSSA Container](https://app.fossa.com/projects/custom%2B48578%2Fapp-container/refs/branch/main/1.0.0-rc.1)"
+            " · [Prisma scan](https://prisma.example/scan)"
+            " · [Guardian](https://dashboard.example/squads/squad-a/products/app/main)",
+        )
+
+    def test_links_lines_without_a_url_are_ignored(self):
+        with patch("builtins.print"):
+            text, _ = self.run_report(LINKS="no url here")
+        self.assertNotIn("no url here", text)
+
+    def test_one_cve_links_to_its_dashboard_page(self):
+        text, _ = self.run_report()
+        self.assertIn(
+            "| [CVE-1](https://dashboard.example/vulnerabilities/CVE-1?from=%2Fsquads%2Fsquad-a%2Fproducts%2Fapp%2Fmain) |",
+            text,
+        )
+
+    def test_several_cves_link_to_the_component_in_the_dashboard(self):
+        text, _ = self.run_report()
+        self.assertIn(
+            "| [2 CVEs](https://dashboard.example/squads/squad-a/products/app?squad=squad-a&product=app&q=netty) |",
+            text,
+        )
+
+    def test_without_a_dashboard_cves_link_to_their_advisories(self):
+        text, _ = self.run_report(GUARDIAN_DASHBOARD_URL="")
+        self.assertIn("| [CVE-1](https://access.redhat.com/security/cve/CVE-1) |", text)
+        self.assertIn("| [CVE-2](https://nvd.nist.gov/vuln/detail/CVE-2) +1 more |", text)
+        self.assertNotIn("[Guardian](", text)
+
+    def test_issue_table_has_no_descriptions(self):
+        text, _ = self.run_report()
+        self.assertNotIn("| Description |", text)
+        self.assertNotIn("| Scanners |", text)
+        self.assertNotIn("| CVSS |", text)
 
 
 if __name__ == "__main__":

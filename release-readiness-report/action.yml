@@ -14,6 +14,10 @@ inputs:
     description: "Why the release is blocked, one per line. Shown under the verdict."
     required: false
     default: ""
+  links:
+    description: "Links shown inline under the heading, one `Label | URL` per line (the commit, the image...). The action adds each FOSSA revision, the Prisma scan and the Guardian product page."
+    required: false
+    default: ""
   context:
     description: "Context lines shown as bullets under the verdict (image, commit, Guardian product...), one per line, Markdown allowed."
     required: false
@@ -75,7 +79,7 @@ inputs:
     required: false
     default: ""
   guardian_dashboard_url:
-    description: "Guardian dashboard base URL. When set, the issue table links findings and the product page to it."
+    description: "Guardian dashboard base URL (not the API URL, which is masked). When set, CVEs link to the dashboard; otherwise to their advisories."
     required: false
     default: ""
   jira_base_url:
@@ -118,6 +122,7 @@ runs:
         STATUS: ${{ inputs.status }}
         REASONS: ${{ inputs.reasons }}
         CONTEXT: ${{ inputs.context }}
+        LINKS: ${{ inputs.links }}
         NOTES: ${{ inputs.notes }}
         FOSSA_API_KEY: ${{ inputs.fossa_api_key }}
         FOSSA_ORG_ID: ${{ inputs.fossa_org_id }}
