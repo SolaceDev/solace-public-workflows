@@ -300,8 +300,35 @@ The workflow automatically detects the scan context:
 
 Triggered by pull requests:
 - Branch: `PR`
-- Scans diff against base branch
+- Revision: the merge commit scanned (`github.sha`), so each push is its own revision
+- Blocks only on issues the PR adds over its base commit
 - Comments results on PR
+
+#### Diff base
+
+The PR is compared with the commit it merges into, `github.event.pull_request.base.sha`, whichever branch that is (the default branch or a release branch):
+
+1. **FOSSA already has a revision for the base commit**, for example from a push scan on `main` or a release branch: that revision is the base, and nothing more is scanned. A revision whose analysis is still running, because the PR arrived right after its base's push scan started, is waited for, for up to 10 minutes. A failed analysis is not waited for.
+2. **FOSSA has no revision for it**: the base commit is checked out, set up with the same dependency inputs, and scanned once under the FOSSA branch `PR_BASE`, with the commit SHA as the revision. A later PR on the same base reuses it.
+3. **Anything goes wrong**: the lookup fails, the base's analysis failed or doesn't finish, too little of the job is left, or the base checkout, setup or scan fails or times out. The guards then fall back to `fossa-guard`'s auto-detected base, with a warning in the run, so a broken or slow base never blocks a PR. That base is the newest revision of a `main`, `master`, `default` or `develop` branch, and failing that of whichever branch FOSSA lists first, which can be `PR` or `PR_BASE`, so it may be the wrong commit.
+
+The base steps share what is left of the job's 90 minutes after the head scan, less 10 minutes kept for the guards. A slow head scan shrinks the base's budget, and the base is not attempted with less than 15 minutes left, so the job never times out on a base.
+
+The PR side is the merge commit the run was triggered for (`github.sha`), checked out by SHA. A re-run after the base branch moved therefore scans the same commit against the same base, rather than a newer merge recorded under the old SHA.
+
+The base scan is not optional: without it a PR is compared with the wrong commit and the gate stops meaning anything. It runs only for a base FOSSA has never seen, so a repository that wants to avoid it scans its base branches on push, which records the revisions PRs then reuse.
+
+The job summary's **Diff Base** line says which case applied. The lookup, the wait and the time budget are the [`resolve-pr-base`](../../actions/sca/resolve-pr-base/README.md) action, whose script runs and is tested locally.
+
+#### FOSSA branches
+
+FOSSA branches cannot be deleted, so a project keeps a small, fixed set of them:
+
+- **The default branch**: every release and manual scan this workflow runs, whichever git branch it scanned, with SHA or version revisions, unless the caller sets `fossa.branch` in `additional_scan_params`.
+- **`PR`**: pull request heads.
+- **`PR_BASE`**: base commits scanned only to diff a PR.
+
+The base lookup is by commit SHA, so it finds a base commit under any branch. The workflow never creates a branch per base branch or per PR.
 
 ### Release Context
 

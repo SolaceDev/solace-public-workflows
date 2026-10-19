@@ -164,7 +164,13 @@ jobs:
   sca_scan:
     name: "SCA Scan"
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # Room for a PR's base scan on top of the head scan. The base steps size their timeouts from
+    # what is left of this, so a slow head or base falls back instead of cancelling the job.
+    timeout-minutes: 90
+    env:
+      FOSSA_ORG_ID: custom+48578
+      # Keep equal to timeout-minutes above, which cannot read env.
+      JOB_TIMEOUT_MINUTES: "90"
 
     steps:
       - name: Check Admin Permissions for Bypass
@@ -205,18 +211,24 @@ jobs:
         run: |
           echo "### 🔍 SCA Scan Context Detection" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          # The PR base steps budget their timeouts against the job's, from here.
+          echo "started_at=$(date +%s)" >> "$GITHUB_OUTPUT"
 
           # Detect if this is a PR, Release, or Manual scan
           if [[ -n "$PR_NUMBER" ]]; then
-            # PR context - diff-based scan
+            # PR context - diff-based scan. The revision is the merge commit the checkout scans,
+            # so each push is its own FOSSA revision instead of overwriting one named after the
+            # head branch. The checkout is that commit, not refs/pull/N/merge: on a re-run after
+            # the base moved, the ref names a newer merge, which would be recorded under the old
+            # SHA and diffed against the old base.
             echo "branch=PR" >> $GITHUB_OUTPUT
-            echo "revision=${HEAD_REF}" >> $GITHUB_OUTPUT
-            echo "git_ref=${GITHUB_REF}" >> $GITHUB_OUTPUT
+            echo "revision=${GITHUB_SHA}" >> $GITHUB_OUTPUT
+            echo "git_ref=${GITHUB_SHA}" >> $GITHUB_OUTPUT
             echo "scan_type=PR" >> $GITHUB_OUTPUT
-            echo "**Context**: Pull Request #${PR_NUMBER}" >> $GITHUB_STEP_SUMMARY
+            echo "**Context**: Pull Request #${PR_NUMBER} (${HEAD_REF})" >> $GITHUB_STEP_SUMMARY
             echo "**Scan Type**: Diff-based (new issues only)" >> $GITHUB_STEP_SUMMARY
             echo "**Branch**: PR" >> $GITHUB_STEP_SUMMARY
-            echo "**Revision**: ${HEAD_REF}" >> $GITHUB_STEP_SUMMARY
+            echo "**Revision**: ${GITHUB_SHA}" >> $GITHUB_STEP_SUMMARY
           elif [[ -n "$INPUT_GIT_REF" ]]; then
             # Release context (called by orchestrator) - full scan
             echo "branch=${DEFAULT_BRANCH}" >> $GITHUB_OUTPUT
@@ -551,6 +563,126 @@ jobs:
           guardian_token: ${{ steps.guardian_key.outputs.GUARDIAN_TOKEN }}
           pr_scan_upload: ${{ steps.config.outputs.guardian_pr_scan_upload }}
 
+      # A PR is diffed against the commit it merges into. Left to itself, fossa-guard compares
+      # against the newest revision of a main/master/develop branch, or failing that of any branch,
+      # which for a PR into a release branch, or a project whose base was never scanned, means main,
+      # the PR itself or another PR. An existing revision of the base commit (a push scan on main or
+      # a release branch) is reused as it is; only a base FOSSA has never seen is scanned, once,
+      # under the PR_BASE branch, so no revision is analysed twice and branches do not multiply.
+      #
+      # Every base step is continue-on-error: a base that cannot be looked up, fetched, set up or
+      # scanned falls back to fossa-guard's own base detection instead of failing the job, which
+      # would leave the PR without its status checks. resolve-pr-base sizes their timeouts from
+      # what is left of the job's, after a reserve for the guards and the report, so a slow head
+      # scan shrinks the base's budget instead of letting the job time out.
+      - name: Resolve PR base revision
+        id: pr_base
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        timeout-minutes: 12
+        uses: $/.github/actions/sca/resolve-pr-base
+        with:
+          fossa_api_key: ${{ steps.fossa_key.outputs.FOSSA_KEY }}
+          fossa_org_id: ${{ env.FOSSA_ORG_ID }}
+          fossa_project_id: ${{ steps.fossa_project.outputs.FOSSA_PROJECT_ID }}
+          started_at: ${{ steps.context.outputs.started_at }}
+          job_timeout_minutes: ${{ env.JOB_TIMEOUT_MINUTES }}
+
+      # The base step timeouts fall back to 1 only to keep the expressions valid when the step is skipped.
+      - name: Checkout PR base
+        id: base_checkout
+        if: steps.pr_base.outputs.scan == 'true'
+        continue-on-error: true
+        timeout-minutes: ${{ fromJSON(steps.pr_base.outputs.checkout_minutes || '1') }}
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+
+      # The base's own build inputs (lockfiles, generated manifests) come from the caller's setup.
+      - name: Setup SCA Dependencies (PR base)
+        id: setup_deps_base
+        if: steps.base_checkout.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: ${{ fromJSON(steps.pr_base.outputs.setup_minutes || '1') }}
+        uses: $/sca-setup-deps
+        with:
+          setup_actions: ${{ inputs.setup_actions }}
+          java_version: ${{ inputs.java_version }}
+          java_distribution: ${{ inputs.java_distribution }}
+          maven_settings_repositories: ${{ inputs.maven_settings_repositories }}
+          maven_settings_servers: ${{ inputs.maven_settings_servers }}
+          node_version: ${{ inputs.node_version }}
+          npm_registry_url: ${{ inputs.npm_registry_url }}
+          npm_auth_token: ${{ secrets.NPM_AUTH_TOKEN != '' && secrets.NPM_AUTH_TOKEN || github.token }}
+          python_version: ${{ inputs.python_version }}
+          uv_version: ${{ inputs.uv_version }}
+          dotnet_versions: ${{ inputs.dotnet_versions }}
+          nuget_source_url: ${{ inputs.nuget_source_url }}
+          nuget_auth_token: ${{ secrets.NUGET_AUTH_TOKEN != '' && secrets.NUGET_AUTH_TOKEN || github.token }}
+          custom_setup_script: ${{ inputs.custom_setup_script }}
+
+      # The head scan's parameters, with the branch and revision appended last so they win over
+      # any the caller passed.
+      - name: Build FOSSA Scan Parameters (PR base)
+        id: base_params
+        if: steps.setup_deps_base.outcome == 'success'
+        continue-on-error: true
+        env:
+          PARAMS: ${{ steps.fossa_params.outputs.params }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          {
+            echo "params<<EOF"
+            echo "$PARAMS"
+            echo "fossa.branch=PR_BASE"
+            echo "fossa.revision=${BASE_SHA}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      # No Guardian upload: the base belongs to its own branch's scans, not to this PR.
+      - name: SCA Scan - FOSSA (PR base)
+        id: base_scan
+        if: steps.base_params.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: ${{ fromJSON(steps.pr_base.outputs.scan_minutes || '1') }}
+        uses: $/.github/actions/sca/sca-scan
+        with:
+          scanners: "fossa"
+          additional_scan_params: ${{ steps.base_params.outputs.params }}
+          fossa_api_key: ${{ steps.fossa_key.outputs.FOSSA_KEY }}
+
+      # From the PR base checkout on, the workspace holds the base commit, not the PR. Every step
+      # below reads only FOSSA and GitHub APIs; one that needs the PR's files must check it out again.
+      # An empty revision is the fallback, so this step failing must not skip the guards.
+      - name: Settle PR diff base
+        id: diff_base
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        env:
+          RESOLVE: ${{ steps.pr_base.outcome }}
+          EXISTING: ${{ steps.pr_base.outputs.revision }}
+          SCANNED: ${{ steps.base_scan.outcome }}
+          ATTEMPTED: ${{ steps.pr_base.outputs.scan }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          fallback="fossa-guard's auto-detected base, which may be the wrong commit"
+          if [[ -n "$EXISTING" ]]; then
+            revision="$EXISTING"; source="existing FOSSA revision"
+          elif [[ "$SCANNED" == "success" ]]; then
+            revision="$BASE_SHA"; source="scanned now, branch PR_BASE"
+          else
+            revision=""; source="fallback to ${fallback}"
+            if [[ "$RESOLVE" != "success" ]]; then
+              echo "::warning::Looking up base ${BASE_REF}@${BASE_SHA} in FOSSA did not complete (${RESOLVE}); diffing against ${fallback}"
+            elif [[ "$ATTEMPTED" == "true" ]]; then
+              echo "::warning::Scanning base ${BASE_REF}@${BASE_SHA} did not complete; diffing against ${fallback}"
+            fi
+          fi
+          echo "revision=${revision}" >> "$GITHUB_OUTPUT"
+          echo "**Diff Base**: ${BASE_REF}@${BASE_SHA:0:12}, ${source}" >> "$GITHUB_STEP_SUMMARY"
+
       - name: FOSSA Policy/Licensing Check
         id: fossa_licensing
         uses: $/.github/actions/fossa-guard
@@ -564,6 +696,7 @@ jobs:
           fossa_mode: ${{ steps.config.outputs.fossa_licensing_mode }}
           block_on: ${{ steps.config.outputs.fossa_licensing_block_on }}
           enable_diff_mode: ${{ github.event_name == 'pull_request' }}
+          diff_base_revision_sha: ${{ steps.diff_base.outputs.revision }}
           enable_pr_comment: ${{ github.event_name == 'pull_request' }}
           enable_status_check: ${{ github.event_name == 'pull_request' }}
           status_check_name: "FOSSA SCA Licensing"
@@ -583,6 +716,7 @@ jobs:
           fossa_mode: ${{ steps.config.outputs.fossa_vulnerability_mode }}
           block_on: ${{ steps.config.outputs.fossa_vulnerability_block_on }}
           enable_diff_mode: ${{ github.event_name == 'pull_request' }}
+          diff_base_revision_sha: ${{ steps.diff_base.outputs.revision }}
           enable_pr_comment: ${{ github.event_name == 'pull_request' }}
           enable_status_check: ${{ github.event_name == 'pull_request' }}
           status_check_name: "FOSSA SCA Vulnerabilities"
@@ -658,7 +792,7 @@ jobs:
           # URL encode the revision for the dashboard link
           ENCODED_REVISION=$(echo "$FOSSA_REVISION" | jq -sRr @uri)
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Dashboard**: [View in FOSSA](https://app.fossa.com/projects/custom%2B48578%2F$FOSSA_PROJECT_ID/refs/branch/$FOSSA_BRANCH/${ENCODED_REVISION})" >> $GITHUB_STEP_SUMMARY
+          echo "**Dashboard**: [View in FOSSA](https://app.fossa.com/projects/${FOSSA_ORG_ID/+/%2B}%2F$FOSSA_PROJECT_ID/refs/branch/$FOSSA_BRANCH/${ENCODED_REVISION})" >> $GITHUB_STEP_SUMMARY
 
       - name: Block on FOSSA Policy Failures
         if: |
@@ -671,7 +805,7 @@ jobs:
           FOSSA_PROJECT_ID: ${{ steps.fossa_project.outputs.FOSSA_PROJECT_ID }}
         run: |
           GUIDE_URL="https://sol-jira.atlassian.net/wiki/spaces/DevOps/pages/6542262516/Resolving+License+Compliance+Issues+in+FOSSA"
-          DASHBOARD_URL="https://app.fossa.com/projects/custom%2B48578%2F${FOSSA_PROJECT_ID}"
+          DASHBOARD_URL="https://app.fossa.com/projects/${FOSSA_ORG_ID/+/%2B}%2F${FOSSA_PROJECT_ID}"
 
           echo "❌ FOSSA licensing check failed. Policy conflicts detected ($LICENSING_BLOCK_ON)."
           echo "Review the FOSSA dashboard for details and remediate policy violations."
@@ -707,7 +841,7 @@ jobs:
           echo "❌ FOSSA vulnerability check failed. $VULNERABILITY_BLOCK_ON severity vulnerabilities detected."
           echo "Review the FOSSA dashboard for details and remediate vulnerabilities."
           echo ""
-          echo "Dashboard: https://app.fossa.com/projects/custom%2B48578%2F${{ steps.fossa_project.outputs.FOSSA_PROJECT_ID }}"
+          echo "Dashboard: https://app.fossa.com/projects/${FOSSA_ORG_ID/+/%2B}%2F${{ steps.fossa_project.outputs.FOSSA_PROJECT_ID }}"
           exit 1
 
       - name: Log Emergency Bypass
@@ -751,7 +885,8 @@ jobs:
 # - Optional: Vault (use_vault: true) - for private repos with Vault access
 #
 # Context Detection:
-# - PR: Diff-based scan (only new issues), branch=PR, revision=head_ref
+# - PR: Diff-based scan (only new issues) against the PR's base commit, branch=PR,
+#   revision=merge commit SHA; an unscanned base is scanned once under branch PR_BASE
 # - Release: Full scan with version tag, branch=default_branch, revision=git_ref input
 # - Manual: Full scan with SHA, branch=default_branch, revision=github.sha
 #
