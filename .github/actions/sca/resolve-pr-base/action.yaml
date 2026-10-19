@@ -1,0 +1,75 @@
+name: "Resolve PR Base Revision"
+description: "Find the FOSSA revision a pull request is diffed against: its base commit, reused when FOSSA has it, or scheduled for a scan with timeouts sized from the job's remaining time."
+
+inputs:
+  fossa_api_key:
+    description: "FOSSA API key"
+    required: true
+  fossa_org_id:
+    description: "FOSSA organisation locator prefix, e.g. custom+48578"
+    required: true
+  fossa_project_id:
+    description: "FOSSA project id, e.g. SolaceDev_my-repo"
+    required: true
+  base_sha:
+    description: "The PR's base commit"
+    required: false
+    default: ${{ github.event.pull_request.base.sha }}
+  base_ref:
+    description: "The PR's base branch, for messages"
+    required: false
+    default: ${{ github.base_ref }}
+  started_at:
+    description: "Epoch seconds the job started"
+    required: true
+  job_timeout_minutes:
+    description: "The job's timeout-minutes"
+    required: true
+  analysis_wait_seconds:
+    description: "Longest wait for an in-progress analysis of the base"
+    required: false
+    default: "600"
+  guard_reserve_seconds:
+    description: "Time kept for the guards and report after the base"
+    required: false
+    default: "600"
+  min_base_minutes:
+    description: "Below this many minutes left, the base is not scanned"
+    required: false
+    default: "15"
+
+outputs:
+  revision:
+    description: "The base commit, when FOSSA already has its revision; empty otherwise"
+    value: ${{ steps.resolve.outputs.revision }}
+  scan:
+    description: "true when the base should be scanned under the FOSSA branch PR_BASE"
+    value: ${{ steps.resolve.outputs.scan }}
+  checkout_minutes:
+    description: "Timeout for the base checkout, when scan is true"
+    value: ${{ steps.resolve.outputs.checkout_minutes }}
+  setup_minutes:
+    description: "Timeout for the base's dependency setup, when scan is true"
+    value: ${{ steps.resolve.outputs.setup_minutes }}
+  scan_minutes:
+    description: "Timeout for the base's FOSSA scan, when scan is true"
+    value: ${{ steps.resolve.outputs.scan_minutes }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve PR base revision
+      id: resolve
+      shell: bash
+      env:
+        FOSSA_API_KEY: ${{ inputs.fossa_api_key }}
+        FOSSA_ORG_ID: ${{ inputs.fossa_org_id }}
+        FOSSA_PROJECT_ID: ${{ inputs.fossa_project_id }}
+        BASE_SHA: ${{ inputs.base_sha }}
+        BASE_REF: ${{ inputs.base_ref }}
+        STARTED_AT: ${{ inputs.started_at }}
+        JOB_TIMEOUT_MINUTES: ${{ inputs.job_timeout_minutes }}
+        ANALYSIS_WAIT_SECONDS: ${{ inputs.analysis_wait_seconds }}
+        GUARD_RESERVE_SECONDS: ${{ inputs.guard_reserve_seconds }}
+        MIN_BASE_MINUTES: ${{ inputs.min_base_minutes }}
+      run: "${GITHUB_ACTION_PATH}/resolve-pr-base.sh"

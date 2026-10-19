@@ -572,73 +572,21 @@ jobs:
       #
       # Every base step is continue-on-error: a base that cannot be looked up, fetched, set up or
       # scanned falls back to fossa-guard's own base detection instead of failing the job, which
-      # would leave the PR without its status checks. Their timeouts are sized here from what is
-      # left of the job's, after GUARD_RESERVE_SECONDS for the guards and the report, so a slow
-      # head scan shrinks the base's budget instead of letting the job time out.
+      # would leave the PR without its status checks. resolve-pr-base sizes their timeouts from
+      # what is left of the job's, after a reserve for the guards and the report, so a slow head
+      # scan shrinks the base's budget instead of letting the job time out.
       - name: Resolve PR base revision
         id: pr_base
         if: github.event_name == 'pull_request'
         continue-on-error: true
         timeout-minutes: 12
-        env:
-          FOSSA_API_KEY: ${{ steps.fossa_key.outputs.FOSSA_KEY }}
-          FOSSA_PROJECT_ID: ${{ steps.fossa_project.outputs.FOSSA_PROJECT_ID }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          BASE_REF: ${{ github.base_ref }}
-          STARTED_AT: ${{ steps.context.outputs.started_at }}
-          # A revision exists from upload, before its analysis finishes; a base still being analysed
-          # (a PR opened right after its base's push scan started) is waited for, up to this long.
-          ANALYSIS_WAIT_SECONDS: "600"
-          GUARD_RESERVE_SECONDS: "600"
-          # Below this, a base checkout, setup and scan is not worth starting.
-          MIN_BASE_MINUTES: "15"
-        run: |
-          fallback="diffing against fossa-guard's auto-detected base, which may be the wrong commit"
-          seconds_left() { echo $(( JOB_TIMEOUT_MINUTES * 60 - ($(date +%s) - STARTED_AT) - GUARD_RESERVE_SECONDS )); }
-          locator="${FOSSA_ORG_ID}/${FOSSA_PROJECT_ID}\$${BASE_SHA}"
-          encoded=$(jq -rn --arg v "$locator" '$v | @uri')
-          body="${RUNNER_TEMP}/pr-base-revision.json"
-          wait_for=$(seconds_left); (( wait_for > ANALYSIS_WAIT_SECONDS )) && wait_for=$ANALYSIS_WAIT_SECONDS
-          deadline=$(( SECONDS + wait_for ))
-          while :; do
-            # --retry covers timeouts, 429 and 5xx, so one transient error is not mistaken for an outage.
-            status=$(curl -sS --max-time 30 --retry 2 -o "$body" -w '%{http_code}' \
-              -H "Authorization: Bearer ${FOSSA_API_KEY}" \
-              "https://app.fossa.com/api/revisions/${encoded}") || status="unreachable"
-            [[ "$status" == 200 ]] || break
-            [[ "$(jq -r '.resolved' "$body")" == true ]] && break
-            # A failed or unsupported analysis never resolves; waiting for it would only cost time.
-            analysis_error=$(jq -r 'if .unsupported == true then "unsupported" else (.error // "") end' "$body")
-            if [[ -n "$analysis_error" ]]; then status="failed"; break; fi
-            if (( SECONDS >= deadline )); then status="unresolved"; break; fi
-            echo "Base ${BASE_REF}@${BASE_SHA} is still being analysed in FOSSA; waiting"
-            sleep 20
-          done
-          scan=false
-          case "$status" in
-            200)
-              echo "Base ${BASE_REF}@${BASE_SHA} is already scanned in FOSSA; diffing against it"
-              echo "revision=${BASE_SHA}" >> "$GITHUB_OUTPUT" ;;
-            404)
-              minutes=$(( $(seconds_left) / 60 ))
-              if (( minutes < MIN_BASE_MINUTES )); then
-                echo "::warning::Base ${BASE_REF}@${BASE_SHA} has no FOSSA revision, and only ${minutes} minutes of the job are left to scan it; ${fallback}"
-              else
-                echo "Base ${BASE_REF}@${BASE_SHA} has no FOSSA revision; scanning it under branch PR_BASE within ${minutes} minutes"
-                scan=true
-                setup=$(( (minutes - 5) * 2 / 5 ))
-                echo "checkout_minutes=5" >> "$GITHUB_OUTPUT"
-                echo "setup_minutes=${setup}" >> "$GITHUB_OUTPUT"
-                echo "scan_minutes=$(( minutes - 5 - setup ))" >> "$GITHUB_OUTPUT"
-              fi ;;
-            failed)
-              echo "::warning::FOSSA's analysis of base ${BASE_REF}@${BASE_SHA} failed (${analysis_error}); ${fallback}" ;;
-            unresolved)
-              echo "::warning::FOSSA's analysis of base ${BASE_REF}@${BASE_SHA} did not finish in time; ${fallback}" ;;
-            *)
-              echo "::warning::Could not look up base ${BASE_REF}@${BASE_SHA} in FOSSA (HTTP ${status}); ${fallback}" ;;
-          esac
-          echo "scan=${scan}" >> "$GITHUB_OUTPUT"
+        uses: $/.github/actions/sca/resolve-pr-base
+        with:
+          fossa_api_key: ${{ steps.fossa_key.outputs.FOSSA_KEY }}
+          fossa_org_id: ${{ env.FOSSA_ORG_ID }}
+          fossa_project_id: ${{ steps.fossa_project.outputs.FOSSA_PROJECT_ID }}
+          started_at: ${{ steps.context.outputs.started_at }}
+          job_timeout_minutes: ${{ env.JOB_TIMEOUT_MINUTES }}
 
       # The base step timeouts fall back to 1 only to keep the expressions valid when the step is skipped.
       - name: Checkout PR base

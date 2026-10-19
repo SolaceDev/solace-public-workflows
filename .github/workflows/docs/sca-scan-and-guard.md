@@ -318,7 +318,7 @@ The PR side is the merge commit the run was triggered for (`github.sha`), checke
 
 The base scan is not optional: without it a PR is compared with the wrong commit and the gate stops meaning anything. It runs only for a base FOSSA has never seen, so a repository that wants to avoid it scans its base branches on push, which records the revisions PRs then reuse.
 
-The job summary's **Diff Base** line says which case applied.
+The job summary's **Diff Base** line says which case applied. The lookup, the wait and the time budget are the [`resolve-pr-base`](../../actions/sca/resolve-pr-base/README.md) action, whose script runs and is tested locally.
 
 #### FOSSA branches
 
