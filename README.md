@@ -30,6 +30,7 @@ Container image security scanning with FOSSA and optional Prisma Cloud integrati
 - [fossa-scan](container/fossa-scan/) - FOSSA container image analysis
 - [prisma-scan](container/prisma-scan/) - Prisma Cloud security scanning
 - [guardian-container-scan-and-sync](guardian-container-scan-and-sync/) - Prisma (and optional Trivy) scan, Guardian upload and sync
+- [release-readiness-report](release-readiness-report/) - One release readiness summary: the verdict, FOSSA licensing per project, and the Guardian report
 
 ### Utility Actions
 
