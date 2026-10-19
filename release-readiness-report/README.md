@@ -2,9 +2,9 @@
 
 Writes one job summary for a release readiness check, in three parts:
 
-1. **The verdict.** The caller's decision (`ready` or `blocked`), its reasons, and context lines such as the image and commit.
+1. **The verdict.** The caller's decision (`ready` or `blocked`), a line of links (the caller's, such as the commit and the image, then each FOSSA revision, the Prisma scan Guardian recorded, and the Guardian product page), its reasons and context lines.
 2. **Licensing (FOSSA).** One row per FOSSA project: policy, the caller's gate result, blocking and non-blocking issue counts by type, and a link to the revision's licensing issues in FOSSA. Individual issues are not listed. When something blocks, the section recommends what to do for each blocking issue type and links the guide to resolving licence issues in FOSSA.
-3. **Guardian.** The same report [`guardian-container-scan-and-sync`](../guardian-container-scan-and-sync/#guardian-report) writes: product and build, scanners synced, sync counts, open findings with a fix by severity (past SLA and within SLA), and one row per Jira issue with its fix version, due date and CVE links. It is built with that action's code, so the two stay the same.
+3. **Guardian.** The overview and severity counts [`guardian-container-scan-and-sync`](../guardian-container-scan-and-sync/#guardian-report) writes, built with its code: product and build, scanners synced, sync counts, and open findings with a fix by severity, past and within SLA. Then a compact table with one row per Jira issue: severity, package, version, fix, due date and CVEs. One CVE links to its dashboard page and several to the component's findings in the dashboard (`N CVEs`). Without `guardian_dashboard_url`, CVEs link to the advisory Guardian recorded (NVD, Ubuntu, Red Hat...).
 
 The action only reports. It never fails, and a FOSSA or Guardian error becomes a warning and a reduced section; the caller decides readiness.
 
@@ -26,6 +26,7 @@ Every scan and Guardian action this report summarises writes its own job summary
 | --- | --- | --- | --- |
 | `status` | yes | | `ready` or `blocked`. |
 | `title` | no | `Release readiness` | Heading, e.g. ``Release readiness: `1.4.0-rc.3` ``. |
+| `links` | no | | Links under the heading, one `Label \| URL` per line, e.g. the commit and the image. |
 | `reasons` | no | | Why the release is blocked, one per line. |
 | `context` | no | | Bullets under the verdict, one per line, Markdown allowed. |
 | `notes` | no | | Quoted notes under the verdict, e.g. an admin bypass. |
@@ -41,7 +42,7 @@ Every scan and Guardian action this report summarises writes its own job summary
 | `guardian_full_version` | no | | The build the gate is read for. |
 | `guardian_unifiers` | no | `fossa,prisma` | Scanners synced, as shown in the overview. |
 | `guardian_sync_response` | no | | `guardian-db-sync`'s `response_json`, for the sync counts. |
-| `guardian_dashboard_url` | no | | Guardian dashboard base URL, for finding and product links. |
+| `guardian_dashboard_url` | no | | Guardian dashboard base URL, for CVE and product links. Not the API URL, which is masked and would print as `***`. |
 | `jira_base_url` | no | `https://sol-jira.atlassian.net` | Jira base URL. |
 | `show_details` | no | by visibility | List the Jira issues with descriptions. Defaults to `true` for private and internal repositories. |
 | `max_rows` | no | `50` | Most Jira issues listed. |
@@ -76,8 +77,8 @@ Blocking counts use FOSSA's issue types, the same rule `fossa-guard` blocks on.
     title: "Release readiness: `${{ inputs.version }}`"
     status: ${{ steps.decide.outputs.status }}
     reasons: ${{ steps.decide.outputs.reasons }}
-    context: |
-      Image `${{ inputs.image_tag }}` · commit `${{ inputs.git_ref }}`
+    links: |
+      Commit `${{ inputs.git_ref }}` | ${{ github.server_url }}/${{ github.repository }}/commit/${{ inputs.git_ref }}
     fossa_api_key: ${{ steps.vault.outputs.FOSSA_API_KEY }}
     fossa_projects: >-
       [{"label": "Source", "project": "SolaceDev_my-repo", "branch": "main",
@@ -87,7 +88,7 @@ Blocking counts use FOSSA's issue types, the same rule `fossa-guard` blocks on.
     guardian_product_name: my-product
     guardian_product_version: main
     guardian_full_version: ${{ inputs.version }}
-    guardian_dashboard_url: https://guardian.solacedev.ca
+    guardian_dashboard_url: https://guardian-dashboard.solacedev.ca
 ```
 
 ## Tests
