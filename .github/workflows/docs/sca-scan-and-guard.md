@@ -121,6 +121,7 @@ These inputs configure the build environment before FOSSA runs. See [SCA Setup D
 | `maven_settings_repositories` | No | (empty) | Maven repositories configuration (JSON) |
 | `maven_settings_servers` | No | (empty) | Maven servers configuration (JSON) |
 | `write_step_summary` | No | `true` | Write the scan context, results and guard reports to the job summary. Set `false` when the caller writes one consolidated summary, e.g. with [`release-readiness-report`](../../../release-readiness-report/). |
+| `fossa_licensing_mode` | No | `""` | Override the config file's licensing mode for this run: `BLOCK` or `REPORT`. Empty keeps the config file's. `REPORT` still scans, reports and uploads, but a licensing issue never fails the job, for a caller that decides on licensing itself or reports it only for now. |
 
 ## Secrets
 
