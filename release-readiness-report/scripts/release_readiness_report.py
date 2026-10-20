@@ -37,6 +37,7 @@ import guardian_report  # noqa: E402
 FOSSA_API = "https://app.fossa.com/api"
 FOSSA_APP = "https://app.fossa.com/projects"
 FOSSA_PAGE_SIZE = 1000
+FOSSA_MAX_PAGES = 100
 DEFAULT_GUIDE_URL = (
     "https://sol-jira.atlassian.net/wiki/spaces/DevOps/pages/6542262516/"
     "Resolving+License+Compliance+Issues+in+FOSSA"
@@ -121,13 +122,20 @@ def locator(org_id: str, project: str) -> str:
 
 
 def fossa_issue_counts(token: str, project_locator: str, revision: str) -> dict[str, int]:
-    """Licensing issue counts by type for one revision, across every page."""
+    """Active licensing issue counts by type for one revision, across every page.
+
+    Active only, as the issue links filter, so a count and the list it links to agree. FOSSA
+    returns no paging metadata and may cap `count` below what is asked, so a short page does not
+    mean the last one: pages are read until one is empty, or repeats the page before it (a page
+    number FOSSA ignores), or the page limit is reached, which is warned about.
+    """
     counts: dict[str, int] = {}
-    page = 1
-    while True:
+    previous = None
+    for page in range(1, FOSSA_MAX_PAGES + 1):
         query = urllib.parse.urlencode(
             {
                 "category": "licensing",
+                "status": "active",
                 "scope[type]": "project",
                 "scope[id]": project_locator,
                 "scope[revision]": revision,
@@ -137,12 +145,15 @@ def fossa_issue_counts(token: str, project_locator: str, revision: str) -> dict[
         )
         payload = guardian_report.fetch_json("GET", f"{FOSSA_API}/v2/issues?{query}", token) or {}
         issues = payload.get("issues") or []
+        signature = json.dumps(issues, sort_keys=True)
+        if not issues or signature == previous:
+            return counts
+        previous = signature
         for issue in issues:
             kind = issue.get("type") or "other"
             counts[kind] = counts.get(kind, 0) + 1
-        if len(issues) < FOSSA_PAGE_SIZE:
-            return counts
-        page += 1
+    warn(f"Stopped reading FOSSA issues for {project_locator}@{revision} after {FOSSA_MAX_PAGES} pages; counts may be low.")
+    return counts
 
 
 def fossa_policy(token: str, project_locator: str) -> str:
@@ -220,9 +231,12 @@ def build_licensing(projects: list[dict], token: str, org_id: str, block_on: lis
         if token and revision:
             try:
                 counts = fossa_issue_counts(token, project_locator, revision)
-                policy = fossa_policy(token, project_locator)
             except Exception as exc:  # noqa: BLE001 - reporting must not fail the action
                 warn(f"Could not read FOSSA issues for {name}@{revision}: {exc}")
+            try:
+                policy = fossa_policy(token, project_locator)
+            except Exception as exc:  # noqa: BLE001 - the counts stand without the policy's name
+                warn(f"Could not read the FOSSA policy of {name}: {exc}")
             if counts is not None:
                 try:
                     scan_id = fossa_revision_scan_id(token, project_locator, revision)
@@ -350,6 +364,27 @@ def scan_links(gate_result: dict | None) -> list[tuple[str, str]]:
     return [(SCANNER_LABELS[s], seen[s]) for s in SCANNER_LABELS if s in seen]
 
 
+def gate_response_from_file() -> dict | None:
+    """The response the caller's guardian-vulnerability-gate step wrote, when one is given.
+
+    Reading it shows the verdict the caller decided on. Otherwise the report evaluates the gate
+    itself: a read-only evaluation in Guardian, which records none, whose only side effect without
+    a Slack config is the idempotent fix-available field on findings with an expired exclusion.
+    """
+    path = env("GUARDIAN_GATE_RESPONSE_FILE")
+    if not path:
+        return None
+    try:
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        warn(f"Could not read the gate response at {path} ({exc}); evaluating the gate instead.")
+        return None
+    if not isinstance(payload, dict):
+        warn(f"The gate response at {path} is not a JSON object; evaluating the gate instead.")
+        return None
+    return payload
+
+
 def read_guardian() -> dict:
     """Reads the gate and the dashboard context once; build_guardian renders it."""
     base = env("GUARDIAN_URL").rstrip("/")
@@ -372,11 +407,11 @@ def read_guardian() -> dict:
 
     gate_result = None
     try:
-        gate = guardian_report.guardian_gate(base, token, product, full_version)
+        gate = gate_response_from_file() or guardian_report.guardian_gate(base, token, product, full_version)
         results = gate.get("results") or []
         gate_result = next((r for r in results if r.get("repository") == product), None)
         if gate_result is None:
-            gate_result = results[0] if results else {}
+            warn(f"Guardian's gate has no result for {product}@{full_version}; the Guardian counts are left empty.")
     except Exception as exc:  # noqa: BLE001 - reporting must not fail the action
         warn(f"Could not read Guardian findings for the report: {exc}")
 

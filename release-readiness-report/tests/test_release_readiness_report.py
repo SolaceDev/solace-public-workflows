@@ -99,7 +99,8 @@ def fake_fetch(method, url, token, body=None):
     if parsed.netloc == "app.fossa.com":
         if parsed.path == "/api/v2/issues":
             query = urllib.parse.parse_qs(parsed.query)
-            return {"issues": ISSUES[query["scope[id]"][0]]}
+            assert query["status"] == ["active"], "counts must use the same status filter as the links"
+            return {"issues": ISSUES[query["scope[id]"][0]] if query["page"] == ["1"] else []}
         if parsed.path.startswith("/api/revisions/"):
             revision = urllib.parse.unquote(parsed.path.removeprefix("/api/revisions/"))
             return {"latestRevisionScanId": SCAN_IDS[revision]}
@@ -226,16 +227,91 @@ class ReportTest(unittest.TestCase):
             text,
         )
 
-    def test_fossa_pages_are_followed(self):
-        pages = {1: [{"type": "policy_flag"}] * report.FOSSA_PAGE_SIZE, 2: [{"type": "policy_conflict"}]}
-
+    def paged_counts(self, pages):
         def paged(method, url, token, body=None):
             query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
-            return {"issues": pages[int(query["page"][0])]}
+            return {"issues": pages.get(int(query["page"][0]), [])}
 
         with patch.object(report.guardian_report, "fetch_json", side_effect=paged):
+            return report.fossa_issue_counts("key", "custom+48578/app", "1.0.0")
+
+    def test_fossa_pages_are_followed(self):
+        pages = {1: [{"type": "policy_flag"}] * report.FOSSA_PAGE_SIZE, 2: [{"type": "policy_conflict"}]}
+        self.assertEqual(self.paged_counts(pages), {"policy_flag": report.FOSSA_PAGE_SIZE, "policy_conflict": 1})
+
+    def test_a_short_page_is_not_taken_as_the_last(self):
+        # FOSSA capping count below what was asked: page 1 is short but not the last.
+        pages = {1: [{"type": "policy_flag", "id": i} for i in range(100)], 2: [{"type": "policy_conflict", "id": 100}]}
+        self.assertEqual(self.paged_counts(pages), {"policy_flag": 100, "policy_conflict": 1})
+
+    def test_a_page_number_fossa_ignores_is_counted_once(self):
+        def same_page(method, url, token, body=None):
+            return {"issues": [{"type": "policy_flag"}, {"type": "policy_flag"}]}
+
+        with patch.object(report.guardian_report, "fetch_json", side_effect=same_page) as fetch:
             counts = report.fossa_issue_counts("key", "custom+48578/app", "1.0.0")
-        self.assertEqual(counts, {"policy_flag": report.FOSSA_PAGE_SIZE, "policy_conflict": 1})
+        self.assertEqual(counts, {"policy_flag": 2})
+        self.assertEqual(fetch.call_count, 2)
+
+    def test_the_page_limit_is_warned_about(self):
+        def endless(method, url, token, body=None):
+            page = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)["page"][0]
+            return {"issues": [{"type": "policy_flag", "id": page}]}
+
+        with patch.object(report.guardian_report, "fetch_json", side_effect=endless), patch("builtins.print") as printed:
+            counts = report.fossa_issue_counts("key", "custom+48578/app", "1.0.0")
+        self.assertEqual(counts, {"policy_flag": report.FOSSA_MAX_PAGES})
+        self.assertTrue(any("counts may be low" in str(c) for c in printed.call_args_list))
+
+    def test_a_policy_error_keeps_the_counts(self):
+        def no_policy(method, url, token, body=None):
+            path = urllib.parse.urlparse(url).path
+            if path.startswith("/api/projects/"):
+                raise OSError("boom")
+            return fake_fetch(method, url, token, body)
+
+        with patch.dict(os.environ, self.env, clear=True), patch.object(
+            report.guardian_report, "fetch_json", side_effect=no_policy
+        ), patch("builtins.print") as printed:
+            self.assertEqual(report.main(), 0)
+        text = self.summary.read_text()
+        self.assertIn(f"| [app-container]({CONTAINER_ISSUES.split('?')[0]}) | — | ❌ failed | **[1 denied by policy]", text)
+        self.assertNotIn("could not be read", text)
+        self.assertTrue(any("Could not read the FOSSA policy" in str(c) for c in printed.call_args_list))
+
+    def test_the_callers_gate_response_is_used_instead_of_a_second_evaluation(self):
+        response = Path(self.tmp.name) / "gate.json"
+        response.write_text(report.json.dumps(GATE))
+
+        def no_gate_call(method, url, token, body=None):
+            if urllib.parse.urlparse(url).path == "/api/v1/vulnerability_gate":
+                raise AssertionError("the gate was evaluated again")
+            return fake_fetch(method, url, token, body)
+
+        with patch.dict(os.environ, {**self.env, "GUARDIAN_GATE_RESPONSE_FILE": str(response)}, clear=True), patch.object(
+            report.guardian_report, "fetch_json", side_effect=no_gate_call
+        ):
+            self.assertEqual(report.main(), 0)
+        outputs = dict(line.split("=", 1) for line in self.output.read_text().splitlines())
+        self.assertEqual(outputs["guardian_blocking"], "1")
+
+    def test_an_unreadable_gate_response_falls_back_to_the_gate(self):
+        text, outputs = self.run_report(GUARDIAN_GATE_RESPONSE_FILE=str(Path(self.tmp.name) / "missing.json"))
+        self.assertEqual(outputs["guardian_blocking"], "1")
+
+    def test_no_gate_result_for_the_product_leaves_the_count_empty(self):
+        def other_product(method, url, token, body=None):
+            if urllib.parse.urlparse(url).path == "/api/v1/vulnerability_gate":
+                return {"results": [{**GATE["results"][0], "repository": "something-else"}]}
+            return fake_fetch(method, url, token, body)
+
+        with patch.dict(os.environ, self.env, clear=True), patch.object(
+            report.guardian_report, "fetch_json", side_effect=other_product
+        ), patch("builtins.print") as printed:
+            self.assertEqual(report.main(), 0)
+        outputs = dict(line.split("=", 1) for line in self.output.read_text().splitlines())
+        self.assertEqual(outputs["guardian_blocking"], "")
+        self.assertTrue(any("has no result for app" in str(c) for c in printed.call_args_list))
 
     def test_fossa_error_is_reported_not_raised(self):
         def failing(method, url, token, body=None):

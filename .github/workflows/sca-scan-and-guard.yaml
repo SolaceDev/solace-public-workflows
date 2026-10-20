@@ -136,7 +136,7 @@ on:
         type: boolean
         default: true
       fossa_licensing_mode:
-        description: "Override the config file's licensing mode for this run: BLOCK or REPORT. Empty keeps the config file's (or the default's). REPORT still scans, reports and uploads, but never fails the job on a licensing issue."
+        description: "Override the config file's licensing mode for this run: BLOCK or REPORT. Empty keeps the config file's (or the default's). REPORT still scans, reports and uploads, but never fails the job on a licensing issue; overriding a config's BLOCK this way raises a warning in the run."
         required: false
         type: string
         default: ""
@@ -326,7 +326,14 @@ jobs:
             ""|BLOCK|REPORT) ;;
             *) echo "::error::fossa_licensing_mode must be BLOCK, REPORT or empty, not '${LICENSING_MODE_OVERRIDE}'"; exit 1 ;;
           esac
-          [[ -n "${LICENSING_MODE_OVERRIDE}" ]] && echo "📝 Licensing mode set by input: ${LICENSING_MODE_OVERRIDE}"
+          if [[ -n "${LICENSING_MODE_OVERRIDE}" ]]; then
+            echo "📝 Licensing mode set by input: ${LICENSING_MODE_OVERRIDE}"
+            # A caller may report what the repository's config would block (e.g. while licence
+            # decisions are pending); that is visible in every run rather than silent.
+            if [[ "${LICENSING_MODE_OVERRIDE}" == REPORT && -n "$CONFIG_FILE" && "${CONFIG_FOSSA_LICENSING_MODE}" == BLOCK ]]; then
+              echo "::warning title=Licensing not blocking::fossa_licensing_mode REPORT overrides ${CONFIG_FILE}'s BLOCK for this run: licensing issues are reported, not blocking."
+            fi
+          fi
           if [[ -n "$CONFIG_FILE" ]]; then
             echo "📝 Using configuration from file: $CONFIG_FILE"
             echo "vault_url=${CONFIG_VAULT_URL}" >> $GITHUB_OUTPUT

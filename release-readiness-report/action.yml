@@ -78,6 +78,10 @@ inputs:
     description: "guardian-db-sync's `response_json`, for the sync counts in the overview. Optional."
     required: false
     default: ""
+  guardian_gate_response_file:
+    description: "Path to the response guardian-vulnerability-gate wrote (`guardian-vulnerability-gate-response.json`). When it is readable, the report shows that verdict, the one the caller decided on, instead of evaluating the gate again. Optional."
+    required: false
+    default: ""
   guardian_dashboard_url:
     description: "Guardian dashboard base URL (not the API URL, which is masked). When set, CVEs link to the dashboard; otherwise to their advisories."
     required: false
@@ -136,6 +140,7 @@ runs:
         GUARDIAN_FULL_VERSION: ${{ inputs.guardian_full_version }}
         GUARDIAN_UNIFIERS: ${{ inputs.guardian_unifiers }}
         GUARDIAN_SYNC_RESPONSE: ${{ inputs.guardian_sync_response }}
+        GUARDIAN_GATE_RESPONSE_FILE: ${{ inputs.guardian_gate_response_file }}
         GUARDIAN_DASHBOARD_URL: ${{ inputs.guardian_dashboard_url }}
         JIRA_BASE_URL: ${{ inputs.jira_base_url }}
         INPUT_SHOW_DETAILS: ${{ inputs.show_details }}
