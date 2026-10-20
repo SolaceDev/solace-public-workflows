@@ -37,6 +37,19 @@ POLICIES = {
     "custom+48578/SolaceDev_app": "Solace-Distributed-Standard",
     "custom+48578/app-container": "Solace-OS-Container-with-Application",
 }
+SCAN_IDS = {
+    "custom+48578/SolaceDev_app$1.0.0-rc.1": 111,
+    "custom+48578/app-container$1.0.0-rc.1": 222,
+}
+CONTAINER_ISSUES = (
+    "https://app.fossa.com/projects/custom%2B48578%2Fapp-container/refs/branch/main/1.0.0-rc.1/issues/licensing"
+    "?page=1&count=20&sort=issue_count_desc&grouping=revision&status=active"
+)
+
+
+def issues_url(kind, scan_id=222):
+    url = f"{CONTAINER_ISSUES}&filter%5Btype%5D%5B0%5D={kind}"
+    return f"{url}&revisionScanId={scan_id}" if scan_id else url
 
 GATE = {
     "results": [
@@ -87,6 +100,9 @@ def fake_fetch(method, url, token, body=None):
         if parsed.path == "/api/v2/issues":
             query = urllib.parse.parse_qs(parsed.query)
             return {"issues": ISSUES[query["scope[id]"][0]]}
+        if parsed.path.startswith("/api/revisions/"):
+            revision = urllib.parse.unquote(parsed.path.removeprefix("/api/revisions/"))
+            return {"latestRevisionScanId": SCAN_IDS[revision]}
         project = urllib.parse.unquote(parsed.path.rsplit("/", 1)[-1])
         return {"policy": {"title": POLICIES[project]}}
     if parsed.path == "/api/v1/vulnerability_gate":
@@ -149,12 +165,48 @@ class ReportTest(unittest.TestCase):
     def test_licensing_counts_only_block_on_types_as_blocking(self):
         text, outputs = self.run_report()
         self.assertEqual(outputs["licensing_blocking"], "3")
+        source_issues = (
+            "https://app.fossa.com/projects/custom%2B48578%2FSolaceDev_app/refs/branch/main/1.0.0-rc.1/issues/licensing"
+        )
         self.assertIn(
-            "| Source | [SolaceDev_app](https://app.fossa.com/projects/custom%2B48578%2FSolaceDev_app"
-            "/refs/branch/main/1.0.0-rc.1/issues/licensing) "
-            "| Solace-Distributed-Standard | ✅ passed | 0 | 2 flagged |",
+            f"| Source | [SolaceDev_app]({source_issues}) "
+            f"| Solace-Distributed-Standard | ✅ passed | 0 "
+            f"| [2 flagged]({source_issues}?page=1&count=20&sort=issue_count_desc&grouping=revision&status=active"
+            "&filter%5Btype%5D%5B0%5D=policy_flag&revisionScanId=111) |",
             text,
         )
+        self.assertIn(
+            f"| ❌ failed | **[1 denied by policy]({issues_url('policy_conflict')}), "
+            f"[2 unlicensed]({issues_url('unlicensed_dependency')})** "
+            f"| [1 unconcluded]({issues_url('unconcluded_dependency')}), [1 flagged]({issues_url('policy_flag')}) |",
+            text,
+        )
+
+    def test_issue_link_is_the_revision_scan_filtered_to_one_type(self):
+        link = report.fossa_link("custom+48578/app-container", "main", "0.0.0-readiness-test.1")
+        self.assertEqual(
+            report.fossa_issues_link(link, "policy_conflict", 125614156),
+            "https://app.fossa.com/projects/custom%2B48578%2Fapp-container/refs/branch/main/0.0.0-readiness-test.1"
+            "/issues/licensing?page=1&count=20&sort=issue_count_desc&grouping=revision&status=active"
+            "&filter%5Btype%5D%5B0%5D=policy_conflict&revisionScanId=125614156",
+        )
+
+    def test_issue_links_fall_back_to_the_latest_scan_when_its_id_cannot_be_read(self):
+        def no_scan_id(method, url, token, body=None):
+            if "/api/revisions/" in url:
+                raise OSError("boom")
+            return fake_fetch(method, url, token, body)
+
+        with patch.dict(os.environ, self.env, clear=True), patch.object(
+            report.guardian_report, "fetch_json", side_effect=no_scan_id
+        ), patch("builtins.print"):
+            self.assertEqual(report.main(), 0)
+        text = self.summary.read_text()
+        self.assertIn(f"**[1 denied by policy]({issues_url('policy_conflict', None)}), ", text)
+
+    def test_counts_are_plain_without_a_revision_to_filter(self):
+        project = {**CONTAINER, "branch": ""}
+        text, _ = self.run_report(FOSSA_PROJECTS=report.json.dumps([project]))
         self.assertIn("| ❌ failed | **1 denied by policy, 2 unlicensed** | 1 unconcluded, 1 flagged |", text)
 
     def test_licensing_lists_no_individual_issues_but_recommends_per_blocking_type(self):
@@ -167,7 +219,12 @@ class ReportTest(unittest.TestCase):
     def test_block_on_is_configurable(self):
         text, outputs = self.run_report(FOSSA_BLOCK_ON="policy_conflict")
         self.assertEqual(outputs["licensing_blocking"], "1")
-        self.assertIn("**1 denied by policy** | 2 unlicensed, 1 unconcluded, 1 flagged |", text)
+        self.assertIn(
+            f"**[1 denied by policy]({issues_url('policy_conflict')})** "
+            f"| [2 unlicensed]({issues_url('unlicensed_dependency')}), "
+            f"[1 unconcluded]({issues_url('unconcluded_dependency')}), [1 flagged]({issues_url('policy_flag')}) |",
+            text,
+        )
 
     def test_fossa_pages_are_followed(self):
         pages = {1: [{"type": "policy_flag"}] * report.FOSSA_PAGE_SIZE, 2: [{"type": "policy_conflict"}]}

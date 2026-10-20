@@ -7,7 +7,8 @@ Three parts, in this order:
 2. Licensing: one row per FOSSA project (counts by issue type, the caller's
    gate result, a link to the revision's licensing issues in FOSSA) and
    recommendations for the issue types that block. Individual issues are not
-   listed; FOSSA is where they are resolved.
+   listed; FOSSA is where they are resolved, so each count links to the
+   revision's active issues of that type in FOSSA.
 3. Guardian: guardian-container-scan-and-sync's overview and severity counts,
    built with its code, and a compact table with one row per Jira issue. A
    single CVE links to its dashboard page, several to the component in the
@@ -150,6 +151,14 @@ def fossa_policy(token: str, project_locator: str) -> str:
     return ((payload.get("policy") or {}).get("title")) or ""
 
 
+def fossa_revision_scan_id(token: str, project_locator: str, revision: str) -> int | None:
+    """The revision's latest scan, which pins an issues link to the scan the counts came from."""
+    encoded = urllib.parse.quote(f"{project_locator}${revision}", safe="")
+    payload = guardian_report.fetch_json("GET", f"{FOSSA_API}/revisions/{encoded}", token) or {}
+    scan_id = payload.get("latestRevisionScanId")
+    return scan_id if isinstance(scan_id, int) else None
+
+
 def fossa_link(project_locator: str, branch: str, revision: str) -> str:
     base = f"{FOSSA_APP}/{urllib.parse.quote(project_locator, safe='')}"
     if branch and revision:
@@ -160,8 +169,30 @@ def fossa_link(project_locator: str, branch: str, revision: str) -> str:
     return base
 
 
-def describe_counts(counts: dict[str, int], kinds) -> str:
-    parts = [f"{counts[k]} {ISSUE_TYPES.get(k, k)}" for k in kinds if counts.get(k)]
+def fossa_issues_link(revision_link: str, kind: str, scan_id: int | None) -> str:
+    """FOSSA's licensing issues page for one revision, filtered to one issue type."""
+    query = {
+        "page": 1,
+        "count": 20,
+        "sort": "issue_count_desc",
+        "grouping": "revision",
+        "status": "active",
+        "filter[type][0]": kind,
+    }
+    if scan_id is not None:
+        query["revisionScanId"] = scan_id
+    return f"{revision_link}?{urllib.parse.urlencode(query)}"
+
+
+def describe_counts(counts: dict[str, int], kinds, link=None) -> str:
+    """`N type` for each kind present, each linked to its issues when `link(kind)` gives a URL."""
+    parts = []
+    for kind in kinds:
+        if not counts.get(kind):
+            continue
+        text = f"{counts[kind]} {ISSUE_TYPES.get(kind, kind)}"
+        url = link(kind) if link else None
+        parts.append(f"[{text}]({url})" if url else text)
     return ", ".join(parts) or "—"
 
 
@@ -185,13 +216,22 @@ def build_licensing(projects: list[dict], token: str, org_id: str, block_on: lis
         link = fossa_link(project_locator, branch, revision)
         result = RESULT_LABELS.get(str(project.get("result") or ""), cell(project.get("result")))
 
-        counts, policy = None, ""
+        counts, policy, scan_id = None, "", None
         if token and revision:
             try:
                 counts = fossa_issue_counts(token, project_locator, revision)
                 policy = fossa_policy(token, project_locator)
             except Exception as exc:  # noqa: BLE001 - reporting must not fail the action
                 warn(f"Could not read FOSSA issues for {name}@{revision}: {exc}")
+            if counts is not None:
+                try:
+                    scan_id = fossa_revision_scan_id(token, project_locator, revision)
+                except Exception as exc:  # noqa: BLE001 - the links still work without it
+                    warn(f"Could not read FOSSA's scan of {name}@{revision}; issue links show its latest: {exc}")
+
+        # Only a revision page can be filtered; without branch and revision the counts stay plain.
+        def issues_link(kind: str, link=link) -> str | None:
+            return fossa_issues_link(link, kind, scan_id) if branch and revision else None
 
         if counts is None:
             blocking_cell, other_cell = "—", "could not be read"
@@ -201,8 +241,12 @@ def build_licensing(projects: list[dict], token: str, org_id: str, block_on: lis
             blocking_kinds.update(k for k in block_on if counts.get(k))
             other = [k for k in counts if k not in block_on]
             other_kinds.update(other)
-            blocking_cell = f"**{describe_counts(counts, block_on)}**" if blocking else "0"
-            other_cell = describe_counts(counts, [k for k in ISSUE_TYPES if k in other] + [k for k in other if k not in ISSUE_TYPES])
+            blocking_cell = f"**{describe_counts(counts, block_on, issues_link)}**" if blocking else "0"
+            other_cell = describe_counts(
+                counts,
+                [k for k in ISSUE_TYPES if k in other] + [k for k in other if k not in ISSUE_TYPES],
+                issues_link,
+            )
 
         lines.append(
             f"| {cell(project.get('label') or name)} | [{cell(name)}]({link}) "
@@ -212,7 +256,7 @@ def build_licensing(projects: list[dict], token: str, org_id: str, block_on: lis
     guide = env("FOSSA_GUIDE_URL") or DEFAULT_GUIDE_URL
     lines.append("")
     if blocking_kinds:
-        lines.append("**To unblock**, open the project's issues from the table and resolve each one:")
+        lines.append("**To unblock**, open each blocking count in the table, which lists those issues in FOSSA, and resolve each one:")
         lines.append("")
         lines.extend(f"- {RECOMMENDATIONS[k]}" for k in ISSUE_TYPES if k in blocking_kinds)
         lines.append("")
