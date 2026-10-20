@@ -42,7 +42,7 @@ Every scan and Guardian action this report summarises writes its own job summary
 | `guardian_full_version` | no | | The build the gate is read for. |
 | `guardian_unifiers` | no | `fossa,prisma` | Scanners synced, as shown in the overview. |
 | `guardian_sync_response` | no | | `guardian-db-sync`'s `response_json`, for the sync counts. |
-| `guardian_gate_response_file` | no | | Path to the response `guardian-vulnerability-gate` wrote. When readable, the report shows the verdict the caller decided on rather than evaluating the gate again; otherwise it evaluates the gate, a read-only call that Guardian records nothing for. |
+| `guardian_gate_response_file` | no | | Path to the response `guardian-vulnerability-gate` wrote: its `response_file` output, or where you downloaded that file in another job. When it holds a gate verdict, the report shows the verdict the caller decided on rather than evaluating the gate again; otherwise it evaluates the gate, a read-only call that Guardian records nothing for. |
 | `guardian_dashboard_url` | no | | Guardian dashboard base URL, for CVE and product links. Not the API URL, which is masked and would print as `***`. |
 | `jira_base_url` | no | `https://sol-jira.atlassian.net` | Jira base URL. |
 | `show_details` | no | by visibility | List the Jira issues with descriptions. Defaults to `true` for private and internal repositories. |

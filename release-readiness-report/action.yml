@@ -79,7 +79,7 @@ inputs:
     required: false
     default: ""
   guardian_gate_response_file:
-    description: "Path to the response guardian-vulnerability-gate wrote (`guardian-vulnerability-gate-response.json`). When it is readable, the report shows that verdict, the one the caller decided on, instead of evaluating the gate again. Optional."
+    description: "Path to the response guardian-vulnerability-gate wrote, its `response_file` output. When it holds a gate verdict, the report shows that verdict, the one the caller decided on, instead of evaluating the gate again. Optional."
     required: false
     default: ""
   guardian_dashboard_url:

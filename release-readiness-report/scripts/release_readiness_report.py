@@ -379,8 +379,9 @@ def gate_response_from_file() -> dict | None:
     except (OSError, ValueError) as exc:
         warn(f"Could not read the gate response at {path} ({exc}); evaluating the gate instead.")
         return None
-    if not isinstance(payload, dict):
-        warn(f"The gate response at {path} is not a JSON object; evaluating the gate instead.")
+    # A failed call leaves Guardian's error body in the file, which carries no verdict.
+    if not isinstance(payload, dict) or "overall_blocked" not in payload:
+        warn(f"The gate response at {path} holds no gate verdict; evaluating the gate instead.")
         return None
     return payload
 

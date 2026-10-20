@@ -52,6 +52,7 @@ def issues_url(kind, scan_id=222):
     return f"{url}&revisionScanId={scan_id}" if scan_id else url
 
 GATE = {
+    "overall_blocked": True,
     "results": [
         {
             "repository": "app",
@@ -297,6 +298,12 @@ class ReportTest(unittest.TestCase):
 
     def test_an_unreadable_gate_response_falls_back_to_the_gate(self):
         text, outputs = self.run_report(GUARDIAN_GATE_RESPONSE_FILE=str(Path(self.tmp.name) / "missing.json"))
+        self.assertEqual(outputs["guardian_blocking"], "1")
+
+    def test_an_error_body_in_the_gate_response_falls_back_to_the_gate(self):
+        response = Path(self.tmp.name) / "gate.json"
+        response.write_text(report.json.dumps({"detail": "Product not found"}))
+        text, outputs = self.run_report(GUARDIAN_GATE_RESPONSE_FILE=str(response))
         self.assertEqual(outputs["guardian_blocking"], "1")
 
     def test_no_gate_result_for_the_product_leaves_the_count_empty(self):
