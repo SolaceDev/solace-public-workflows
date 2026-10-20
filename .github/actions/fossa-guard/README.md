@@ -76,6 +76,7 @@ permissions:
 | `diff_base_revision_sha` | (auto-detect) | Base revision SHA to compare against (optional - auto-detects default branch) |
 | `enable_license_enrichment` | `true` | Show declared/discovered license indicators (`true`/`false`) |
 | `enable_privacy_mode` | `false` | Hide detailed violation information in GitHub step summary (`true`/`false`) |
+| `write_step_summary` | `true` | Write the guard's report to the GitHub job summary (`true`/`false`). Set `false` when the caller writes one consolidated summary. |
 
 ### Issue Types Explained
 - **policy_conflict**: There is a known explicit policy violation (FOSSA terminology). This means the license or dependency is denied in your FOSSA policy and should block the build.

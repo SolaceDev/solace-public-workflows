@@ -1,0 +1,162 @@
+name: "Release Readiness Report"
+description: "Write one consolidated release readiness summary: the verdict, FOSSA licensing per project with links and recommendations, and the Guardian report for the build."
+author: "Solace"
+
+inputs:
+  title:
+    description: "Heading of the report, e.g. `Release readiness: 1.4.0-rc.3`."
+    required: false
+    default: "Release readiness"
+  status:
+    description: "The caller's verdict: `ready` or `blocked`."
+    required: true
+  reasons:
+    description: "Why the release is blocked, one per line. Shown under the verdict."
+    required: false
+    default: ""
+  links:
+    description: "Links shown inline under the heading, one `Label | URL` per line (the commit, the image...). The action adds each FOSSA revision, the Prisma scan and the Guardian product page."
+    required: false
+    default: ""
+  context:
+    description: "Context lines shown as bullets under the verdict (image, commit, Guardian product...), one per line, Markdown allowed."
+    required: false
+    default: ""
+  notes:
+    description: "Notes shown as a quote under the verdict, one per line (e.g. an admin bypass)."
+    required: false
+    default: ""
+  fossa_api_key:
+    description: "FOSSA API key, for the licensing section. Pass it as a secret."
+    required: false
+    default: ""
+  fossa_org_id:
+    description: "FOSSA organisation locator prefix."
+    required: false
+    default: "custom+48578"
+  fossa_projects:
+    description: >-
+      JSON list of the FOSSA projects to report, in order. Each entry: `label` (row name),
+      `project` (FOSSA project id), `branch` and `revision` (what the scan recorded), and
+      `result` (the caller's licensing gate result: success, failure, cancelled or skipped).
+      Empty omits the licensing section.
+    required: false
+    default: ""
+  fossa_block_on:
+    description: "FOSSA licensing issue types that block, comma-separated, as given to fossa-guard."
+    required: false
+    default: "policy_conflict,unlicensed_dependency"
+  fossa_guide_url:
+    description: "Page linked as the guide to resolving licence issues."
+    required: false
+    default: "https://sol-jira.atlassian.net/wiki/spaces/DevOps/pages/6542262516/Resolving+License+Compliance+Issues+in+FOSSA"
+  guardian_url:
+    description: "Guardian API base URL. Empty omits the Guardian section."
+    required: false
+    default: ""
+  guardian_key:
+    description: "Guardian API token. Pass it as a secret."
+    required: false
+    default: ""
+  guardian_product_name:
+    description: "Guardian product name."
+    required: false
+    default: ""
+  guardian_product_version:
+    description: "Guardian product version (the stream, e.g. `main`), for the dashboard link."
+    required: false
+    default: ""
+  guardian_full_version:
+    description: "Guardian product full version (the build) the gate is read for."
+    required: false
+    default: ""
+  guardian_unifiers:
+    description: "Scanners synced, as shown in the overview."
+    required: false
+    default: "fossa,prisma"
+  guardian_sync_response:
+    description: "guardian-db-sync's `response_json`, for the sync counts in the overview. Optional."
+    required: false
+    default: ""
+  guardian_gate_response_file:
+    description: "Path to the response guardian-vulnerability-gate wrote, its `response_file` output. When it holds a gate verdict, the report shows that verdict, the one the caller decided on, instead of evaluating the gate again. Optional."
+    required: false
+    default: ""
+  guardian_dashboard_url:
+    description: "Guardian dashboard base URL (not the API URL, which is masked). When set, CVEs link to the dashboard; otherwise to their advisories."
+    required: false
+    default: ""
+  jira_base_url:
+    description: "Jira base URL used to link the Jira issues."
+    required: false
+    default: "https://sol-jira.atlassian.net"
+  show_details:
+    description: "List the Guardian Jira issues, with descriptions (`true`/`false`). Defaults to `true` for private and internal repositories, `false` otherwise."
+    required: false
+    default: ""
+  max_rows:
+    description: "Most Jira issues listed in the Guardian section."
+    required: false
+    default: "50"
+  write_step_summary:
+    description: "Write the report to the job summary. With `false`, it is only written to `report_path`."
+    required: false
+    default: "true"
+
+outputs:
+  report_path:
+    description: "Path of the report as a Markdown file."
+    value: ${{ steps.report.outputs.report_path }}
+  licensing_blocking:
+    description: "Blocking FOSSA licensing issues across the projects; empty when not read."
+    value: ${{ steps.report.outputs.licensing_blocking }}
+  guardian_blocking:
+    description: "Guardian findings past their SLA; empty when not read."
+    value: ${{ steps.report.outputs.guardian_blocking }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Write the release readiness report
+      id: report
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        TITLE: ${{ inputs.title }}
+        STATUS: ${{ inputs.status }}
+        REASONS: ${{ inputs.reasons }}
+        CONTEXT: ${{ inputs.context }}
+        LINKS: ${{ inputs.links }}
+        NOTES: ${{ inputs.notes }}
+        FOSSA_API_KEY: ${{ inputs.fossa_api_key }}
+        FOSSA_ORG_ID: ${{ inputs.fossa_org_id }}
+        FOSSA_PROJECTS: ${{ inputs.fossa_projects }}
+        FOSSA_BLOCK_ON: ${{ inputs.fossa_block_on }}
+        FOSSA_GUIDE_URL: ${{ inputs.fossa_guide_url }}
+        GUARDIAN_URL: ${{ inputs.guardian_url }}
+        GUARDIAN_KEY: ${{ inputs.guardian_key }}
+        GUARDIAN_PRODUCT_NAME: ${{ inputs.guardian_product_name }}
+        GUARDIAN_PRODUCT_VERSION: ${{ inputs.guardian_product_version }}
+        GUARDIAN_FULL_VERSION: ${{ inputs.guardian_full_version }}
+        GUARDIAN_UNIFIERS: ${{ inputs.guardian_unifiers }}
+        GUARDIAN_SYNC_RESPONSE: ${{ inputs.guardian_sync_response }}
+        GUARDIAN_GATE_RESPONSE_FILE: ${{ inputs.guardian_gate_response_file }}
+        GUARDIAN_DASHBOARD_URL: ${{ inputs.guardian_dashboard_url }}
+        JIRA_BASE_URL: ${{ inputs.jira_base_url }}
+        INPUT_SHOW_DETAILS: ${{ inputs.show_details }}
+        EVENT_VISIBILITY: ${{ github.event.repository.visibility || '' }}
+        MAX_ROWS: ${{ inputs.max_rows }}
+        WRITE_STEP_SUMMARY: ${{ inputs.write_step_summary }}
+      run: |
+        set -euo pipefail
+        [ -n "$GUARDIAN_URL" ] && echo "::add-mask::$GUARDIAN_URL"
+        # Unknown visibility is treated like public: no per-issue detail.
+        SHOW_DETAILS="$(printf '%s' "$INPUT_SHOW_DETAILS" | tr '[:upper:]' '[:lower:]')"
+        if [ -z "$SHOW_DETAILS" ]; then
+          case "$EVENT_VISIBILITY" in
+            private|internal) SHOW_DETAILS=true ;;
+            *) SHOW_DETAILS=false ;;
+          esac
+        fi
+        export SHOW_DETAILS
+        python3 "$ACTION_PATH/scripts/release_readiness_report.py"

@@ -25,6 +25,7 @@ This action does not upload scan files and does not run the vulnerability gate. 
 - `poll-interval` — default `10`. Seconds between status polls. The defaults are sufficient; override only if needed.
 - `poll-timeout` — default `1800`. Fail if the reconcile hasn't finished by then.
 - `upload-logs`
+- `write-step-summary` (default `true`): set `false` when the caller writes one consolidated summary, e.g. with [`release-readiness-report`](../release-readiness-report/).
 
 ## Outputs
 

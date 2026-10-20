@@ -84,12 +84,18 @@ inputs:
     description: "Hide detailed violation information in GitHub step summary (true/false)"
     required: false
     default: "false"
+  write_step_summary:
+    description: "Write the guard's report to the GitHub job summary (true/false). Set to false when the caller writes one consolidated summary."
+    required: false
+    default: "true"
 
 runs:
   using: composite
   steps:
     - name: Run Fossa Guard
       shell: bash
+      env:
+        WRITE_STEP_SUMMARY: ${{ inputs.write_step_summary }}
       run: |
         OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
 
@@ -139,6 +145,10 @@ runs:
         # GITHUB_OUTPUT and GITHUB_STEP_SUMMARY live under _runner_file_commands/,
         # not under RUNNER_TEMP — mount their parent dir so the container can write outputs.
         GITHUB_OUTPUT_DIR=$(dirname "$GITHUB_OUTPUT")
+        # The script writes wherever GITHUB_STEP_SUMMARY points; /dev/null exists in the container too.
+        if [ "$WRITE_STEP_SUMMARY" = "false" ]; then
+          GITHUB_STEP_SUMMARY=/dev/null
+        fi
 
         docker run --rm \
           -e FOSSA_API_KEY \

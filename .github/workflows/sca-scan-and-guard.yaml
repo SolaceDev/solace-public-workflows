@@ -130,6 +130,16 @@ on:
         required: false
         type: string
         default: ""
+      write_step_summary:
+        description: "Write this workflow's scan context, results and guard reports to the job summary. Set to false when the caller writes one consolidated summary (e.g. release-readiness-report)."
+        required: false
+        type: boolean
+        default: true
+      fossa_licensing_mode:
+        description: "Override the config file's licensing mode for this run: BLOCK or REPORT. Empty keeps the config file's (or the default's). REPORT still scans, reports and uploads, but never fails the job on a licensing issue; overriding a config's BLOCK this way raises a warning in the run."
+        required: false
+        type: string
+        default: ""
 
     secrets:
       FOSSA_API_KEY:
@@ -171,6 +181,8 @@ jobs:
       FOSSA_ORG_ID: custom+48578
       # Keep equal to timeout-minutes above, which cannot read env.
       JOB_TIMEOUT_MINUTES: "90"
+      # Steps that write the job summary send it to /dev/null when this is false.
+      WRITE_STEP_SUMMARY: ${{ inputs.write_step_summary }}
 
     steps:
       - name: Check Admin Permissions for Bypass
@@ -209,6 +221,7 @@ jobs:
           GITHUB_SHA: ${{ github.sha }}
           GITHUB_REF: ${{ github.ref }}
         run: |
+          if [[ "$WRITE_STEP_SUMMARY" == "false" ]]; then GITHUB_STEP_SUMMARY=/dev/null; fi
           echo "### 🔍 SCA Scan Context Detection" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           # The PR base steps budget their timeouts against the job's, from here.
@@ -306,8 +319,21 @@ jobs:
           CONFIG_FOSSA_LABELS: ${{ steps.config_loader.outputs.fossa_labels }}
           CONFIG_GUARDIAN_URL: ${{ steps.config_loader.outputs.guardian_url }}
           CONFIG_GUARDIAN_PR_SCAN_UPLOAD: ${{ steps.config_loader.outputs.guardian_pr_scan_upload }}
+          LICENSING_MODE_OVERRIDE: ${{ inputs.fossa_licensing_mode }}
         run: |
-          # Priority: config file > defaults
+          # Priority: the fossa_licensing_mode input > config file > defaults
+          case "${LICENSING_MODE_OVERRIDE}" in
+            ""|BLOCK|REPORT) ;;
+            *) echo "::error::fossa_licensing_mode must be BLOCK, REPORT or empty, not '${LICENSING_MODE_OVERRIDE}'"; exit 1 ;;
+          esac
+          if [[ -n "${LICENSING_MODE_OVERRIDE}" ]]; then
+            echo "📝 Licensing mode set by input: ${LICENSING_MODE_OVERRIDE}"
+            # A caller may report what the repository's config would block (e.g. while licence
+            # decisions are pending); that is visible in every run rather than silent.
+            if [[ "${LICENSING_MODE_OVERRIDE}" == REPORT && -n "$CONFIG_FILE" && "${CONFIG_FOSSA_LICENSING_MODE}" == BLOCK ]]; then
+              echo "::warning title=Licensing not blocking::fossa_licensing_mode REPORT overrides ${CONFIG_FILE}'s BLOCK for this run: licensing issues are reported, not blocking."
+            fi
+          fi
           if [[ -n "$CONFIG_FILE" ]]; then
             echo "📝 Using configuration from file: $CONFIG_FILE"
             echo "vault_url=${CONFIG_VAULT_URL}" >> $GITHUB_OUTPUT
@@ -322,7 +348,7 @@ jobs:
             } >> $GITHUB_OUTPUT
 
             echo "slack_channel=${CONFIG_SLACK_CHANNEL}" >> $GITHUB_OUTPUT
-            echo "fossa_licensing_mode=${CONFIG_FOSSA_LICENSING_MODE}" >> $GITHUB_OUTPUT
+            echo "fossa_licensing_mode=${LICENSING_MODE_OVERRIDE:-${CONFIG_FOSSA_LICENSING_MODE}}" >> $GITHUB_OUTPUT
             echo "fossa_licensing_block_on=${CONFIG_FOSSA_LICENSING_BLOCK_ON}" >> $GITHUB_OUTPUT
             echo "fossa_vulnerability_mode=${CONFIG_FOSSA_VULNERABILITY_MODE}" >> $GITHUB_OUTPUT
             echo "fossa_vulnerability_block_on=${CONFIG_FOSSA_VULNERABILITY_BLOCK_ON}" >> $GITHUB_OUTPUT
@@ -338,7 +364,7 @@ jobs:
             echo "vault_role=" >> $GITHUB_OUTPUT
             echo "vault_secret_mappings=" >> $GITHUB_OUTPUT
             echo "slack_channel=" >> $GITHUB_OUTPUT
-            echo "fossa_licensing_mode=REPORT" >> $GITHUB_OUTPUT
+            echo "fossa_licensing_mode=${LICENSING_MODE_OVERRIDE:-REPORT}" >> $GITHUB_OUTPUT
             echo "fossa_licensing_block_on=policy_conflict" >> $GITHUB_OUTPUT
             echo "fossa_vulnerability_mode=REPORT" >> $GITHUB_OUTPUT
             echo "fossa_vulnerability_block_on=critical,high" >> $GITHUB_OUTPUT
@@ -667,6 +693,7 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           BASE_REF: ${{ github.base_ref }}
         run: |
+          if [[ "$WRITE_STEP_SUMMARY" == "false" ]]; then GITHUB_STEP_SUMMARY=/dev/null; fi
           fallback="fossa-guard's auto-detected base, which may be the wrong commit"
           if [[ -n "$EXISTING" ]]; then
             revision="$EXISTING"; source="existing FOSSA revision"
@@ -701,6 +728,7 @@ jobs:
           enable_status_check: ${{ github.event_name == 'pull_request' }}
           status_check_name: "FOSSA SCA Licensing"
           enable_privacy_mode: ${{ steps.privacy_mode.outputs.enable_privacy_mode }}
+          write_step_summary: ${{ inputs.write_step_summary }}
           github_token: ${{ github.token }}
 
       - name: FOSSA Vulnerability Check
@@ -721,6 +749,7 @@ jobs:
           enable_status_check: ${{ github.event_name == 'pull_request' }}
           status_check_name: "FOSSA SCA Vulnerabilities"
           enable_privacy_mode: ${{ steps.privacy_mode.outputs.enable_privacy_mode }}
+          write_step_summary: ${{ inputs.write_step_summary }}
           github_token: ${{ github.token }}
 
       - name: Report SCA Scan Results
@@ -740,6 +769,7 @@ jobs:
           FOSSA_REVISION: ${{ steps.fossa_params.outputs.effective_revision }}
           SCAN_TYPE: ${{ steps.context.outputs.scan_type }}
         run: |
+          if [[ "$WRITE_STEP_SUMMARY" == "false" ]]; then GITHUB_STEP_SUMMARY=/dev/null; fi
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "---" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -804,6 +834,7 @@ jobs:
           LICENSING_BLOCK_ON: ${{ steps.config.outputs.fossa_licensing_block_on }}
           FOSSA_PROJECT_ID: ${{ steps.fossa_project.outputs.FOSSA_PROJECT_ID }}
         run: |
+          if [[ "$WRITE_STEP_SUMMARY" == "false" ]]; then GITHUB_STEP_SUMMARY=/dev/null; fi
           GUIDE_URL="https://sol-jira.atlassian.net/wiki/spaces/DevOps/pages/6542262516/Resolving+License+Compliance+Issues+in+FOSSA"
           DASHBOARD_URL="https://app.fossa.com/projects/${FOSSA_ORG_ID/+/%2B}%2F${FOSSA_PROJECT_ID}"
 
