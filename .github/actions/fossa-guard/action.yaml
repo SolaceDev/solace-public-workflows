@@ -188,5 +188,5 @@ runs:
           -v "${RUNNER_TEMP}:${RUNNER_TEMP}" \
           -v "${GITHUB_OUTPUT_DIR}:${GITHUB_OUTPUT_DIR}" \
           --workdir /github/workspace \
-          "ghcr.io/${OWNER}/maas-build-actions@sha256:9b20335bf4d620ed2e9ad33b438037a71688206c9559160af3c62a1032307cda" \
+          "ghcr.io/${OWNER}/maas-build-actions@sha256:b5da0be288656bd440c7794a19e15e2d42b3dcb842c2f9eea0e2d34eb9c8b10a" \
           /bin/sh -c 'source /maas-build-actions/venv/bin/activate && python3 /maas-build-actions/scripts/fossa-guard/fossa_guard.py'
