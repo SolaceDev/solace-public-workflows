@@ -7,7 +7,7 @@ PRODUCT_NAME=""
 PRODUCT_FULL_VERSION=""
 UNIFIERS=""
 DEPENDENCY_GRAPH=""
-PRODUCT_VERSION_FOR_UPLOAD=""
+REQUEST_PRODUCT_VERSION=""
 COLLECTION=""
 JIRA_COLLECTION_NAME=""
 JIRA_PROFILE=""
@@ -30,7 +30,9 @@ Optional:
   --unifiers <csv>                 Comma-separated unifiers, e.g. fossa,prisma
   --dependency-graph <path>        trivy repo JSON to upload before the sync (fix reachability).
                                    Needs --product-version and --product-full-version.
-  --product-version <version>      Version the scans were uploaded under, e.g. main
+  --product-version <version>      Version stream the scans were uploaded under and are synced
+                                   into, e.g. main or a release line such as 1.2. Defaults to
+                                   the product's trunk_branch in Guardian.
   --collection <name>
   --jira-collection-name <name>
   --jira-profile <name>
@@ -276,7 +278,7 @@ while [ $# -gt 0 ]; do
       shift 2
       ;;
     --product-version)
-      PRODUCT_VERSION_FOR_UPLOAD="$2"
+      REQUEST_PRODUCT_VERSION="$2"
       shift 2
       ;;
     --collection)
@@ -357,6 +359,7 @@ fi
 REQUEST_BODY="$(
   jq -n \
     --arg product_name "$PRODUCT_NAME" \
+    --arg product_version "$REQUEST_PRODUCT_VERSION" \
     --arg product_full_version "$PRODUCT_FULL_VERSION" \
     --argjson unifiers "$UNIFIERS_JSON" \
     --arg collection "$COLLECTION" \
@@ -367,6 +370,7 @@ REQUEST_BODY="$(
       product_name: $product_name,
       jira_dry_run: $jira_dry_run
     }
+    + (if $product_version != "" then {product_version: $product_version} else {} end)
     + (if $product_full_version != "" then {product_full_version: $product_full_version} else {} end)
     + (if ($unifiers | length) > 0 then {unifiers: $unifiers} else {} end)
     + (if $collection != "" then {collection: $collection} else {} end)
@@ -376,6 +380,9 @@ REQUEST_BODY="$(
 
 echo "Running Guardian sync and report (async) via $GUARDIAN_URL/api/v1/db_synch_and_report_async"
 echo "  Product: $PRODUCT_NAME"
+if [ -n "$REQUEST_PRODUCT_VERSION" ]; then
+  echo "  Product version: $REQUEST_PRODUCT_VERSION"
+fi
 if [ -n "$PRODUCT_FULL_VERSION" ]; then
   echo "  Product full version override: $PRODUCT_FULL_VERSION"
 fi
@@ -403,7 +410,7 @@ upload_dependency_graph() {
     echo "::warning::Dependency graph $DEPENDENCY_GRAPH not found, syncing without it"
     return 0
   fi
-  if [ -z "$PRODUCT_VERSION_FOR_UPLOAD" ] || [ -z "$PRODUCT_FULL_VERSION" ]; then
+  if [ -z "$REQUEST_PRODUCT_VERSION" ] || [ -z "$PRODUCT_FULL_VERSION" ]; then
     echo "::warning::--dependency-graph needs --product-version and --product-full-version, syncing without it"
     return 0
   fi
@@ -417,7 +424,7 @@ upload_dependency_graph() {
       -X POST \
       -H "Authorization: Bearer $GUARDIAN_KEY" \
       -F "product_name=$PRODUCT_NAME" \
-      -F "product_version=$PRODUCT_VERSION_FOR_UPLOAD" \
+      -F "product_version=$REQUEST_PRODUCT_VERSION" \
       -F "product_full_version=$PRODUCT_FULL_VERSION" \
       -F "scan_time=$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
       -F "dependency_graph=@${DEPENDENCY_GRAPH};type=application/json" \
@@ -455,6 +462,9 @@ DB_RESURFACED="$(jq -r '.db_synch.summary.resurfaced // 0' "$RESPONSE_FILE")"
 
 echo "Guardian sync and report completed"
 echo "  Product: $PRODUCT_NAME"
+if [ -n "$PRODUCT_VERSION" ]; then
+  echo "  Product version: $PRODUCT_VERSION"
+fi
 echo "  Display version: $DISPLAY_VERSION"
 echo "  DB summary: $DB_SUMMARY"
 
