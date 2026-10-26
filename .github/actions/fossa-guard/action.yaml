@@ -89,10 +89,22 @@ inputs:
     required: false
     default: "true"
 
+outputs:
+  verdict:
+    description: >-
+      What the guard concluded: passed (exit 0), blocked (exit 2, blocking issues found), or error
+      (no verdict: the container did not run, FOSSA could not be queried, or the guard failed). The
+      step fails on both blocked and error, so callers read this to tell a finding from a failure.
+    value: ${{ steps.guard.outputs.verdict }}
+  exit_code:
+    description: "The guard's exit code. 125 to 127 come from docker run when the container did not start."
+    value: ${{ steps.guard.outputs.exit_code }}
+
 runs:
   using: composite
   steps:
     - name: Run Fossa Guard
+      id: guard
       shell: bash
       env:
         WRITE_STEP_SUMMARY: ${{ inputs.write_step_summary }}
@@ -150,6 +162,7 @@ runs:
           GITHUB_STEP_SUMMARY=/dev/null
         fi
 
+        status=0
         docker run --rm \
           -e FOSSA_API_KEY \
           -e FOSSA_PROJECT_ID \
@@ -189,4 +202,17 @@ runs:
           -v "${GITHUB_OUTPUT_DIR}:${GITHUB_OUTPUT_DIR}" \
           --workdir /github/workspace \
           "ghcr.io/${OWNER}/maas-build-actions@sha256:766f736d041c348ee7a05cd3e101aa7d79c1fd531bb7185a5c95a3902e47966c" \
-          /bin/sh -c 'source /maas-build-actions/venv/bin/activate && python3 /maas-build-actions/scripts/fossa-guard/fossa_guard.py'
+          /bin/sh -c 'source /maas-build-actions/venv/bin/activate && python3 /maas-build-actions/scripts/fossa-guard/fossa_guard.py' \
+          || status=$?
+
+        # fossa_guard.py exits 2 on blocking issues and 0 otherwise; anything else, including
+        # docker run's own 125 to 127, means no verdict was reached.
+        case "$status" in
+          0) verdict=passed ;;
+          2) verdict=blocked ;;
+          *) verdict=error
+             echo "::error::FOSSA Guard reached no verdict (exit $status); see the output above. This is not a ${FOSSA_CATEGORY} finding." ;;
+        esac
+        echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
+        echo "exit_code=$status" >> "$GITHUB_OUTPUT"
+        exit "$status"

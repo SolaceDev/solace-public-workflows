@@ -756,9 +756,13 @@ jobs:
         if: always()
         env:
           LICENSING_OUTCOME: ${{ steps.fossa_licensing.outcome }}
+          LICENSING_VERDICT: ${{ steps.fossa_licensing.outputs.verdict }}
+          LICENSING_EXIT_CODE: ${{ steps.fossa_licensing.outputs.exit_code }}
           LICENSING_MODE: ${{ steps.config.outputs.fossa_licensing_mode }}
           LICENSING_BLOCK_ON: ${{ steps.config.outputs.fossa_licensing_block_on }}
           VULNERABILITY_OUTCOME: ${{ steps.fossa_vulnerabilities.outcome }}
+          VULNERABILITY_VERDICT: ${{ steps.fossa_vulnerabilities.outputs.verdict }}
+          VULNERABILITY_EXIT_CODE: ${{ steps.fossa_vulnerabilities.outputs.exit_code }}
           VULNERABILITY_MODE: ${{ steps.config.outputs.fossa_vulnerability_mode }}
           VULNERABILITY_BLOCK_ON: ${{ steps.config.outputs.fossa_vulnerability_block_on }}
           SKIP_POLICY_GATE: ${{ inputs.skip_policy_gate }}
@@ -780,6 +784,9 @@ jobs:
           if [[ "$LICENSING_OUTCOME" == "success" ]]; then
             echo "✅ **Licensing Check**: PASSED" >> $GITHUB_STEP_SUMMARY
             echo "   _Mode: $LICENSING_MODE, Block on: $LICENSING_BLOCK_ON_" >> $GITHUB_STEP_SUMMARY
+          elif [[ "$LICENSING_OUTCOME" == "failure" && "$LICENSING_VERDICT" != "blocked" ]]; then
+            echo "❌ **Licensing Check**: DID NOT COMPLETE (exit ${LICENSING_EXIT_CODE:-unknown}, no verdict)" >> "$GITHUB_STEP_SUMMARY"
+            echo "   _Not a policy finding: the guard did not run to the end. See the licensing check's step log._" >> "$GITHUB_STEP_SUMMARY"
           elif [[ "$LICENSING_OUTCOME" == "failure" ]]; then
             if [[ "$LICENSING_MODE" == "BLOCK" ]]; then
               echo "❌ **Licensing Check**: FAILED (policy conflicts detected) - BLOCKING" >> $GITHUB_STEP_SUMMARY
@@ -800,6 +807,9 @@ jobs:
           if [[ "$VULNERABILITY_OUTCOME" == "success" ]]; then
             echo "✅ **Vulnerability Check**: PASSED" >> $GITHUB_STEP_SUMMARY
             echo "   _Mode: $VULNERABILITY_MODE, Block on: $VULNERABILITY_BLOCK_ON_" >> $GITHUB_STEP_SUMMARY
+          elif [[ "$VULNERABILITY_OUTCOME" == "failure" && "$VULNERABILITY_VERDICT" != "blocked" ]]; then
+            echo "⚠️ **Vulnerability Check**: DID NOT COMPLETE (exit ${VULNERABILITY_EXIT_CODE:-unknown}, no verdict)" >> "$GITHUB_STEP_SUMMARY"
+            echo "   _Not a vulnerability finding: the guard did not run to the end. See the vulnerability check's step log._" >> "$GITHUB_STEP_SUMMARY"
           elif [[ "$VULNERABILITY_OUTCOME" == "failure" ]]; then
             if [[ "$VULNERABILITY_MODE" == "BLOCK" ]]; then
               echo "❌ **Vulnerability Check**: FAILED ($VULNERABILITY_BLOCK_ON vulnerabilities detected) - BLOCKING" >> $GITHUB_STEP_SUMMARY
@@ -833,8 +843,24 @@ jobs:
         env:
           LICENSING_BLOCK_ON: ${{ steps.config.outputs.fossa_licensing_block_on }}
           FOSSA_PROJECT_ID: ${{ steps.fossa_project.outputs.FOSSA_PROJECT_ID }}
+          VERDICT: ${{ steps.fossa_licensing.outputs.verdict }}
+          EXIT_CODE: ${{ steps.fossa_licensing.outputs.exit_code }}
         run: |
           if [[ "$WRITE_STEP_SUMMARY" == "false" ]]; then GITHUB_STEP_SUMMARY=/dev/null; fi
+          # A failed step is a policy finding only when the guard says so (verdict blocked). Anything
+          # else reached no verdict; it still blocks, since licensing was not confirmed.
+          if [[ "$VERDICT" != "blocked" ]]; then
+            echo "❌ FOSSA licensing check did not complete (exit ${EXIT_CODE:-unknown}), so no licensing verdict was reached."
+            echo "This is not a policy conflict. The licensing check's step log shows why it stopped, for example an image pull or a FOSSA API error."
+            echo "Re-run the job; if it fails the same way, the cause is in that log, not in FOSSA."
+            {
+              echo "### ❌ FOSSA licensing check did not complete"
+              echo ""
+              echo "The guard stopped with exit ${EXIT_CODE:-unknown} before reaching a verdict, so the licensing gate stays closed. This is **not** a policy conflict: the licensing check's step log shows the cause. Re-run the job."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
           GUIDE_URL="https://sol-jira.atlassian.net/wiki/spaces/DevOps/pages/6542262516/Resolving+License+Compliance+Issues+in+FOSSA"
           DASHBOARD_URL="https://app.fossa.com/projects/${FOSSA_ORG_ID/+/%2B}%2F${FOSSA_PROJECT_ID}"
 
@@ -868,7 +894,14 @@ jobs:
           steps.config.outputs.fossa_vulnerability_mode == 'BLOCK'
         env:
           VULNERABILITY_BLOCK_ON: ${{ steps.config.outputs.fossa_vulnerability_block_on }}
+          VERDICT: ${{ steps.fossa_vulnerabilities.outputs.verdict }}
+          EXIT_CODE: ${{ steps.fossa_vulnerabilities.outputs.exit_code }}
         run: |
+          if [[ "$VERDICT" != "blocked" ]]; then
+            echo "❌ FOSSA vulnerability check did not complete (exit ${EXIT_CODE:-unknown}), so no vulnerability verdict was reached."
+            echo "This is not a vulnerability finding. The vulnerability check's step log shows why it stopped. Re-run the job."
+            exit 1
+          fi
           echo "❌ FOSSA vulnerability check failed. $VULNERABILITY_BLOCK_ON severity vulnerabilities detected."
           echo "Review the FOSSA dashboard for details and remediate vulnerabilities."
           echo ""
