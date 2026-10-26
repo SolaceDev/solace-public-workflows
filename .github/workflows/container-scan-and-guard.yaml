@@ -655,7 +655,11 @@ jobs:
             echo "✅ **Licensing Check**: PASSED" >> $GITHUB_STEP_SUMMARY
             echo "   _Mode: $LICENSING_MODE, Block on: $LICENSING_BLOCK_ON_" >> $GITHUB_STEP_SUMMARY
           elif [[ "$LICENSING_OUTCOME" == "failure" && "$LICENSING_VERDICT" != "blocked" ]]; then
-            echo "❌ **Licensing Check**: DID NOT COMPLETE (exit ${LICENSING_EXIT_CODE:-unknown}, no verdict)" >> "$GITHUB_STEP_SUMMARY"
+            if [[ "$LICENSING_MODE" == "BLOCK" ]]; then
+              echo "❌ **Licensing Check**: DID NOT COMPLETE (exit ${LICENSING_EXIT_CODE:-unknown}, no verdict) - BLOCKING" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "⚠️ **Licensing Check**: DID NOT COMPLETE (exit ${LICENSING_EXIT_CODE:-unknown}, no verdict) - REPORT ONLY" >> "$GITHUB_STEP_SUMMARY"
+            fi
             echo "   _Not a policy finding: the guard did not run to the end. See the licensing check's step log._" >> "$GITHUB_STEP_SUMMARY"
           elif [[ "$LICENSING_OUTCOME" == "failure" ]]; then
             if [[ "$LICENSING_MODE" == "BLOCK" ]]; then
@@ -678,7 +682,11 @@ jobs:
             echo "✅ **Vulnerability Check**: PASSED" >> $GITHUB_STEP_SUMMARY
             echo "   _Mode: $VULNERABILITY_MODE, Block on: $VULNERABILITY_BLOCK_ON_" >> $GITHUB_STEP_SUMMARY
           elif [[ "$VULNERABILITY_OUTCOME" == "failure" && "$VULNERABILITY_VERDICT" != "blocked" ]]; then
-            echo "⚠️ **Vulnerability Check**: DID NOT COMPLETE (exit ${VULNERABILITY_EXIT_CODE:-unknown}, no verdict)" >> "$GITHUB_STEP_SUMMARY"
+            if [[ "$VULNERABILITY_MODE" == "BLOCK" ]]; then
+              echo "❌ **Vulnerability Check**: DID NOT COMPLETE (exit ${VULNERABILITY_EXIT_CODE:-unknown}, no verdict) - BLOCKING" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "⚠️ **Vulnerability Check**: DID NOT COMPLETE (exit ${VULNERABILITY_EXIT_CODE:-unknown}, no verdict) - REPORT ONLY" >> "$GITHUB_STEP_SUMMARY"
+            fi
             echo "   _Not a vulnerability finding: the guard did not run to the end. See the vulnerability check's step log._" >> "$GITHUB_STEP_SUMMARY"
           elif [[ "$VULNERABILITY_OUTCOME" == "failure" ]]; then
             if [[ "$VULNERABILITY_MODE" == "BLOCK" ]]; then
@@ -767,6 +775,11 @@ jobs:
           if [[ "$VERDICT" != "blocked" ]]; then
             echo "❌ FOSSA vulnerability check did not complete (exit ${EXIT_CODE:-unknown}), so no vulnerability verdict was reached."
             echo "This is not a vulnerability finding. The vulnerability check's step log shows why it stopped. Re-run the job."
+            {
+              echo "### ❌ FOSSA vulnerability check did not complete"
+              echo ""
+              echo "The guard stopped with exit ${EXIT_CODE:-unknown} before reaching a verdict, so the vulnerability gate stays closed. This is **not** a vulnerability finding: the vulnerability check's step log shows the cause. Re-run the job."
+            } >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
           echo "❌ FOSSA vulnerability check failed. $VULNERABILITY_BLOCK_ON severity vulnerabilities detected in container image."
