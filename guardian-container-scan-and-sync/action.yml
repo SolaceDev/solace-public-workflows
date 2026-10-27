@@ -223,9 +223,9 @@ runs:
         fi
         SCAN_KEY="$(printf '%s' "$SCAN_KEY" | tr '/:@ ' '-' | tr -cd '[:alnum:]._-')"
         TRIVY_DIR="${RUNNER_TEMP}/guardian-trivy-${SCAN_KEY:-scan}"
-        mkdir -p "$TRIVY_DIR"
         # A failed scan must not pick up an earlier scan's report.
-        rm -f "$TRIVY_DIR/trivy_scan.json"
+        rm -rf "$TRIVY_DIR/trivy_scan.json" "$TRIVY_DIR/tmp"
+        mkdir -p "$TRIVY_DIR/tmp"
 
         {
           echo "repo_name=$REPO_NAME"
@@ -272,6 +272,11 @@ runs:
       id: trivy_scan
       if: ${{ !cancelled() && steps.ctx.outcome == 'success' && inputs.run_trivy == 'true' }}
       continue-on-error: true
+      # Trivy exports the image and extracts analyzed files under TMPDIR. /tmp is a
+      # size-capped tmpfs on newer runner images (ubuntu-26.04), too small for large
+      # images, so keep its scratch space on the runner disk.
+      env:
+        TMPDIR: ${{ steps.ctx.outputs.trivy_dir }}/tmp
       uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
       with:
         image-ref: ${{ steps.ctx.outputs.image_ref }}
