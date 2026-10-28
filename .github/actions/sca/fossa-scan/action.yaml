@@ -121,7 +121,7 @@ runs:
         # Prefer the event payload (exact message GitHub recorded) with git log as fallback
         COMMIT_MESSAGE=""
         if [ -f "$GITHUB_EVENT_PATH" ]; then
-          COMMIT_MESSAGE=$(jq -r '.head_commit.message // empty' "$GITHUB_EVENT_PATH" 2>/dev/null | head -1)
+          COMMIT_MESSAGE=$(jq -r '(.head_commit.message // empty) | split("\n")[0]' "$GITHUB_EVENT_PATH" 2>/dev/null)
         fi
         if [ -z "$COMMIT_MESSAGE" ]; then
           COMMIT_MESSAGE=$(git log -1 --pretty=%s 2>/dev/null || echo "")
@@ -142,8 +142,11 @@ runs:
           # Find the SHA of the previous release commit (skip HEAD, match first release line)
           # Anchored to start of subject (^[^ ]+ matches the SHA) to avoid false matches
           # where "chore(release):" appears mid-subject in a non-release commit.
+          # awk reads to EOF instead of exiting on the first match: an early exit closes the
+          # pipe while git log is still writing, git log dies with SIGPIPE (141), and the
+          # runner's `bash -eo pipefail` aborts the step before the upload.
           PREV_RELEASE_SHA=$(git log --skip=1 --format="%H %s" 2>/dev/null \
-            | awk '/^[^ ]+ chore\(release\):/{print $1; exit}')
+            | awk '!found && /^[^ ]+ chore\(release\):/{print $1; found=1}')
 
           if [ -n "$PREV_RELEASE_SHA" ]; then
             # Collect all non-release commit subjects between the two release commits:
