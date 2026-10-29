@@ -201,7 +201,7 @@ runs:
           -v "${RUNNER_TEMP}:${RUNNER_TEMP}" \
           -v "${GITHUB_OUTPUT_DIR}:${GITHUB_OUTPUT_DIR}" \
           --workdir /github/workspace \
-          "ghcr.io/${OWNER}/maas-build-actions@sha256:d556b454e0c3fb0c6592e43bf3093ad35f6830775ad3d561b1fd20b1bb818552" \
+          "ghcr.io/${OWNER}/maas-build-actions@sha256:a817f8b304cc82df3484bf826d7f48af986638c410eb6238a10a3313914ec297" \
           /bin/sh -c 'test -f /maas-build-actions/venv/bin/activate && test -f /maas-build-actions/scripts/fossa-guard/fossa_guard.py || exit 3; source /maas-build-actions/venv/bin/activate && python3 /maas-build-actions/scripts/fossa-guard/fossa_guard.py' \
           || status=$?
 
