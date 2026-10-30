@@ -25,7 +25,7 @@ inputs:
     required: false
     default: ""
   product-version:
-    description: "Product version (for example: main) the scans were uploaded under. Only used to upload dependency-graph."
+    description: "Version stream the scans were uploaded under and are synced into: main, or a release line such as 1.2 for a product that tracks several (findings, Jira groups and history are kept per stream). Empty uses the product's trunk_branch in Guardian. Also used to upload dependency-graph."
     required: false
     default: ""
   collection:
@@ -159,8 +159,11 @@ runs:
         if [ -n "${{ inputs.unifiers }}" ]; then
           args+=(--unifiers "${{ inputs.unifiers }}")
         fi
+        if [ -n "$INPUT_PRODUCT_VERSION" ]; then
+          args+=(--product-version "$INPUT_PRODUCT_VERSION")
+        fi
         if [ -n "$INPUT_DEPENDENCY_GRAPH" ]; then
-          args+=(--dependency-graph "$INPUT_DEPENDENCY_GRAPH" --product-version "$INPUT_PRODUCT_VERSION")
+          args+=(--dependency-graph "$INPUT_DEPENDENCY_GRAPH")
         fi
         if [ -n "${{ inputs.collection }}" ]; then
           args+=(--collection "${{ inputs.collection }}")
