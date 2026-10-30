@@ -174,13 +174,6 @@ runs:
         fi
         # BUILD_URL: full link to this workflow run for Slack notification deep-linking
         BUILD_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-        SLACK_JSON=$(jq -n \
-          --argjson report true \
-          --arg revision "$FOSSA_REVISION" \
-          --arg branch "$PRODUCT_VERSION" \
-          --arg commit_message "$COMMIT_MESSAGE" \
-          --arg build_url "$BUILD_URL" \
-          '{report: $report, revision: $revision, branch: $branch, commit_message: $commit_message, build_url: $build_url}')
 
         MAX_RETRIES=3
         RETRY_DELAY=5
@@ -190,6 +183,22 @@ runs:
         while [ $ATTEMPT -lt $MAX_RETRIES ]; do
           ATTEMPT=$((ATTEMPT + 1))
           echo "Upload attempt ${ATTEMPT}/${MAX_RETRIES}..."
+
+          # Guardian posts a "Scan backup failed" Slack alert for every failed
+          # upload. final_attempt tells it whether this one will be retried, so
+          # a transient FOSSA or S3 error that the next attempt recovers from
+          # is not reported; only the last attempt's failure is. A success is
+          # reported whichever attempt it lands on.
+          FINAL_ATTEMPT=false
+          [ $ATTEMPT -eq $MAX_RETRIES ] && FINAL_ATTEMPT=true
+          SLACK_JSON=$(jq -n \
+            --argjson report true \
+            --argjson final_attempt "$FINAL_ATTEMPT" \
+            --arg revision "$FOSSA_REVISION" \
+            --arg branch "$PRODUCT_VERSION" \
+            --arg commit_message "$COMMIT_MESSAGE" \
+            --arg build_url "$BUILD_URL" \
+            '{report: $report, final_attempt: $final_attempt, revision: $revision, branch: $branch, commit_message: $commit_message, build_url: $build_url}')
 
           if curl --fail-with-body --request POST \
             --url "${GUARDIAN_URL}/api/v1/upload_scan_results" \

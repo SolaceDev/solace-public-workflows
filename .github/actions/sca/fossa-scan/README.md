@@ -159,6 +159,8 @@ The upload step runs only when **all** of the following are true:
 
 The upload retries up to 3 times with a 5-second delay between attempts. After all retries are exhausted the step logs a warning but does **not** fail the workflow (`continue-on-error: true`).
 
+Each attempt tells Guardian whether it is the last one (`slack.final_attempt`). Guardian reports a failed upload to Slack only on the final attempt, so a transient error that a retry recovers from, such as a FOSSA API timeout on the first attempt, sends no `Scan backup failed` alert. A successful upload is reported on whichever attempt it lands on.
+
 ### Common Parameters (analyze & test)
 
 | Parameter | Type | FOSSA Flag | Description |
