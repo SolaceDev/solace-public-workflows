@@ -136,7 +136,7 @@ jobs:
             -e GH_ORG \
             -e GH_REPO \
             -e GITHUB_SHA \
-            ghcr.io/${OWNER}/maas-build-actions@sha256:4d1761910c7f7ab2fe28db853facc7d2efb2e6a37d98926c34b1d322c5cec636 \
+            ghcr.io/${OWNER}/maas-build-actions@sha256:2414f9f211d45ead1f304ed2c92574da278d7ec6f1be0a8883761bc53344ccbd \
             /bin/sh -c '. $VIRTUAL_ENV/bin/activate && cd $ACTIONS_PATH/prisma-vulnerability-checker && python prisma_vulnerability_checker.py'
 
       - name: Run SonarQube Hotspot Check
@@ -159,5 +159,5 @@ jobs:
             -e SONARQUBE_PROJECT_MAIN_BRANCH \
             -e SONARQUBE_QUERY_TOKEN \
             -e SONARQUBE_HOTSPOTS_API_URL \
-            ghcr.io/${OWNER}/maas-build-actions@sha256:4d1761910c7f7ab2fe28db853facc7d2efb2e6a37d98926c34b1d322c5cec636 \
+            ghcr.io/${OWNER}/maas-build-actions@sha256:2414f9f211d45ead1f304ed2c92574da278d7ec6f1be0a8883761bc53344ccbd \
             /bin/sh -c '. $VIRTUAL_ENV/bin/activate && cd $ACTIONS_PATH/sonarqube-hotspot-checker && python sonarqube_checker.py'
