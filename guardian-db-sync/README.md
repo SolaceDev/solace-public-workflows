@@ -17,7 +17,7 @@ This action does not upload scan files and does not run the vulnerability gate. 
 - `product-full-version`
 - `unifiers`
 - `dependency-graph` — path to a `trivy repo --list-all-pkgs --format json` report of the scanned source. Uploaded before the sync so Guardian can check whether each fix is reachable through the dependency tree (only for products with `fix_reachability_enabled`). Needs `product-version` and `product-full-version`. A missing file or failed upload is a warning: Guardian then holds new fixes as pending until a run that has a graph.
-- `product-version` — the version the scans were uploaded under (for example `main`). Only used to upload `dependency-graph`.
+- `product-version` — the version stream the scans were uploaded under and are synced into: `main`, or a release line such as `1.2` for a product that tracks several, as broker does. Findings, Jira groups and history are kept per stream. When omitted, Guardian uses the product's `trunk_branch`. Also used to upload `dependency-graph`.
 - `collection`
 - `jira-collection-name`
 - `jira-profile`
@@ -65,7 +65,7 @@ steps:
 ## Notes
 
 - If `product-name` is omitted, the action defaults it to `${GITHUB_REPOSITORY#*/}`.
-- Guardian now resolves `product_version` from product config and `product_full_version` from the latest uploaded scan metadata when it is not provided.
+- Guardian resolves `product_version` from the product's `trunk_branch` and `product_full_version` from the latest uploaded scan metadata when they are not provided.
 - Set `unifiers` when you want to explicitly restrict sync to specific uploaded scanner results instead of relying on metadata autodetection.
-- The calling workflow is responsible for uploading scan results first. This action sends `product_name` and optionally `product_full_version`, then lets Guardian resolve the canonical scan path.
+- The calling workflow is responsible for uploading scan results first. This action sends `product_name` and optionally `product_version` and `product_full_version`, then lets Guardian resolve the canonical scan path.
 - Set `upload-logs: "true"` to upload the db sync response directory as a workflow artifact for debugging.
