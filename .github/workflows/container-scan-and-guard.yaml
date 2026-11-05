@@ -802,7 +802,7 @@ jobs:
 
       - name: Build Notification
         if: failure()
-        uses: SolaceDev/maas-build-actions/.github/actions/build-finish-notifier@055d47887e889e8ef38f9f8bc9abb45f4e3d4fc4 # master
+        uses: SolaceDev/maas-build-actions/.github/actions/build-finish-notifier@1a9984f96ed3a779ceff2b740638a22cd2f7c43a # master
         with:
           workflow_title: "${{ github.event.repository.name }} Container Scan"
           run_url: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
