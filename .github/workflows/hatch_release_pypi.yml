@@ -161,7 +161,7 @@ jobs:
             -e GH_ORG \
             -e GH_REPO \
             -e GITHUB_SHA \
-            ghcr.io/${OWNER}/maas-build-actions@sha256:7db7f133e40d2ff723f38508ec28e43f9813791755995bd30dc8301b595e7a7e \
+            ghcr.io/${OWNER}/maas-build-actions@sha256:3be3532ef89d6fb3e3ce9134c3581a87396f56f8b70457f04227c8c072882bac \
             /bin/sh -c '. $VIRTUAL_ENV/bin/activate && cd $ACTIONS_PATH/prisma-vulnerability-checker && python prisma_vulnerability_checker.py'
       - name: Run SonarQube Hotspot Check
         if: ${{ fromJson(inputs.sonarqube_hotspot_check) }}
@@ -181,7 +181,7 @@ jobs:
             -e SONARQUBE_PROJECT_MAIN_BRANCH \
             -e SONARQUBE_QUERY_TOKEN \
             -e SONARQUBE_HOTSPOTS_API_URL \
-            ghcr.io/${OWNER}/maas-build-actions@sha256:7db7f133e40d2ff723f38508ec28e43f9813791755995bd30dc8301b595e7a7e \
+            ghcr.io/${OWNER}/maas-build-actions@sha256:3be3532ef89d6fb3e3ce9134c3581a87396f56f8b70457f04227c8c072882bac \
             /bin/sh -c '. $VIRTUAL_ENV/bin/activate && cd $ACTIONS_PATH/sonarqube-hotspot-checker && python sonarqube_checker.py'
 
       - name: Setup Node.js
