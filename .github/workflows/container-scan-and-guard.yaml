@@ -408,7 +408,7 @@ jobs:
       # this guard it fails the job for callers that scan images hosted elsewhere.
       - name: Login to Amazon ECR
         if: steps.aws_config_vault.conclusion == 'success' || steps.aws_config_secrets.conclusion == 'success'
-        uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2.0.1
+        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
 
       # The FOSSA CLI pulls the image itself, so a private GCR image needs docker
       # credentials for its registry host on this runner. Reading the GCP service
