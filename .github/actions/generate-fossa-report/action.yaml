@@ -25,7 +25,7 @@ inputs:
     description: "FOSSA release ID within the release group. Required when release_group_id is provided."
     required: false
   format:
-    description: "The format of the report to generate ('txt' or 'csv')."
+    description: "Report format (case-insensitive): HTML, MD, PDF, CSV, TXT, SPDX (SPDX 2.3 tag-value), SPDX_JSON (SPDX 2.3 JSON), SPDX3_JSON (SPDX 3.0.1), CYCLONEDX_JSON, CYCLONEDX_XML. Use SPDX3_JSON (SPDX 3.0) or SPDX_JSON (SPDX 2.3) for an SBOM. An unsupported value fails the step."
     required: true
     default: "txt"
   output_file:
@@ -33,11 +33,20 @@ inputs:
     required: true
     default: "fossa-report.txt"
   report_profile:
-    description: "Preset report profile: 'full' (default, comprehensive), 'standard' (common fields), or 'minimal' (basic info only)."
+    description: "Preset report profile: 'full' (comprehensive), 'standard' (common fields), 'minimal' (basic info only), or 'sbom' (licence, copyright and author data populated for SBOM formats; requires supplier)."
     required: false
     default: "standard"
   report_parameters:
     description: "A JSON object of FOSSA report parameters for advanced customization. Overrides report-profile if provided."
+    required: false
+  supplier:
+    description: "Organization name recorded as the SBOM document creator and package supplier (e.g., 'Solace Corporation'). Required when report_profile is 'sbom'. With another profile it is only valid together with report_parameters."
+    required: false
+  author_name:
+    description: "Optional author name for the SBOM document. Defaults to the supplier value when report_profile is 'sbom'."
+    required: false
+  author_email:
+    description: "Optional author email for the SBOM document."
     required: false
 
 runs:
@@ -60,7 +69,52 @@ runs:
         RELEASE_GROUP_ID: ${{ inputs.release_group_id }}
         RELEASE_ID: ${{ inputs.release_id }}
         REPORT_PARAMETERS: ${{ inputs.report_parameters }}
+        SUPPLIER: ${{ inputs.supplier }}
+        AUTHOR_NAME: ${{ inputs.author_name }}
+        AUTHOR_EMAIL: ${{ inputs.author_email }}
       run: |
+        # ---- Validate format (case-insensitive, as the container upper-cases it) ----
+        VALID_FORMATS="HTML MD PDF CSV TXT SPDX SPDX_JSON SPDX3_JSON CYCLONEDX_JSON CYCLONEDX_XML"
+        FORMAT_UPPER=$(printf '%s' "$FORMAT" | tr '[:lower:]' '[:upper:]')
+        case " $VALID_FORMATS " in
+          *" $FORMAT_UPPER "*) ;;
+          *)
+            echo "::error::Unsupported format '${FORMAT}'. Valid formats: ${VALID_FORMATS// /, }"
+            exit 1
+            ;;
+        esac
+
+        # ---- Resolve SBOM profile / document metadata ----
+        # Done here (not in the container) so no image rebuild is needed.
+        # Existing callers that set none of these inputs skip this block entirely.
+        PROFILE_LOWER=$(printf '%s' "$REPORT_PROFILE" | tr '[:upper:]' '[:lower:]')
+        if [ "$PROFILE_LOWER" = "sbom" ] || [ -n "$SUPPLIER$AUTHOR_NAME$AUTHOR_EMAIL" ]; then
+          command -v jq > /dev/null || { echo "::error::jq is required for the sbom profile and supplier inputs"; exit 1; }
+          if [ -z "$REPORT_PARAMETERS" ]; then
+            if [ "$PROFILE_LOWER" != "sbom" ]; then
+              echo "::error::supplier/author_name/author_email need report_profile 'sbom' or an explicit report_parameters JSON"
+              exit 1
+            fi
+            REPORT_PARAMETERS='{"includeDirectDependencies":true,"includeDeepDependencies":true,"includeLicenseList":true,"includeLicenseScan":true,"includeConcludedLicenses":true,"includeCopyrightList":true,"dependencyInfoOptions":["Library","License","FullTextLicense","Copyrights"]}'
+          fi
+          if [ "$PROFILE_LOWER" = "sbom" ] && [ -z "$SUPPLIER" ]; then
+            echo "::error::report_profile 'sbom' requires the supplier input (FOSSA otherwise emits an empty document creator)"
+            exit 1
+          fi
+          printf '%s' "$REPORT_PARAMETERS" | jq -e 'type == "object"' > /dev/null 2>&1 \
+            || { echo "::error::report_parameters must be a JSON object"; exit 1; }
+          if [ "$PROFILE_LOWER" = "sbom" ]; then AUTHOR_NAME="${AUTHOR_NAME:-$SUPPLIER}"; fi
+          REPORT_PARAMETERS=$(printf '%s' "$REPORT_PARAMETERS" | jq -c \
+            --arg s "$SUPPLIER" --arg n "$AUTHOR_NAME" --arg e "$AUTHOR_EMAIL" '
+            (if $s != "" then .supplier = $s else . end)
+            | (if $n != "" then .authorName = $n else . end)
+            | (if $e != "" then .authorEmail = $e else . end)') \
+            || { echo "::error::failed to merge supplier/author into report_parameters"; exit 1; }
+          export REPORT_PARAMETERS
+          # 'sbom' is resolved here; the pinned image does not know that profile name.
+          if [ "$PROFILE_LOWER" = "sbom" ]; then export REPORT_PROFILE=full; fi
+        fi
+
         OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
 
         # Authenticate to GHCR using the calling workflow's token so internal
