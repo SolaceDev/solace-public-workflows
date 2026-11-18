@@ -1,0 +1,81 @@
+name: Test FOSSA Report (temporary)
+
+# TEMPORARY test harness for SOL-153962. Delete before PR creation.
+on:
+  workflow_dispatch:
+  push:
+    branches: ['khyndman/**']
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: T1 txt standard (backward compatibility)
+        uses: ./.github/actions/generate-fossa-report
+        with:
+          fossa_api_key: ${{ secrets.FOSSA_API_KEY }}
+          project_locator: SolaceDev_solace-dotnet-serdes
+          revision_id: latest
+          format: txt
+          report_profile: standard
+          output_file: test-report.txt
+
+      - name: T2 SPDX_JSON (SPDX 2.3) sbom
+        uses: ./.github/actions/generate-fossa-report
+        with:
+          fossa_api_key: ${{ secrets.FOSSA_API_KEY }}
+          project_locator: SolaceDev_solace-dotnet-serdes
+          revision_id: latest
+          format: SPDX_JSON
+          report_profile: sbom
+          supplier: Solace Corporation
+          author_name: Solace Corporation
+          output_file: sbom-project-spdx23.json
+
+      - name: T3 SPDX3_JSON (SPDX 3.0.1) sbom
+        uses: ./.github/actions/generate-fossa-report
+        with:
+          fossa_api_key: ${{ secrets.FOSSA_API_KEY }}
+          project_locator: SolaceDev_solace-dotnet-serdes
+          revision_id: latest
+          format: SPDX3_JSON
+          report_profile: sbom
+          supplier: Solace Corporation
+          output_file: sbom-project-spdx30.json
+
+      - name: T4 invalid format (expected to fail)
+        id: negative
+        continue-on-error: true
+        uses: ./.github/actions/generate-fossa-report
+        with:
+          fossa_api_key: ${{ secrets.FOSSA_API_KEY }}
+          project_locator: SolaceDev_solace-dotnet-serdes
+          revision_id: latest
+          format: invalid_xyz
+          output_file: negative.txt
+
+      - name: Assert T4 failed as expected
+        env:
+          OUTCOME: ${{ steps.negative.outcome }}
+        run: |
+          if [ "$OUTCOME" != "failure" ]; then
+            echo "::error::T4 expected failure, got $OUTCOME"
+            exit 1
+          fi
+          echo "T4 failed as expected"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fossa-test-reports
+          path: |
+            test-report.txt
+            sbom-project-spdx23.json
+            sbom-project-spdx30.json
+          retention-days: 2
+          if-no-files-found: error
