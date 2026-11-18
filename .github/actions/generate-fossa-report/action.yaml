@@ -37,16 +37,16 @@ inputs:
     required: false
     default: "standard"
   report_parameters:
-    description: "A JSON object of FOSSA report parameters for advanced customization. Overrides report-profile if provided."
+    description: "A JSON object of FOSSA report parameters for advanced customization. Overrides report_profile if provided, except with report_profile 'sbom', where its keys are merged over the SBOM defaults."
     required: false
   supplier:
     description: "Organization name recorded as the SBOM document creator and package supplier (e.g., 'Solace Corporation'). Required when report_profile is 'sbom'. With another profile it is only valid together with report_parameters."
     required: false
   author_name:
-    description: "Optional author name for the SBOM document. Defaults to the supplier value when report_profile is 'sbom'."
+    description: "Optional SBOM author name (FOSSA authorName). Defaults to the supplier value when report_profile is 'sbom'."
     required: false
   author_email:
-    description: "Optional author email for the SBOM document."
+    description: "Optional SBOM author email (FOSSA authorEmail)."
     required: false
 
 runs:
@@ -76,13 +76,15 @@ runs:
         # ---- Validate format (case-insensitive, as the container upper-cases it) ----
         VALID_FORMATS="HTML MD PDF CSV TXT SPDX SPDX_JSON SPDX3_JSON CYCLONEDX_JSON CYCLONEDX_XML"
         FORMAT_UPPER=$(printf '%s' "$FORMAT" | tr '[:lower:]' '[:upper:]')
-        case " $VALID_FORMATS " in
-          *" $FORMAT_UPPER "*) ;;
-          *)
-            echo "::error::Unsupported format '${FORMAT}'. Valid formats: ${VALID_FORMATS// /, }"
-            exit 1
-            ;;
-        esac
+        # Exact match per entry: a substring match would let "CSV TXT" through.
+        FORMAT_OK=false
+        for f in $VALID_FORMATS; do
+          if [ "$FORMAT_UPPER" = "$f" ]; then FORMAT_OK=true; break; fi
+        done
+        if [ "$FORMAT_OK" != "true" ]; then
+          echo "::error::Unsupported format '${FORMAT}'. Valid formats: ${VALID_FORMATS// /, }"
+          exit 1
+        fi
 
         # ---- Resolve SBOM profile / document metadata ----
         # Done here (not in the container) so no image rebuild is needed.
@@ -90,29 +92,48 @@ runs:
         PROFILE_LOWER=$(printf '%s' "$REPORT_PROFILE" | tr '[:upper:]' '[:lower:]')
         if [ "$PROFILE_LOWER" = "sbom" ] || [ -n "$SUPPLIER$AUTHOR_NAME$AUTHOR_EMAIL" ]; then
           command -v jq > /dev/null || { echo "::error::jq is required for the sbom profile and supplier inputs"; exit 1; }
-          if [ -z "$REPORT_PARAMETERS" ]; then
-            if [ "$PROFILE_LOWER" != "sbom" ]; then
-              echo "::error::supplier/author_name/author_email need report_profile 'sbom' or an explicit report_parameters JSON"
-              exit 1
-            fi
-            REPORT_PARAMETERS='{"includeDirectDependencies":true,"includeDeepDependencies":true,"includeLicenseList":true,"includeLicenseScan":true,"includeConcludedLicenses":true,"includeCopyrightList":true,"dependencyInfoOptions":["Library","License","FullTextLicense","Copyrights"]}'
+          if [ -z "$REPORT_PARAMETERS" ] && [ "$PROFILE_LOWER" != "sbom" ]; then
+            echo "::error::supplier/author_name/author_email need report_profile 'sbom' or an explicit report_parameters JSON"
+            exit 1
           fi
           if [ "$PROFILE_LOWER" = "sbom" ] && [ -z "$SUPPLIER" ]; then
             echo "::error::report_profile 'sbom' requires the supplier input (FOSSA otherwise emits an empty document creator)"
             exit 1
           fi
-          printf '%s' "$REPORT_PARAMETERS" | jq -e 'type == "object"' > /dev/null 2>&1 \
-            || { echo "::error::report_parameters must be a JSON object"; exit 1; }
+          if [ -n "$REPORT_PARAMETERS" ]; then
+            printf '%s' "$REPORT_PARAMETERS" | jq -s -e 'length == 1 and (.[0] | type) == "object"' > /dev/null 2>&1 \
+              || { echo "::error::report_parameters must be a single JSON object"; exit 1; }
+          fi
+          if [ "$PROFILE_LOWER" = "sbom" ]; then
+            # SBOM defaults always apply; keys in a caller's report_parameters win over them.
+            SBOM_DEFAULTS='{"includeDirectDependencies":true,"includeDeepDependencies":true,"includeLicenseList":true,"includeLicenseScan":true,"includeConcludedLicenses":true,"includeCopyrightList":true,"dependencyInfoOptions":["Library","License","FullTextLicense","Copyrights"]}'
+            CALLER_PARAMS="${REPORT_PARAMETERS:-}"
+            if [ -z "$CALLER_PARAMS" ]; then CALLER_PARAMS='{}'; fi
+            REPORT_PARAMETERS=$(printf '%s' "$CALLER_PARAMS" | jq -c --argjson d "$SBOM_DEFAULTS" '$d * .') \
+              || { echo "::error::failed to apply SBOM defaults to report_parameters"; exit 1; }
+          fi
           if [ "$PROFILE_LOWER" = "sbom" ]; then AUTHOR_NAME="${AUTHOR_NAME:-$SUPPLIER}"; fi
-          REPORT_PARAMETERS=$(printf '%s' "$REPORT_PARAMETERS" | jq -c \
-            --arg s "$SUPPLIER" --arg n "$AUTHOR_NAME" --arg e "$AUTHOR_EMAIL" '
-            (if $s != "" then .supplier = $s else . end)
-            | (if $n != "" then .authorName = $n else . end)
-            | (if $e != "" then .authorEmail = $e else . end)') \
-            || { echo "::error::failed to merge supplier/author into report_parameters"; exit 1; }
+          # supplier and author fields are merged last, so they override caller keys.
+          if [ -n "$SUPPLIER$AUTHOR_NAME$AUTHOR_EMAIL" ]; then
+            REPORT_PARAMETERS=$(printf '%s' "$REPORT_PARAMETERS" | jq -c \
+              --arg s "$SUPPLIER" --arg n "$AUTHOR_NAME" --arg e "$AUTHOR_EMAIL" '
+              (if $s != "" then .supplier = $s else . end)
+              | (if $n != "" then .authorName = $n else . end)
+              | (if $e != "" then .authorEmail = $e else . end)') \
+              || { echo "::error::failed to merge supplier/author into report_parameters"; exit 1; }
+          fi
           export REPORT_PARAMETERS
           # 'sbom' is resolved here; the pinned image does not know that profile name.
           if [ "$PROFILE_LOWER" = "sbom" ]; then export REPORT_PROFILE=full; fi
+        fi
+
+        # ---- Release group mode: release_id is required; project_locator is ignored ----
+        if [ -n "$RELEASE_GROUP_ID" ] && [ -z "$RELEASE_ID" ]; then
+          echo "::error::release_id is required when release_group_id is provided"
+          exit 1
+        fi
+        if [ -n "$RELEASE_GROUP_ID" ] && [ -n "$PROJECT_LOCATOR" ]; then
+          echo "::warning::project_locator is ignored when release_group_id is provided"
         fi
 
         OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
