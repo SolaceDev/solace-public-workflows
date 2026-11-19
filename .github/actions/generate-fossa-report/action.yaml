@@ -72,6 +72,9 @@ runs:
         SUPPLIER: ${{ inputs.supplier }}
         AUTHOR_NAME: ${{ inputs.author_name }}
         AUTHOR_EMAIL: ${{ inputs.author_email }}
+        REPO_OWNER: ${{ github.repository_owner }}
+        REGISTRY_ACTOR: ${{ github.actor }}
+        REGISTRY_TOKEN: ${{ github.token }}
       run: |
         # ---- Validate format (case-insensitive, as the container upper-cases it) ----
         VALID_FORMATS="HTML MD PDF CSV TXT SPDX SPDX_JSON SPDX3_JSON CYCLONEDX_JSON CYCLONEDX_XML"
@@ -136,7 +139,7 @@ runs:
           echo "::warning::project_locator is ignored when release_group_id is provided"
         fi
 
-        OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+        OWNER=$(echo "$REPO_OWNER" | tr '[:upper:]' '[:lower:]')
 
         # Authenticate to GHCR using the calling workflow's token so internal
         # org packages can be pulled. runs.using: docker did this automatically;
@@ -146,7 +149,7 @@ runs:
         DOCKER_CONFIG=$(mktemp -d "${RUNNER_TEMP}/docker-config.XXXXXX")
         export DOCKER_CONFIG
         trap 'docker logout ghcr.io > /dev/null 2>&1 || true; rm -rf "${DOCKER_CONFIG}"' EXIT
-        echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+        echo "$REGISTRY_TOKEN" | docker login ghcr.io -u "$REGISTRY_ACTOR" --password-stdin
 
         # All inputs are already in the environment via the env: block above.
 
