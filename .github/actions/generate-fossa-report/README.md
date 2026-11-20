@@ -75,20 +75,17 @@ The default `report_profile` is `standard`. Set `full` explicitly to get this pr
 - Direct and deep dependencies
 - Licence scan, declared and concluded licences, copyright list
 - Fields: Library, License, FullTextLicense, Copyrights
-- Requires `supplier`; sets `supplier` so the document creator names the organization
 
-Without `supplier`, FOSSA's SPDX creator is not the product organization, and under `standard` FOSSA leaves `licenseConcluded` as `NOASSERTION`. Use `sbom` for SPDX formats (`SPDX3_JSON`, `SPDX_JSON`, `SPDX`).
+Requires `supplier`, which names the organization as the document creator. Without it, FOSSA's SPDX creator is not the product organization, and under `standard` `licenseConcluded` is `NOASSERTION`. Use it for the SPDX formats. `author_name` defaults to `supplier`.
 
-The `format` input chooses the SPDX version; nothing else changes between them:
-- `SPDX_JSON`: SPDX 2.3 JSON. The creator is in `creationInfo.creators`.
-- `SPDX3_JSON`: SPDX 3.0.1 JSON. The creator is in `creationInfo.createdBy`.
-- `SPDX`: SPDX 2.3 tag-value. The creator is in the `Creator:` lines.
+The `format` input chooses the SPDX version and where the creator is recorded:
+- `SPDX_JSON`: SPDX 2.3 JSON, in `creationInfo.creators`.
+- `SPDX3_JSON`: SPDX 3.0.1 JSON, in `creationInfo.createdBy`.
+- `SPDX`: SPDX 2.3 tag-value, in the `Creator:` lines.
 
-`author_name` and `author_email` set the document author. `author_name` defaults to `supplier` under `sbom`, so the creator is named even when you omit it.
+`output_file` defaults to `fossa-report.txt` whatever the `format`, so set it explicitly for an SBOM (for example `sbom/product.spdx3.json`).
 
-`output_file` defaults to `fossa-report.txt` regardless of `format`, so set it explicitly (for example `sbom/product.spdx3.json`) when generating an SBOM.
-
-If you also pass `report_parameters` with `sbom`, the SBOM parameters above still apply and any keys you set take precedence over them; the `supplier` input is merged last. `sbom` always needs the `supplier` input; a `supplier` key inside `report_parameters` does not satisfy it.
+Keys in `report_parameters` override the SBOM defaults, but a `supplier` key inside it does not replace the `supplier` input, which `sbom` always needs.
 
 ## Examples
 
