@@ -25,7 +25,7 @@ inputs:
     description: "FOSSA release ID within the release group. Required when release_group_id is provided."
     required: false
   format:
-    description: "The format of the report to generate ('txt' or 'csv')."
+    description: "Report format (case-insensitive): HTML, MD, PDF, CSV, TXT, SPDX (SPDX 2.3 tag-value), SPDX_JSON (SPDX 2.3 JSON), SPDX3_JSON (SPDX 3.0.1), CYCLONEDX_JSON, CYCLONEDX_XML. Use SPDX3_JSON (SPDX 3.0) or SPDX_JSON (SPDX 2.3) for an SBOM. An unsupported value fails the step."
     required: true
     default: "txt"
   output_file:
@@ -33,11 +33,20 @@ inputs:
     required: true
     default: "fossa-report.txt"
   report_profile:
-    description: "Preset report profile: 'full' (default, comprehensive), 'standard' (common fields), or 'minimal' (basic info only)."
+    description: "Preset report profile: 'full' (comprehensive), 'standard' (common fields), 'minimal' (basic info only), or 'sbom' (licence, copyright and author data populated for SBOM formats; requires supplier)."
     required: false
     default: "standard"
   report_parameters:
-    description: "A JSON object of FOSSA report parameters for advanced customization. Overrides report-profile if provided."
+    description: "A JSON object of FOSSA report parameters for advanced customization. Overrides report_profile if provided, except with report_profile 'sbom', where its keys are merged over the SBOM defaults."
+    required: false
+  supplier:
+    description: "Organization name recorded as the SBOM document creator and package supplier (e.g., 'Solace Corporation'). Required when report_profile is 'sbom'. With another profile it is only valid together with report_parameters."
+    required: false
+  author_name:
+    description: "Optional SBOM author name (FOSSA authorName). Defaults to the supplier value when report_profile is 'sbom'."
+    required: false
+  author_email:
+    description: "Optional SBOM author email (FOSSA authorEmail)."
     required: false
 
 runs:
@@ -60,8 +69,77 @@ runs:
         RELEASE_GROUP_ID: ${{ inputs.release_group_id }}
         RELEASE_ID: ${{ inputs.release_id }}
         REPORT_PARAMETERS: ${{ inputs.report_parameters }}
+        SUPPLIER: ${{ inputs.supplier }}
+        AUTHOR_NAME: ${{ inputs.author_name }}
+        AUTHOR_EMAIL: ${{ inputs.author_email }}
+        REPO_OWNER: ${{ github.repository_owner }}
+        REGISTRY_ACTOR: ${{ github.actor }}
+        REGISTRY_TOKEN: ${{ github.token }}
       run: |
-        OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+        # ---- Validate format (case-insensitive, as the container upper-cases it) ----
+        VALID_FORMATS="HTML MD PDF CSV TXT SPDX SPDX_JSON SPDX3_JSON CYCLONEDX_JSON CYCLONEDX_XML"
+        FORMAT_UPPER=$(printf '%s' "$FORMAT" | tr '[:lower:]' '[:upper:]')
+        # Exact match per entry: a substring match would let "CSV TXT" through.
+        FORMAT_OK=false
+        for f in $VALID_FORMATS; do
+          if [ "$FORMAT_UPPER" = "$f" ]; then FORMAT_OK=true; break; fi
+        done
+        if [ "$FORMAT_OK" != "true" ]; then
+          echo "::error::Unsupported format '${FORMAT}'. Valid formats: ${VALID_FORMATS// /, }"
+          exit 1
+        fi
+
+        # ---- Resolve SBOM profile / document metadata ----
+        # Done here (not in the container) so no image rebuild is needed.
+        # Existing callers that set none of these inputs skip this block entirely.
+        PROFILE_LOWER=$(printf '%s' "$REPORT_PROFILE" | tr '[:upper:]' '[:lower:]')
+        if [ "$PROFILE_LOWER" = "sbom" ] || [ -n "$SUPPLIER$AUTHOR_NAME$AUTHOR_EMAIL" ]; then
+          command -v jq > /dev/null || { echo "::error::jq is required for the sbom profile and supplier inputs"; exit 1; }
+          if [ -z "$REPORT_PARAMETERS" ] && [ "$PROFILE_LOWER" != "sbom" ]; then
+            echo "::error::supplier/author_name/author_email need report_profile 'sbom' or an explicit report_parameters JSON"
+            exit 1
+          fi
+          if [ "$PROFILE_LOWER" = "sbom" ] && [ -z "$SUPPLIER" ]; then
+            echo "::error::report_profile 'sbom' requires the supplier input (FOSSA otherwise emits an empty document creator)"
+            exit 1
+          fi
+          if [ -n "$REPORT_PARAMETERS" ]; then
+            printf '%s' "$REPORT_PARAMETERS" | jq -s -e 'length == 1 and (.[0] | type) == "object"' > /dev/null 2>&1 \
+              || { echo "::error::report_parameters must be a single JSON object"; exit 1; }
+          fi
+          if [ "$PROFILE_LOWER" = "sbom" ]; then
+            # SBOM defaults always apply; keys in a caller's report_parameters win over them.
+            SBOM_DEFAULTS='{"includeDirectDependencies":true,"includeDeepDependencies":true,"includeLicenseList":true,"includeLicenseScan":true,"includeConcludedLicenses":true,"includeCopyrightList":true,"dependencyInfoOptions":["Library","License","FullTextLicense","Copyrights"]}'
+            CALLER_PARAMS="${REPORT_PARAMETERS:-}"
+            if [ -z "$CALLER_PARAMS" ]; then CALLER_PARAMS='{}'; fi
+            REPORT_PARAMETERS=$(printf '%s' "$CALLER_PARAMS" | jq -c --argjson d "$SBOM_DEFAULTS" '$d * .') \
+              || { echo "::error::failed to apply SBOM defaults to report_parameters"; exit 1; }
+          fi
+          if [ "$PROFILE_LOWER" = "sbom" ]; then AUTHOR_NAME="${AUTHOR_NAME:-$SUPPLIER}"; fi
+          # supplier and author fields are merged last, so they override caller keys.
+          if [ -n "$SUPPLIER$AUTHOR_NAME$AUTHOR_EMAIL" ]; then
+            REPORT_PARAMETERS=$(printf '%s' "$REPORT_PARAMETERS" | jq -c \
+              --arg s "$SUPPLIER" --arg n "$AUTHOR_NAME" --arg e "$AUTHOR_EMAIL" '
+              (if $s != "" then .supplier = $s else . end)
+              | (if $n != "" then .authorName = $n else . end)
+              | (if $e != "" then .authorEmail = $e else . end)') \
+              || { echo "::error::failed to merge supplier/author into report_parameters"; exit 1; }
+          fi
+          export REPORT_PARAMETERS
+          # 'sbom' is resolved here; the pinned image does not know that profile name.
+          if [ "$PROFILE_LOWER" = "sbom" ]; then export REPORT_PROFILE=full; fi
+        fi
+
+        # ---- Release group mode: release_id is required; project_locator is ignored ----
+        if [ -n "$RELEASE_GROUP_ID" ] && [ -z "$RELEASE_ID" ]; then
+          echo "::error::release_id is required when release_group_id is provided"
+          exit 1
+        fi
+        if [ -n "$RELEASE_GROUP_ID" ] && [ -n "$PROJECT_LOCATOR" ]; then
+          echo "::warning::project_locator is ignored when release_group_id is provided"
+        fi
+
+        OWNER=$(echo "$REPO_OWNER" | tr '[:upper:]' '[:lower:]')
 
         # Authenticate to GHCR using the calling workflow's token so internal
         # org packages can be pulled. runs.using: docker did this automatically;
@@ -70,8 +148,26 @@ runs:
         # self-hosted runners' shared ~/.docker/config.json.
         DOCKER_CONFIG=$(mktemp -d "${RUNNER_TEMP}/docker-config.XXXXXX")
         export DOCKER_CONFIG
-        trap 'docker logout ghcr.io > /dev/null 2>&1 || true; rm -rf "${DOCKER_CONFIG}"' EXIT
-        echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+        STAGE_DIR=""
+        trap 'docker logout ghcr.io > /dev/null 2>&1 || true; rm -rf "${DOCKER_CONFIG}" "${STAGE_DIR}"' EXIT
+        echo "$REGISTRY_TOKEN" | docker login ghcr.io -u "$REGISTRY_ACTOR" --password-stdin
+
+        # The container only sees the workspace, RUNNER_TEMP and the GITHUB_OUTPUT dir.
+        # A file written anywhere else (e.g. an absolute path on a file server) would be
+        # discarded with the container (--rm) while the step still reports success.
+        # For such a path the container writes to a staging dir under RUNNER_TEMP and the
+        # file is copied to the real location on the host after the container succeeds.
+        FINAL_OUTPUT_FILE=""
+        case "$OUTPUT_FILE" in
+          "${GITHUB_WORKSPACE}"/* | "${RUNNER_TEMP}"/* | /github/workspace/*) ;;
+          /*)
+            FINAL_OUTPUT_FILE="$OUTPUT_FILE"
+            STAGE_DIR=$(mktemp -d "${RUNNER_TEMP}/fossa-report.XXXXXX")
+            chmod 0777 "$STAGE_DIR" # the container may run as a different user
+            OUTPUT_FILE="${STAGE_DIR}/$(basename "$FINAL_OUTPUT_FILE")"
+            export OUTPUT_FILE
+            ;;
+        esac
 
         # All inputs are already in the environment via the env: block above.
 
@@ -99,3 +195,27 @@ runs:
           --workdir /github/workspace \
           "ghcr.io/${OWNER}/maas-build-actions@sha256:a20930e5a99067f5b32a625a60c267be5cb7f8408c2cff66fd589f492e1dafda" \
           /bin/sh -c 'bash /maas-build-actions/actions/generate-fossa-report/generate-report.sh'
+
+        # Publish a staged report to its real location (only reached if the container succeeded).
+        if [ -n "$FINAL_OUTPUT_FILE" ]; then
+          if [ ! -s "$OUTPUT_FILE" ]; then
+            echo "::error::Report was not produced at ${OUTPUT_FILE}; nothing copied to ${FINAL_OUTPUT_FILE}"
+            exit 1
+          fi
+          FINAL_DIR=$(dirname "$FINAL_OUTPUT_FILE")
+          mkdir -p "$FINAL_DIR" || { echo "::error::Cannot create ${FINAL_DIR}"; exit 1; }
+          # Copy to a temp name in the destination, then rename, so a partial file never has the final name.
+          PART_FILE=$(mktemp "${FINAL_DIR}/.$(basename "$FINAL_OUTPUT_FILE").XXXXXX") \
+            || { echo "::error::Cannot write to ${FINAL_DIR}"; exit 1; }
+          if ! cp "$OUTPUT_FILE" "$PART_FILE" || ! mv -f "$PART_FILE" "$FINAL_OUTPUT_FILE"; then
+            rm -f "$PART_FILE"
+            echo "::error::Failed to copy report to ${FINAL_OUTPUT_FILE}"
+            exit 1
+          fi
+          chmod 0644 "$FINAL_OUTPUT_FILE"
+          if [ ! -s "$FINAL_OUTPUT_FILE" ]; then
+            echo "::error::${FINAL_OUTPUT_FILE} is missing or empty after copy"
+            exit 1
+          fi
+          echo "Report copied to ${FINAL_OUTPUT_FILE} ($(wc -c < "$FINAL_OUTPUT_FILE" | tr -d ' ') bytes)"
+        fi
