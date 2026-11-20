@@ -148,8 +148,26 @@ runs:
         # self-hosted runners' shared ~/.docker/config.json.
         DOCKER_CONFIG=$(mktemp -d "${RUNNER_TEMP}/docker-config.XXXXXX")
         export DOCKER_CONFIG
-        trap 'docker logout ghcr.io > /dev/null 2>&1 || true; rm -rf "${DOCKER_CONFIG}"' EXIT
+        STAGE_DIR=""
+        trap 'docker logout ghcr.io > /dev/null 2>&1 || true; rm -rf "${DOCKER_CONFIG}" "${STAGE_DIR}"' EXIT
         echo "$REGISTRY_TOKEN" | docker login ghcr.io -u "$REGISTRY_ACTOR" --password-stdin
+
+        # The container only sees the workspace, RUNNER_TEMP and the GITHUB_OUTPUT dir.
+        # A file written anywhere else (e.g. an absolute path on a file server) would be
+        # discarded with the container (--rm) while the step still reports success.
+        # For such a path the container writes to a staging dir under RUNNER_TEMP and the
+        # file is copied to the real location on the host after the container succeeds.
+        FINAL_OUTPUT_FILE=""
+        case "$OUTPUT_FILE" in
+          "${GITHUB_WORKSPACE}"/* | "${RUNNER_TEMP}"/* | /github/workspace/*) ;;
+          /*)
+            FINAL_OUTPUT_FILE="$OUTPUT_FILE"
+            STAGE_DIR=$(mktemp -d "${RUNNER_TEMP}/fossa-report.XXXXXX")
+            chmod 0777 "$STAGE_DIR" # the container may run as a different user
+            OUTPUT_FILE="${STAGE_DIR}/$(basename "$FINAL_OUTPUT_FILE")"
+            export OUTPUT_FILE
+            ;;
+        esac
 
         # All inputs are already in the environment via the env: block above.
 
@@ -177,3 +195,27 @@ runs:
           --workdir /github/workspace \
           "ghcr.io/${OWNER}/maas-build-actions@sha256:a20930e5a99067f5b32a625a60c267be5cb7f8408c2cff66fd589f492e1dafda" \
           /bin/sh -c 'bash /maas-build-actions/actions/generate-fossa-report/generate-report.sh'
+
+        # Publish a staged report to its real location (only reached if the container succeeded).
+        if [ -n "$FINAL_OUTPUT_FILE" ]; then
+          if [ ! -s "$OUTPUT_FILE" ]; then
+            echo "::error::Report was not produced at ${OUTPUT_FILE}; nothing copied to ${FINAL_OUTPUT_FILE}"
+            exit 1
+          fi
+          FINAL_DIR=$(dirname "$FINAL_OUTPUT_FILE")
+          mkdir -p "$FINAL_DIR" || { echo "::error::Cannot create ${FINAL_DIR}"; exit 1; }
+          # Copy to a temp name in the destination, then rename, so a partial file never has the final name.
+          PART_FILE=$(mktemp "${FINAL_DIR}/.$(basename "$FINAL_OUTPUT_FILE").XXXXXX") \
+            || { echo "::error::Cannot write to ${FINAL_DIR}"; exit 1; }
+          if ! cp "$OUTPUT_FILE" "$PART_FILE" || ! mv -f "$PART_FILE" "$FINAL_OUTPUT_FILE"; then
+            rm -f "$PART_FILE"
+            echo "::error::Failed to copy report to ${FINAL_OUTPUT_FILE}"
+            exit 1
+          fi
+          chmod 0644 "$FINAL_OUTPUT_FILE"
+          if [ ! -s "$FINAL_OUTPUT_FILE" ]; then
+            echo "::error::${FINAL_OUTPUT_FILE} is missing or empty after copy"
+            exit 1
+          fi
+          echo "Report copied to ${FINAL_OUTPUT_FILE} ($(wc -c < "$FINAL_OUTPUT_FILE" | tr -d ' ') bytes)"
+        fi
