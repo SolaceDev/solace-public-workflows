@@ -42,12 +42,14 @@ permissions:
 | `format`            | Report format, case-insensitive: `HTML`, `MD`, `PDF`, `CSV`, `TXT`, `SPDX` (SPDX 2.3 tag-value), `SPDX_JSON` (SPDX 2.3 JSON), `SPDX3_JSON` (SPDX 3.0.1), `CYCLONEDX_JSON`, `CYCLONEDX_XML`. Others fail the step. The format sets the SBOM spec version. | `true`   | `txt`                                                |
 | `output_file`       | The output file path for the generated report. A relative path is relative to the workspace. For an absolute path outside the workspace, see [Output location](#output-location). When empty, `fossa-report.<ext>` is used, with the extension from `format` (see [Default output file](#default-output-file)). | `false`  | derived from `format`                                |
 | `report_profile`    | Preset report profile: `full` (comprehensive), `standard` (common fields), `minimal` (basic info), or `sbom` (see below). Easier than using `report_parameters`.    | `false`  | `standard`                                           |
-| `supplier`          | Organization name used as SBOM document creator and supplier. Required for `report_profile: sbom`; with another profile only valid together with `report_parameters`.                                                | `false`  | N/A                                                  |
+| `supplier`          | Organization name used as SBOM document creator and supplier. Required for `report_profile: sbom`, where it is also recorded as the document author (`authorName`); with another profile only valid together with `report_parameters`.                                                | `false`  | N/A                                                  |
 | `report_parameters` | A JSON object of FOSSA report parameters for advanced customization. Overrides `report_profile` if provided (with `sbom`, merged over the SBOM defaults; a caller `dependencyInfoOptions` replaces the default list).                                     | `false`  | N/A                                                  |
 
 ## Output location
 
 The report is generated inside a container that only sees the workspace, `RUNNER_TEMP` and the runner's output-file directory. For an absolute `output_file` elsewhere, the action has the container write to a staging directory under `RUNNER_TEMP`, then (on the runner, after the container succeeds) creates the destination directory, copies the file to a temporary name there and renames it into place. The step fails if the report is missing or empty at the destination, so a green step means the file is there. The destination directory must be writable by the runner user. The staging copy is removed when the step ends.
+
+A path inside the workspace needs no staging. A host-style one such as `${{ github.workspace }}/sbom/out.json` is mapped to the container's `/github/workspace/` mount before the container runs, so the file lands in the workspace on the host.
 
 ### Default output file
 

@@ -40,7 +40,7 @@ inputs:
     description: "A JSON object of FOSSA report parameters for advanced customization. Overrides report_profile if provided, except with report_profile 'sbom', where its keys are merged over the SBOM defaults."
     required: false
   supplier:
-    description: "Organization name recorded as the SBOM document creator and package supplier (e.g., 'Solace Corporation'). Required when report_profile is 'sbom'. With another profile it is only valid together with report_parameters."
+    description: "Organization name recorded as the SBOM document creator and package supplier (e.g., 'Solace Corporation'). Required when report_profile is 'sbom', where it is also recorded as the document author (authorName). With another profile it is only valid together with report_parameters."
     required: false
 
 runs:
@@ -101,7 +101,7 @@ runs:
 
         # ---- Resolve SBOM profile / document metadata ----
         # Done here (not in the container) so no image rebuild is needed.
-        # Existing callers that set none of these inputs skip this block entirely.
+        # Callers that use neither the sbom profile nor supplier skip this block entirely.
         PROFILE_LOWER=$(printf '%s' "$REPORT_PROFILE" | tr '[:upper:]' '[:lower:]')
         if [ "$PROFILE_LOWER" = "sbom" ] || [ -n "$SUPPLIER" ]; then
           command -v jq > /dev/null || { echo "::error::jq is required for the sbom profile and the supplier input"; exit 1; }
@@ -165,9 +165,15 @@ runs:
         # discarded with the container (--rm) while the step still reports success.
         # For such a path the container writes to a staging dir under RUNNER_TEMP and the
         # file is copied to the real location on the host after the container succeeds.
+        case "$OUTPUT_FILE" in
+          "${GITHUB_WORKSPACE}"/*)
+            OUTPUT_FILE="/github/workspace/${OUTPUT_FILE#"${GITHUB_WORKSPACE}"/}"
+            export OUTPUT_FILE
+            ;;
+        esac
         FINAL_OUTPUT_FILE=""
         case "$OUTPUT_FILE" in
-          "${GITHUB_WORKSPACE}"/* | "${RUNNER_TEMP}"/* | /github/workspace/*) ;;
+          "${RUNNER_TEMP}"/* | /github/workspace/*) ;;
           /*)
             FINAL_OUTPUT_FILE="$OUTPUT_FILE"
             STAGE_DIR=$(mktemp -d "${RUNNER_TEMP}/fossa-report.XXXXXX")
