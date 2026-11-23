@@ -29,9 +29,9 @@ inputs:
     required: true
     default: "txt"
   output_file:
-    description: "The output file path for the generated report."
-    required: true
-    default: "fossa-report.txt"
+    description: "The output file path for the generated report. When empty, defaults to fossa-report.<ext> with the extension chosen by format (e.g. fossa-report.txt for TXT, fossa-report.spdx3.json for SPDX3_JSON)."
+    required: false
+    default: ""
   report_profile:
     description: "Preset report profile: 'full' (comprehensive), 'standard' (common fields), 'minimal' (basic info only), or 'sbom' (licence, copyright and author data populated for SBOM formats; requires supplier)."
     required: false
@@ -41,12 +41,6 @@ inputs:
     required: false
   supplier:
     description: "Organization name recorded as the SBOM document creator and package supplier (e.g., 'Solace Corporation'). Required when report_profile is 'sbom'. With another profile it is only valid together with report_parameters."
-    required: false
-  author_name:
-    description: "Optional SBOM author name (FOSSA authorName). Defaults to the supplier value when report_profile is 'sbom'."
-    required: false
-  author_email:
-    description: "Optional SBOM author email (FOSSA authorEmail)."
     required: false
 
 runs:
@@ -70,8 +64,6 @@ runs:
         RELEASE_ID: ${{ inputs.release_id }}
         REPORT_PARAMETERS: ${{ inputs.report_parameters }}
         SUPPLIER: ${{ inputs.supplier }}
-        AUTHOR_NAME: ${{ inputs.author_name }}
-        AUTHOR_EMAIL: ${{ inputs.author_email }}
         REPO_OWNER: ${{ github.repository_owner }}
         REGISTRY_ACTOR: ${{ github.actor }}
         REGISTRY_TOKEN: ${{ github.token }}
@@ -89,14 +81,32 @@ runs:
           exit 1
         fi
 
+        # ---- Default the output file from the format when not given ----
+        if [ -z "$OUTPUT_FILE" ]; then
+          case "$FORMAT_UPPER" in
+            TXT) EXT=txt ;;
+            CSV) EXT=csv ;;
+            HTML) EXT=html ;;
+            MD) EXT=md ;;
+            PDF) EXT=pdf ;;
+            SPDX) EXT=spdx ;;
+            SPDX_JSON) EXT=spdx.json ;;
+            SPDX3_JSON) EXT=spdx3.json ;;
+            CYCLONEDX_JSON) EXT=cdx.json ;;
+            CYCLONEDX_XML) EXT=cdx.xml ;;
+          esac
+          OUTPUT_FILE="fossa-report.${EXT}"
+          export OUTPUT_FILE
+        fi
+
         # ---- Resolve SBOM profile / document metadata ----
         # Done here (not in the container) so no image rebuild is needed.
         # Existing callers that set none of these inputs skip this block entirely.
         PROFILE_LOWER=$(printf '%s' "$REPORT_PROFILE" | tr '[:upper:]' '[:lower:]')
-        if [ "$PROFILE_LOWER" = "sbom" ] || [ -n "$SUPPLIER$AUTHOR_NAME$AUTHOR_EMAIL" ]; then
-          command -v jq > /dev/null || { echo "::error::jq is required for the sbom profile and supplier inputs"; exit 1; }
+        if [ "$PROFILE_LOWER" = "sbom" ] || [ -n "$SUPPLIER" ]; then
+          command -v jq > /dev/null || { echo "::error::jq is required for the sbom profile and the supplier input"; exit 1; }
           if [ -z "$REPORT_PARAMETERS" ] && [ "$PROFILE_LOWER" != "sbom" ]; then
-            echo "::error::supplier/author_name/author_email need report_profile 'sbom' or an explicit report_parameters JSON"
+            echo "::error::supplier needs report_profile 'sbom' or an explicit report_parameters JSON"
             exit 1
           fi
           if [ "$PROFILE_LOWER" = "sbom" ] && [ -z "$SUPPLIER" ]; then
@@ -115,15 +125,13 @@ runs:
             REPORT_PARAMETERS=$(printf '%s' "$CALLER_PARAMS" | jq -c --argjson d "$SBOM_DEFAULTS" '$d * .') \
               || { echo "::error::failed to apply SBOM defaults to report_parameters"; exit 1; }
           fi
-          if [ "$PROFILE_LOWER" = "sbom" ]; then AUTHOR_NAME="${AUTHOR_NAME:-$SUPPLIER}"; fi
-          # supplier and author fields are merged last, so they override caller keys.
-          if [ -n "$SUPPLIER$AUTHOR_NAME$AUTHOR_EMAIL" ]; then
-            REPORT_PARAMETERS=$(printf '%s' "$REPORT_PARAMETERS" | jq -c \
-              --arg s "$SUPPLIER" --arg n "$AUTHOR_NAME" --arg e "$AUTHOR_EMAIL" '
-              (if $s != "" then .supplier = $s else . end)
-              | (if $n != "" then .authorName = $n else . end)
-              | (if $e != "" then .authorEmail = $e else . end)') \
-              || { echo "::error::failed to merge supplier/author into report_parameters"; exit 1; }
+          # supplier is merged last, so it overrides caller keys. Under sbom it is also the
+          # author (authorName), which is the NTIA minimum author element.
+          if [ -n "$SUPPLIER" ]; then
+            REPORT_PARAMETERS=$(printf '%s' "$REPORT_PARAMETERS" | jq -c --arg s "$SUPPLIER" --arg p "$PROFILE_LOWER" '
+              .supplier = $s
+              | (if $p == "sbom" then .authorName = $s else . end)') \
+              || { echo "::error::failed to merge supplier into report_parameters"; exit 1; }
           fi
           export REPORT_PARAMETERS
           # 'sbom' is resolved here; the pinned image does not know that profile name.

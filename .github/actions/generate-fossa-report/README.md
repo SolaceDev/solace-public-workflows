@@ -40,16 +40,31 @@ permissions:
 | `release_group_id`  | FOSSA release group ID. When provided, generates a release group attribution report instead of a per-project report. Requires `release_id`.       | `false`  | N/A                                                  |
 | `release_id`        | FOSSA release ID within the release group. Required when `release_group_id` is provided.                                                          | `false`  | N/A                                                  |
 | `format`            | Report format, case-insensitive: `HTML`, `MD`, `PDF`, `CSV`, `TXT`, `SPDX` (SPDX 2.3 tag-value), `SPDX_JSON` (SPDX 2.3 JSON), `SPDX3_JSON` (SPDX 3.0.1), `CYCLONEDX_JSON`, `CYCLONEDX_XML`. Others fail the step. The format sets the SBOM spec version. | `true`   | `txt`                                                |
-| `output_file`       | The output file path for the generated report. A relative path is relative to the workspace. For an absolute path outside the workspace, see [Output location](#output-location). | `true`   | `fossa-report.txt`                                   |
+| `output_file`       | The output file path for the generated report. A relative path is relative to the workspace. For an absolute path outside the workspace, see [Output location](#output-location). When empty, `fossa-report.<ext>` is used, with the extension from `format` (see [Default output file](#default-output-file)). | `false`  | derived from `format`                                |
 | `report_profile`    | Preset report profile: `full` (comprehensive), `standard` (common fields), `minimal` (basic info), or `sbom` (see below). Easier than using `report_parameters`.    | `false`  | `standard`                                           |
 | `supplier`          | Organization name used as SBOM document creator and supplier. Required for `report_profile: sbom`; with another profile only valid together with `report_parameters`.                                                | `false`  | N/A                                                  |
-| `author_name`       | SBOM author name (FOSSA `authorName`). Defaults to `supplier` with `report_profile: sbom`. Needs `sbom` or `report_parameters`.                    | `false`  | `supplier` (under `sbom`)                            |
-| `author_email`      | SBOM author email (FOSSA `authorEmail`). Needs `sbom` or `report_parameters`.                                                                     | `false`  | N/A                                                  |
 | `report_parameters` | A JSON object of FOSSA report parameters for advanced customization. Overrides `report_profile` if provided (with `sbom`, merged over the SBOM defaults; a caller `dependencyInfoOptions` replaces the default list).                                     | `false`  | N/A                                                  |
 
 ## Output location
 
 The report is generated inside a container that only sees the workspace, `RUNNER_TEMP` and the runner's output-file directory. For an absolute `output_file` elsewhere, the action has the container write to a staging directory under `RUNNER_TEMP`, then (on the runner, after the container succeeds) creates the destination directory, copies the file to a temporary name there and renames it into place. The step fails if the report is missing or empty at the destination, so a green step means the file is there. The destination directory must be writable by the runner user. The staging copy is removed when the step ends.
+
+### Default output file
+
+| `format`         | Default `output_file`        |
+| ---------------- | ---------------------------- |
+| `TXT`            | `fossa-report.txt`           |
+| `CSV`            | `fossa-report.csv`           |
+| `HTML`           | `fossa-report.html`          |
+| `MD`             | `fossa-report.md`            |
+| `PDF`            | `fossa-report.pdf`           |
+| `SPDX`           | `fossa-report.spdx`          |
+| `SPDX_JSON`      | `fossa-report.spdx.json`     |
+| `SPDX3_JSON`     | `fossa-report.spdx3.json`    |
+| `CYCLONEDX_JSON` | `fossa-report.cdx.json`      |
+| `CYCLONEDX_XML`  | `fossa-report.cdx.xml`       |
+
+A `CSV` caller that omits `output_file` now gets `fossa-report.csv` instead of `fossa-report.txt`.
 
 ## Report Profiles
 
@@ -76,14 +91,12 @@ The default `report_profile` is `standard`. Set `full` explicitly to get this pr
 - Licence scan, declared and concluded licences, copyright list
 - Fields: Library, License, FullTextLicense, Copyrights
 
-Requires `supplier`, which names the organization as the document creator. Without it, FOSSA's SPDX creator is not the product organization, and under `standard` `licenseConcluded` is `NOASSERTION`. Use it for the SPDX formats. `author_name` defaults to `supplier`.
+Requires `supplier`, which names the organization as the document creator. Without it, FOSSA's SPDX creator is not the product organization, and under `standard` `licenseConcluded` is `NOASSERTION`. Use it for the SPDX formats. It is also recorded as the document author (`authorName`).
 
 The `format` input chooses the SPDX version and where the creator is recorded:
 - `SPDX_JSON`: SPDX 2.3 JSON, in `creationInfo.creators`.
 - `SPDX3_JSON`: SPDX 3.0.1 JSON, in `creationInfo.createdBy`.
 - `SPDX`: SPDX 2.3 tag-value, in the `Creator:` lines.
-
-`output_file` defaults to `fossa-report.txt` whatever the `format`, so set it explicitly for an SBOM (for example `sbom/product.spdx3.json`).
 
 Keys in `report_parameters` override the SBOM defaults, but a `supplier` key inside it does not replace the `supplier` input, which `sbom` always needs.
 
