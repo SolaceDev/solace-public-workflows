@@ -57,7 +57,12 @@ on:
         type: string
         default: ""
       vault_secrets:
-        description: "Multiline string of secrets to retrieve from Vault (format: secret/path KEY | ENV_VAR)"
+        description: "Multiline string of secrets to retrieve from Vault (format: secret/path KEY | ENV_VAR). With no secrets.vault.secret_path in the config file, map FOSSA_API_KEY here (and GUARDIAN_API_TOKEN to upload to Guardian)."
+        required: false
+        type: string
+        default: ""
+      vault_role:
+        description: "Vault JWT auth role. Overrides the config file's secrets.vault.role (a VAULT_ROLE secret still wins over both), so callers in one repository can log in as different roles, e.g. a pull-request identity for PR scans."
         required: false
         type: string
         default: ""
@@ -320,6 +325,7 @@ jobs:
           CONFIG_GUARDIAN_URL: ${{ steps.config_loader.outputs.guardian_url }}
           CONFIG_GUARDIAN_PR_SCAN_UPLOAD: ${{ steps.config_loader.outputs.guardian_pr_scan_upload }}
           LICENSING_MODE_OVERRIDE: ${{ inputs.fossa_licensing_mode }}
+          INPUT_VAULT_ROLE: ${{ inputs.vault_role }}
         run: |
           # Priority: the fossa_licensing_mode input > config file > defaults
           case "${LICENSING_MODE_OVERRIDE}" in
@@ -338,7 +344,19 @@ jobs:
             echo "📝 Using configuration from file: $CONFIG_FILE"
             echo "vault_url=${CONFIG_VAULT_URL}" >> $GITHUB_OUTPUT
             echo "vault_secret_path=${CONFIG_VAULT_SECRET_PATH}" >> $GITHUB_OUTPUT
-            echo "vault_role=${CONFIG_VAULT_ROLE}" >> $GITHUB_OUTPUT
+            echo "vault_role=${INPUT_VAULT_ROLE:-${CONFIG_VAULT_ROLE}}" >> $GITHUB_OUTPUT
+
+            # FOSSA and Guardian tokens from the one secret_path, when the config file names one.
+            # Without it (the loader then returns its /path/to/secret placeholder) the caller maps
+            # FOSSA_API_KEY and GUARDIAN_API_TOKEN itself, from wherever each token lives.
+            {
+              echo "vault_path_mappings<<EOF"
+              if [[ -n "${CONFIG_VAULT_SECRET_PATH}" && "${CONFIG_VAULT_SECRET_PATH}" != "/path/to/secret" ]]; then
+                echo "${CONFIG_VAULT_SECRET_PATH} FOSSA_FULL_API_TOKEN | FOSSA_API_KEY ;"
+                echo "${CONFIG_VAULT_SECRET_PATH} GUARDIAN_API_TOKEN | GUARDIAN_API_TOKEN ;"
+              fi
+              echo "EOF"
+            } >> $GITHUB_OUTPUT
 
             # Pass through vault_secret_mappings (multiline format with semicolons)
             {
@@ -361,7 +379,8 @@ jobs:
             echo "📝 Using default configuration"
             echo "vault_url=" >> $GITHUB_OUTPUT
             echo "vault_secret_path=" >> $GITHUB_OUTPUT
-            echo "vault_role=" >> $GITHUB_OUTPUT
+            echo "vault_role=${INPUT_VAULT_ROLE}" >> $GITHUB_OUTPUT
+            echo "vault_path_mappings=" >> $GITHUB_OUTPUT
             echo "vault_secret_mappings=" >> $GITHUB_OUTPUT
             echo "slack_channel=" >> $GITHUB_OUTPUT
             echo "fossa_licensing_mode=${LICENSING_MODE_OVERRIDE:-REPORT}" >> $GITHUB_OUTPUT
@@ -424,8 +443,7 @@ jobs:
           jwtGithubAudience: https://github.com/${{ github.repository_owner }}
           exportToken: true
           secrets: |
-            ${{ steps.config.outputs.vault_secret_path }} FOSSA_FULL_API_TOKEN | FOSSA_API_KEY ;
-            ${{ steps.config.outputs.vault_secret_path }} GUARDIAN_API_TOKEN | GUARDIAN_API_TOKEN ;
+            ${{ steps.config.outputs.vault_path_mappings }}
             ${{ inputs.vault_secrets != '' && inputs.vault_secrets || steps.config.outputs.vault_secret_mappings }}
 
       - name: Setup SCA Dependencies
