@@ -297,9 +297,9 @@ Alternatively, configure `secret_mappings` in your `workflow-config.json` to avo
 
 ### Secrets from any Vault path
 
-Each `vault_secrets` (or `secret_mappings`) line names its own path, so secrets can come from any number of paths. Every mapping becomes an environment variable for the setup and scan steps.
+Each `vault_secrets` line names its own path, so secrets can come from any number of paths. Every mapping becomes an environment variable for the setup and scan steps. `vault_secrets` replaces the config file's `secret_mappings` entirely; the two are not combined.
 
-The workflow itself reads two outputs by name: `FOSSA_API_KEY` and `GUARDIAN_API_TOKEN` (the latter only to upload to Guardian). With `secret_path` in the config file, both come from that one path (keys `FOSSA_FULL_API_TOKEN` and `GUARDIAN_API_TOKEN`). Without it, map them like any other secret. `vault_role` picks the role per caller, e.g. a repository's pull-request identity for PR scans:
+The workflow itself reads two outputs by name: `FOSSA_API_KEY` and `GUARDIAN_API_TOKEN` (the latter only to upload to Guardian). With `secret_path` in the config file, both come from that one path (keys `FOSSA_FULL_API_TOKEN` and `GUARDIAN_API_TOKEN`). Without it, map them like any other secret. Do not map them in both places: both lines reach Vault and the later mapping (`vault_secrets` / `secret_mappings`) silently wins. When `GUARDIAN_URL` is set and the scan uploads to Guardian, a missing `GUARDIAN_API_TOKEN` fails the run before the scan. `vault_role` picks the role per caller, e.g. a repository's pull-request identity for PR scans:
 
 ```yaml
 jobs:
