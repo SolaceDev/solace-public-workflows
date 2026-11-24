@@ -57,7 +57,12 @@ on:
         type: string
         default: ""
       vault_secrets:
-        description: "Multiline string of secrets to retrieve from Vault (format: secret/path KEY | ENV_VAR)"
+        description: "Multiline string of secrets to retrieve from Vault, each from its own path (format: secret/path KEY | ENV_VAR ;). Every mapping is exported as an environment variable for the setup and scan steps. The workflow reads two outputs by name, FOSSA_API_KEY and GUARDIAN_API_TOKEN: secrets.vault.secret_path in the config file supplies both, otherwise map them here like any other secret."
+        required: false
+        type: string
+        default: ""
+      vault_role:
+        description: "Vault JWT auth role. Overrides the config file's secrets.vault.role (a VAULT_ROLE secret still wins over both), so callers in one repository can log in as different roles."
         required: false
         type: string
         default: ""
@@ -320,6 +325,7 @@ jobs:
           CONFIG_GUARDIAN_URL: ${{ steps.config_loader.outputs.guardian_url }}
           CONFIG_GUARDIAN_PR_SCAN_UPLOAD: ${{ steps.config_loader.outputs.guardian_pr_scan_upload }}
           LICENSING_MODE_OVERRIDE: ${{ inputs.fossa_licensing_mode }}
+          INPUT_VAULT_ROLE: ${{ inputs.vault_role }}
         run: |
           # Priority: the fossa_licensing_mode input > config file > defaults
           case "${LICENSING_MODE_OVERRIDE}" in
@@ -338,7 +344,20 @@ jobs:
             echo "📝 Using configuration from file: $CONFIG_FILE"
             echo "vault_url=${CONFIG_VAULT_URL}" >> $GITHUB_OUTPUT
             echo "vault_secret_path=${CONFIG_VAULT_SECRET_PATH}" >> $GITHUB_OUTPUT
-            echo "vault_role=${CONFIG_VAULT_ROLE}" >> $GITHUB_OUTPUT
+            echo "vault_role=${INPUT_VAULT_ROLE:-${CONFIG_VAULT_ROLE}}" >> $GITHUB_OUTPUT
+
+            # The outputs the workflow reads by name (FOSSA_API_KEY, GUARDIAN_API_TOKEN) come from
+            # secret_path when the config file names one. Without it (the loader then returns its
+            # /path/to/secret placeholder) every secret, these included, comes from the caller's
+            # mappings, each from its own path.
+            {
+              echo "vault_path_mappings<<EOF"
+              if [[ -n "${CONFIG_VAULT_SECRET_PATH}" && "${CONFIG_VAULT_SECRET_PATH}" != "/path/to/secret" ]]; then
+                echo "${CONFIG_VAULT_SECRET_PATH} FOSSA_FULL_API_TOKEN | FOSSA_API_KEY ;"
+                echo "${CONFIG_VAULT_SECRET_PATH} GUARDIAN_API_TOKEN | GUARDIAN_API_TOKEN ;"
+              fi
+              echo "EOF"
+            } >> $GITHUB_OUTPUT
 
             # Pass through vault_secret_mappings (multiline format with semicolons)
             {
@@ -361,7 +380,8 @@ jobs:
             echo "📝 Using default configuration"
             echo "vault_url=" >> $GITHUB_OUTPUT
             echo "vault_secret_path=" >> $GITHUB_OUTPUT
-            echo "vault_role=" >> $GITHUB_OUTPUT
+            echo "vault_role=${INPUT_VAULT_ROLE}" >> $GITHUB_OUTPUT
+            echo "vault_path_mappings=" >> $GITHUB_OUTPUT
             echo "vault_secret_mappings=" >> $GITHUB_OUTPUT
             echo "slack_channel=" >> $GITHUB_OUTPUT
             echo "fossa_licensing_mode=${LICENSING_MODE_OVERRIDE:-REPORT}" >> $GITHUB_OUTPUT
@@ -424,8 +444,7 @@ jobs:
           jwtGithubAudience: https://github.com/${{ github.repository_owner }}
           exportToken: true
           secrets: |
-            ${{ steps.config.outputs.vault_secret_path }} FOSSA_FULL_API_TOKEN | FOSSA_API_KEY ;
-            ${{ steps.config.outputs.vault_secret_path }} GUARDIAN_API_TOKEN | GUARDIAN_API_TOKEN ;
+            ${{ steps.config.outputs.vault_path_mappings }}
             ${{ inputs.vault_secrets != '' && inputs.vault_secrets || steps.config.outputs.vault_secret_mappings }}
 
       - name: Setup SCA Dependencies
@@ -453,19 +472,27 @@ jobs:
           USE_VAULT: ${{ inputs.use_vault }}
           VAULT_FOSSA_KEY: ${{ steps.vault_secrets.outputs.FOSSA_API_KEY }}
           SECRET_FOSSA_KEY: ${{ secrets.FOSSA_API_KEY }}
+          VAULT_URL: ${{ secrets.VAULT_URL != '' && secrets.VAULT_URL || steps.config.outputs.vault_url }}
+          VAULT_ROLE: ${{ secrets.VAULT_ROLE != '' && secrets.VAULT_ROLE || steps.config.outputs.vault_role }}
+          VAULT_PATH_MAPPINGS: ${{ steps.config.outputs.vault_path_mappings }}
         run: |
           if [[ "$USE_VAULT" == "true" ]]; then
             # Vault mode - key from Vault
             if [[ -z "$VAULT_FOSSA_KEY" ]]; then
               echo "❌ Error: FOSSA_API_KEY not retrieved from Vault"
-              echo "Vault URL: ${{ steps.config.outputs.vault_url }}"
-              echo "Secret Path: ${{ steps.config.outputs.vault_secret_path }}"
+              echo "Vault URL: ${VAULT_URL}"
+              echo "Vault role: ${VAULT_ROLE}"
               echo ""
               echo "Troubleshooting:"
               echo "1. Verify Vault URL is accessible"
-              echo "2. Check JWT authentication role: ${{ secrets.VAULT_ROLE || 'cicd-workflows-secret-read-role' }}"
-              echo "3. Verify secret exists at path: ${{ steps.config.outputs.vault_secret_path }}"
-              echo "4. Ensure secret has key: FOSSA_FULL_API_TOKEN"
+              echo "2. Check the role can log in and read the secret that maps to FOSSA_API_KEY"
+              if [[ -n "${VAULT_PATH_MAPPINGS}" ]]; then
+                echo "3. FOSSA_API_KEY comes from secrets.vault.secret_path:"
+                echo "${VAULT_PATH_MAPPINGS}" | grep FOSSA_API_KEY
+              else
+                echo "3. No secrets.vault.secret_path is set, so map FOSSA_API_KEY in vault_secrets"
+                echo "   (or secret_mappings), e.g. secret/data/<path> <KEY> | FOSSA_API_KEY"
+              fi
               exit 1
             fi
             echo "FOSSA_KEY=${VAULT_FOSSA_KEY}" >> $GITHUB_OUTPUT
@@ -484,12 +511,18 @@ jobs:
       - name: Resolve Guardian credentials
         id: guardian_key
         shell: bash
+        env:
+          GUARDIAN_URL: ${{ inputs.guardian_url != '' && inputs.guardian_url || steps.config.outputs.guardian_url }}
+          USE_VAULT: ${{ inputs.use_vault }}
+          VAULT_GUARDIAN_TOKEN: ${{ steps.vault_secrets.outputs.GUARDIAN_API_TOKEN }}
+          SECRET_GUARDIAN_TOKEN: ${{ secrets.GUARDIAN_API_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_SCAN_UPLOAD: ${{ steps.config.outputs.guardian_pr_scan_upload }}
         run: |
-          GUARDIAN_URL="${{ inputs.guardian_url != '' && inputs.guardian_url || steps.config.outputs.guardian_url }}"
-          if [ "${{ inputs.use_vault }}" == "true" ]; then
-            GUARDIAN_TOKEN="${{ steps.vault_secrets.outputs.GUARDIAN_API_TOKEN }}"
+          if [ "$USE_VAULT" == "true" ]; then
+            GUARDIAN_TOKEN="$VAULT_GUARDIAN_TOKEN"
           else
-            GUARDIAN_TOKEN="${{ secrets.GUARDIAN_API_TOKEN }}"
+            GUARDIAN_TOKEN="$SECRET_GUARDIAN_TOKEN"
           fi
 
           # Mask both values so they never appear in logs
@@ -501,7 +534,19 @@ jobs:
           fi
 
           if [ -n "$GUARDIAN_URL" ] && [ -z "$GUARDIAN_TOKEN" ]; then
-            echo "⚠ Warning: GUARDIAN_URL is set but GUARDIAN_TOKEN is empty. Upload may fail."
+            # Same condition as the Guardian upload in fossa-scan: fail here, with a clear message,
+            # rather than at the upload. A PR scan that does not upload only warns.
+            if [ "$EVENT_NAME" != "pull_request" ] || [ "$PR_SCAN_UPLOAD" == "true" ]; then
+              echo "❌ Error: GUARDIAN_URL is set but the Guardian token is empty, so the upload would fail"
+              if [ "$USE_VAULT" == "true" ]; then
+                echo "Set secrets.vault.secret_path in the config file, or map GUARDIAN_API_TOKEN in"
+                echo "vault_secrets (or secret_mappings), e.g. secret/data/<path> <KEY> | GUARDIAN_API_TOKEN"
+              else
+                echo "Provide GUARDIAN_API_TOKEN as a secret to the workflow"
+              fi
+              exit 1
+            fi
+            echo "⚠ Warning: GUARDIAN_URL is set but GUARDIAN_TOKEN is empty. This PR scan does not upload to Guardian."
           fi
 
           echo "GUARDIAN_URL=$GUARDIAN_URL" >> "$GITHUB_OUTPUT"
