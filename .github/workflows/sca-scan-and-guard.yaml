@@ -57,12 +57,12 @@ on:
         type: string
         default: ""
       vault_secrets:
-        description: "Multiline string of secrets to retrieve from Vault (format: secret/path KEY | ENV_VAR). With no secrets.vault.secret_path in the config file, map FOSSA_API_KEY here (and GUARDIAN_API_TOKEN to upload to Guardian)."
+        description: "Multiline string of secrets to retrieve from Vault, each from its own path (format: secret/path KEY | ENV_VAR ;). Every mapping is exported as an environment variable for the setup and scan steps. The workflow reads two outputs by name, FOSSA_API_KEY and GUARDIAN_API_TOKEN: secrets.vault.secret_path in the config file supplies both, otherwise map them here like any other secret."
         required: false
         type: string
         default: ""
       vault_role:
-        description: "Vault JWT auth role. Overrides the config file's secrets.vault.role (a VAULT_ROLE secret still wins over both), so callers in one repository can log in as different roles, e.g. a pull-request identity for PR scans."
+        description: "Vault JWT auth role. Overrides the config file's secrets.vault.role (a VAULT_ROLE secret still wins over both), so callers in one repository can log in as different roles."
         required: false
         type: string
         default: ""
@@ -346,9 +346,10 @@ jobs:
             echo "vault_secret_path=${CONFIG_VAULT_SECRET_PATH}" >> $GITHUB_OUTPUT
             echo "vault_role=${INPUT_VAULT_ROLE:-${CONFIG_VAULT_ROLE}}" >> $GITHUB_OUTPUT
 
-            # FOSSA and Guardian tokens from the one secret_path, when the config file names one.
-            # Without it (the loader then returns its /path/to/secret placeholder) the caller maps
-            # FOSSA_API_KEY and GUARDIAN_API_TOKEN itself, from wherever each token lives.
+            # The outputs the workflow reads by name (FOSSA_API_KEY, GUARDIAN_API_TOKEN) come from
+            # secret_path when the config file names one. Without it (the loader then returns its
+            # /path/to/secret placeholder) every secret, these included, comes from the caller's
+            # mappings, each from its own path.
             {
               echo "vault_path_mappings<<EOF"
               if [[ -n "${CONFIG_VAULT_SECRET_PATH}" && "${CONFIG_VAULT_SECRET_PATH}" != "/path/to/secret" ]]; then
@@ -471,19 +472,27 @@ jobs:
           USE_VAULT: ${{ inputs.use_vault }}
           VAULT_FOSSA_KEY: ${{ steps.vault_secrets.outputs.FOSSA_API_KEY }}
           SECRET_FOSSA_KEY: ${{ secrets.FOSSA_API_KEY }}
+          VAULT_URL: ${{ secrets.VAULT_URL != '' && secrets.VAULT_URL || steps.config.outputs.vault_url }}
+          VAULT_ROLE: ${{ secrets.VAULT_ROLE != '' && secrets.VAULT_ROLE || steps.config.outputs.vault_role }}
+          VAULT_PATH_MAPPINGS: ${{ steps.config.outputs.vault_path_mappings }}
         run: |
           if [[ "$USE_VAULT" == "true" ]]; then
             # Vault mode - key from Vault
             if [[ -z "$VAULT_FOSSA_KEY" ]]; then
               echo "❌ Error: FOSSA_API_KEY not retrieved from Vault"
-              echo "Vault URL: ${{ steps.config.outputs.vault_url }}"
-              echo "Secret Path: ${{ steps.config.outputs.vault_secret_path }}"
+              echo "Vault URL: ${VAULT_URL}"
+              echo "Vault role: ${VAULT_ROLE}"
               echo ""
               echo "Troubleshooting:"
               echo "1. Verify Vault URL is accessible"
-              echo "2. Check JWT authentication role: ${{ secrets.VAULT_ROLE || 'cicd-workflows-secret-read-role' }}"
-              echo "3. Verify secret exists at path: ${{ steps.config.outputs.vault_secret_path }}"
-              echo "4. Ensure secret has key: FOSSA_FULL_API_TOKEN"
+              echo "2. Check the role can log in and read the secret that maps to FOSSA_API_KEY"
+              if [[ -n "${VAULT_PATH_MAPPINGS}" ]]; then
+                echo "3. FOSSA_API_KEY comes from secrets.vault.secret_path:"
+                echo "${VAULT_PATH_MAPPINGS}" | grep FOSSA_API_KEY
+              else
+                echo "3. No secrets.vault.secret_path is set, so map FOSSA_API_KEY in vault_secrets"
+                echo "   (or secret_mappings), e.g. secret/data/<path> <KEY> | FOSSA_API_KEY"
+              fi
               exit 1
             fi
             echo "FOSSA_KEY=${VAULT_FOSSA_KEY}" >> $GITHUB_OUTPUT

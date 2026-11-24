@@ -108,7 +108,7 @@ These inputs configure the build environment before FOSSA runs. See [SCA Setup D
 | Input | Required | Default | Description |
 |-------|----------|---------|-------------|
 | `setup_actions` | No | `'["setup-java", "maven-settings"]'` | JSON array of setup steps to run |
-| `vault_secrets` | No | (empty) | Multiline Vault secret mappings (`secret/path KEY \| ENV_VAR`). Without a `secret_path` in the config file, map `FOSSA_API_KEY` (and `GUARDIAN_API_TOKEN`) here; see [Tokens in separate Vault paths](#tokens-in-separate-vault-paths). |
+| `vault_secrets` | No | (empty) | Multiline Vault secret mappings (`secret/path KEY \| ENV_VAR`), each from its own path, exported as environment variables. See [Secrets from any Vault path](#secrets-from-any-vault-path). |
 | `vault_role` | No | (empty) | Vault JWT auth role. Overrides the config file's `secrets.vault.role`; a `VAULT_ROLE` secret still wins over both. |
 | `custom_setup_script` | No | (empty) | Bash script for build/install commands (e.g. `mvn clean install -DskipTests`, `npm ci`, `pip install -r requirements.txt`, `dotnet restore`) |
 | `java_version` | No | `"17"` | Java version |
@@ -295,9 +295,11 @@ jobs:
 
 Alternatively, configure `secret_mappings` in your `workflow-config.json` to avoid passing `vault_secrets` each time. See [SCA Setup Dependencies](../../../sca-setup-deps/README.md#vault-secret-mappings) for details.
 
-### Tokens in separate Vault paths
+### Secrets from any Vault path
 
-With `secret_path` set, the workflow reads `FOSSA_FULL_API_TOKEN` and `GUARDIAN_API_TOKEN` from that one path. Where each token is its own secret, leave `secret_path` out of the config file and map both in `vault_secrets` (or `secret_mappings`), to `FOSSA_API_KEY` and `GUARDIAN_API_TOKEN`. `vault_role` picks the role per caller, e.g. a repository's pull-request identity for PR scans:
+Each `vault_secrets` (or `secret_mappings`) line names its own path, so secrets can come from any number of paths. Every mapping becomes an environment variable for the setup and scan steps.
+
+The workflow itself reads two outputs by name: `FOSSA_API_KEY` and `GUARDIAN_API_TOKEN` (the latter only to upload to Guardian). With `secret_path` in the config file, both come from that one path (keys `FOSSA_FULL_API_TOKEN` and `GUARDIAN_API_TOKEN`). Without it, map them like any other secret. `vault_role` picks the role per caller, e.g. a repository's pull-request identity for PR scans:
 
 ```yaml
 jobs:
@@ -308,7 +310,9 @@ jobs:
       vault_role: solacedev-my-repo-pr
       vault_secrets: |
         secret/data/fossa/solace/api-token/full-api FOSSA_FULL_API_TOKEN | FOSSA_API_KEY ;
-        secret/data/guardian/solacedev-ca/api-token/ci GUARDIAN_API_TOKEN | GUARDIAN_API_TOKEN
+        secret/data/guardian/solacedev-ca/api-token/ci GUARDIAN_API_TOKEN | GUARDIAN_API_TOKEN ;
+        secret/data/github/solacedev/personal-access-token/re-bot-packages-read GITHUB_USER | MAVEN_USER ;
+        secret/data/github/solacedev/personal-access-token/re-bot-packages-read GITHUB_TOKEN | MAVEN_TOKEN
 ```
 
 ## Scan Contexts
