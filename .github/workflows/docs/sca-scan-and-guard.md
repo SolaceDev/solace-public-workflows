@@ -307,12 +307,12 @@ jobs:
     uses: SolaceDev/solace-public-workflows/.github/workflows/sca-scan-and-guard.yaml@main
     with:
       use_vault: true
-      vault_role: solacedev-my-repo-pr
+      vault_role: my-repo-pr-role
       vault_secrets: |
-        secret/data/fossa/solace/api-token/full-api FOSSA_FULL_API_TOKEN | FOSSA_API_KEY ;
-        secret/data/guardian/solacedev-ca/api-token/ci GUARDIAN_API_TOKEN | GUARDIAN_API_TOKEN ;
-        secret/data/github/solacedev/personal-access-token/re-bot-packages-read GITHUB_USER | MAVEN_USER ;
-        secret/data/github/solacedev/personal-access-token/re-bot-packages-read GITHUB_TOKEN | MAVEN_TOKEN
+        secret/data/fossa API_TOKEN | FOSSA_API_KEY ;
+        secret/data/guardian API_TOKEN | GUARDIAN_API_TOKEN ;
+        secret/data/nexus USERNAME | NEXUS_USERNAME ;
+        secret/data/nexus PASSWORD | NEXUS_PASSWORD
 ```
 
 ## Scan Contexts
